@@ -154,7 +154,17 @@ void main() {
 	int winding_number = 0;
 	for (int i = 0; i < curves.data.length(); i += 1) {
 		Implicit_Curve curve = curves.data[i];
-		winding_number += curve_eval(curve, px);
+
+		if ((px.y > curve.bmin.y) && px.y < curve.bmax.y) {
+			int count = curve_eval(curve, px);
+
+			if (count < 0) {
+				int increment = going_up(curve) ? 1 : -1;
+				winding_number += increment;
+			}
+
+			// winding_number += curve_eval(curve, px);
+		}
 	}
 
 	vec4 color = vec4(1, 1, 1, 1);

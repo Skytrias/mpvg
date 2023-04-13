@@ -82,6 +82,7 @@ path_triangle :: proc(path: ^Path, x, y, r: f32) {
 	path_line_to(path, x - r/2, y + r/2)
 	path_line_to(path, x + r/2, y + r/2)
 	path_close(path)
+	
 	path_print(path)
 }
 
