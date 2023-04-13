@@ -40,9 +40,9 @@ float ccw(vec2 p, vec2 a, vec2 b) {
 	return d00 * d11 - d01 * d10;
 }
 
-bool going_right(Implicit_Curve curve) { 
-	return curve.orientation == C_TR || curve.orientation == C_BR;
-}
+// bool going_right(Implicit_Curve curve) { 
+// 	return curve.orientation == C_TR || curve.orientation == C_BR;
+// }
 
 bool going_up(Implicit_Curve curve) { 
 	return curve.orientation == C_TL || curve.orientation == C_TR;

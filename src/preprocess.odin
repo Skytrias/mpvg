@@ -69,14 +69,12 @@ c3_preprocess1 :: proc(
 	}
 }
 
-import "core:fmt"
 c1_split :: proc(output: ^[dynamic]Implicit_Curve, curve: Curve, roots: ^Roots) {
 	assert(curve.count == 0)
 	last_root: f32
 
 	for i := 0; i < MAX_ROOTS && roots[i] < max(f32); i += 1 {
 		root := roots[i]
-		// append(output, c1_implicitize(c1_subcurve(curve, last_root, root), last_root, root))
 		append(output, c1_implicitize(c1_subcurve(curve, last_root, root), last_root, root))
 		last_root = root
 	}
@@ -155,6 +153,7 @@ Process_Call :: #type proc(
 	offset: [2]f32,
 )
 
+// LUT for process calls
 process := [3]Process_Call {
 	c1_process,
 	c2_process,

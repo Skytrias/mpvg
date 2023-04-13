@@ -4,12 +4,15 @@ import "core:math"
 import "core:math/linalg"
 import glm "core:math/linalg/glsl"
 
-// TYPE1
-
 c1_implicitize :: proc(using curve: Curve, t0, t1: f32) -> (res: Implicit_Curve) {
 	res.kind = .LINE
 	res.box = curve_get_xy_mono_box(curve)
-	res.orientation = orientation_get(B[0].x < B[1].x, B[0].y < B[1].y)
+
+	goes_right := B[0].x < B[1].x
+	goes_up := B[0].y < B[1].y
+
+	// res.orientation = orientation_get(B[0].x < B[1].x, B[0].y < B[1].y) OLD
+	res.orientation = goes_up == goes_right ? .BR : .TR
 	return
 }
 
