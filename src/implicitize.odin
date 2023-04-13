@@ -10,16 +10,6 @@ c1_implicitize :: proc(using curve: Curve, t0, t1: f32) -> (res: Implicit_Curve)
 	res.kind = .LINE
 	res.box = curve_get_xy_mono_box(curve)
 	res.orientation = orientation_get(B[0].x < B[1].x, B[0].y < B[1].y)
-
-	// always true!!!
-	res.geom_to_left = true
-
-	// TODO check if the same
-	// going_up(res) != geom_to_left(res)
-	if res.orientation != .TL {
-		res.out_is_left = true
-	}
-
 	return
 }
 
@@ -57,9 +47,9 @@ c2_implicitize :: proc(using curve: Curve, t0, t1: f32) -> (res: Implicit_Curve)
 	c := B[1]
 	e := B[2]
 
-	if ccw(c, b, e) < 0 {
-		res.geom_to_left = true
-	}
+	// if ccw(c, b, e) < 0 {
+	// 	res.geom_to_left = true
+	// }
 
 	if res.orientation == .TL {
 		res.negative = true
@@ -517,13 +507,13 @@ c3_implicitize :: proc(
 	res.base = ctx.base
 	res.E = c3_cubic_find_end(curve)
 
-	if ccw(res.E, B[0], B[3]) < 0 {
-		res.geom_to_left = true
-	}
+	// if ccw(res.E, B[0], B[3]) < 0 {
+	// 	res.geom_to_left = true
+	// }
 
-	if res.orientation != .TL {
-		res.out_is_left = true
-	}
+	// if res.orientation != .TL {
+	// 	res.out_is_left = true
+	// }
 
 	// find the sign
 	if ctx.cubic_type == .LOOP {

@@ -69,14 +69,16 @@ c3_preprocess1 :: proc(
 	}
 }
 
+import "core:fmt"
 c1_split :: proc(output: ^[dynamic]Implicit_Curve, curve: Curve, roots: ^Roots) {
 	assert(curve.count == 0)
 	last_root: f32
 
 	for i := 0; i < MAX_ROOTS && roots[i] < max(f32); i += 1 {
-		current := roots[i]
-		append(output, c1_implicitize(c1_subcurve(curve, last_root, current), last_root, current))
-		last_root = current
+		root := roots[i]
+		// append(output, c1_implicitize(c1_subcurve(curve, last_root, root), last_root, root))
+		append(output, c1_implicitize(c1_subcurve(curve, last_root, root), last_root, root))
+		last_root = root
 	}
 }
 
@@ -97,9 +99,9 @@ c2_split :: proc(output: ^[dynamic]Implicit_Curve, curve: Curve, roots: ^Roots) 
 	last_root: f32
 
 	for i := 0; i < MAX_ROOTS && roots[i] < max(f32); i += 1 {
-		current := roots[i]
-		append(output, c2_implicitize(c2_subcurve(curve, last_root, current), last_root, current))
-		last_root = current
+		root := roots[i]
+		append(output, c2_implicitize(c2_subcurve(curve, last_root, root), last_root, root))
+		last_root = root
 	}
 }
 
@@ -120,9 +122,9 @@ c3_split :: proc(output: ^[dynamic]Implicit_Curve, curve: Curve, roots: ^Roots, 
 	last_root: f32
 
 	for i := 0; i < MAX_ROOTS && roots[i] < max(f32); i += 1 {
-		current := roots[i]
-		append(output, c3_implicitize(c3_subcurve(curve, last_root, current), last_root, current, ctx))
-		last_root = current
+		root := roots[i]
+		append(output, c3_implicitize(c3_subcurve(curve, last_root, root), last_root, root, ctx))
+		last_root = root
 	}
 }
 

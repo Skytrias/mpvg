@@ -188,6 +188,7 @@ c3_calc_roots :: proc(using curve: Curve, roots: ^Roots) -> (nroots: int) {
 	return
 }
 
+import "core:fmt"
 curve_get_xy_mono_box :: proc(curve: Curve) -> (res: Box) {
 	first := curve.B[0]
 	last := curve.B[curve.count + 1]

@@ -15,8 +15,7 @@ layout(rgba8, binding = 0) uniform image2D img_output;
 #define C_TR 3
 
 struct Implicit_Curve {
-	vec2 bmin;
-	vec2 bmax;
+	vec4 box;
 	
 	mat4 M;
 
@@ -26,12 +25,7 @@ struct Implicit_Curve {
 	int kind;
 	int orientation;
 	bool negative;
-	bool geom_to_left;
-
-	bool out_is_left;
-	int pad1;
-	int pad2;
-	int pad3;
+	int padding;
 };
 
 layout(std140, binding = 0) buffer Curves {
@@ -56,49 +50,49 @@ bool going_up(Implicit_Curve curve) {
 
 int curve_eval(Implicit_Curve curve, vec2 pt) {
 	int side = 0;
-	if (pt.y > curve.bmax.y || pt.y <= curve.bmin.y) {
-		if (pt.x > curve.bmin.x && pt.x <= curve.bmax.x) {
-			if (pt.y > curve.bmax.y) {
+	if (pt.y > curve.box.w || pt.y <= curve.box.y) {
+		if (pt.x > curve.box.x && pt.x <= curve.box.z) {
+			if (pt.y > curve.box.w) {
 				side = (curve.orientation == C_TL || curve.orientation == C_BR) ? -1 : 1;
 			}	else {
 				side = (curve.orientation == C_TL || curve.orientation == C_BR) ? 1 : -1;
 			}
 		}
-	} else if(pt.x > curve.bmax.x) {
+	} else if(pt.x > curve.box.z) {
 		side = 1;
-	} else if(pt.x <= curve.bmin.x) {
+	} else if(pt.x <= curve.box.x) {
 		side = -1;
 	} else {
 		vec2 a, b, c;
 
 		switch (curve.kind) {
 		case C_TL: 
-			a = curve.bmin;
-			b = curve.bmax;
+			a = curve.box.xy;
+			b = curve.box.zw;
 			break;
 
 		case C_BR:
-			a = curve.bmax;
-			b = curve.bmin;
+			a = curve.box.zw;
+			b = curve.box.xy;
 			break;
 
 		case C_TR:
-			a = vec2(curve.bmin.x, curve.bmax.y);
-			b = vec2(curve.bmax.x, curve.bmin.y);
+			a = curve.box.xw;
+			b = curve.box.zy;
 			break;
 
 		case C_BL:
-			a = vec2(curve.bmax.x, curve.bmin.y);
-			b = vec2(curve.bmin.x, curve.bmax.y);
+			a = curve.box.zy;
+			b = curve.box.xw;
 			break;
 		}
 
 		c = curve.E;
 
-		if (ccw(a, b, pt) < 0) {
+		if (ccw(pt, a, b) < 0) {
 			// other side of the diagonal
 			side = (curve.orientation == C_BR || curve.orientation == C_TR) ? -1 : 1;
-		}	else if(ccw(b, c, pt) < 0 || ccw(c, a, pt) < 0) {
+		}	else if(ccw(pt, b, c) < 0 || ccw(pt, c, a) < 0) {
 			// same side of the diagonal, but outside curve hull
 			side = (curve.orientation == C_BL || curve.orientation == C_TL) ? -1 : 1;
 		}	else {
@@ -155,15 +149,13 @@ void main() {
 	for (int i = 0; i < curves.data.length(); i += 1) {
 		Implicit_Curve curve = curves.data[i];
 
-		if ((px.y > curve.bmin.y) && px.y < curve.bmax.y) {
+		if (px.y > curve.box.y && px.y < curve.box.w) {
 			int count = curve_eval(curve, px);
 
 			if (count < 0) {
 				int increment = going_up(curve) ? 1 : -1;
 				winding_number += increment;
 			}
-
-			// winding_number += curve_eval(curve, px);
 		}
 	}
 
@@ -175,6 +167,6 @@ void main() {
 	// if (intersects(RULE_ZERO, winding_number)) {
 		color = vec4(1, 0, 0, 1);
 	}
-	
+
 	imageStore(img_output, pixel_coords, color);
 }

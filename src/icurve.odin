@@ -24,7 +24,7 @@ orientation_get :: proc(right, up: bool) -> Implicit_Curve_Orientation {
 	}
 }
 
-Implicit_Curve :: struct #align 16 {
+Implicit_Curve :: struct {
 	box: Box,
 	
 	M: glm.mat4,
@@ -35,12 +35,7 @@ Implicit_Curve :: struct #align 16 {
 	kind: Implicit_Curve_Kind, 
 	orientation: Implicit_Curve_Orientation,
 	negative: b32,
-	geom_to_left: b32,
-	
-	out_is_left: b32,
-	pad1: i32,
-	pad2: i32,
-	pad3: i32,
+	padding: i32,
 }
 
 Box :: struct #packed {

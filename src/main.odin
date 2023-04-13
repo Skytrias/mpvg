@@ -82,6 +82,11 @@ path_triangle :: proc(path: ^Path, x, y, r: f32) {
 	path_line_to(path, x - r/2, y + r/2)
 	path_line_to(path, x + r/2, y + r/2)
 	path_close(path)
+
+	// path_move_to(path, x - r/2, y + r/2)
+	// path_line_to(path, x + r/2, y + r/2)
+	// path_line_to(path, x, y - r/2)
+	// path_close(path)
 	
 	path_print(path)
 }
@@ -206,13 +211,20 @@ main :: proc() {
 
 			clear(&curves)
 			path := path_make(&curves)
-			path_rect(&path, mouse.x, mouse.y, 200, 100)
-			// path_triangle(&path, mouse.x, mouse.y, 50)
+			// path_rect(&path, mouse.x,	 mouse.y, 200, 100)
+			// path_triangle(&path, mouse.x, mouse.y, 100)
 			// path_circle(&path, mouse.x + 50, mouse.y + 50, 50)
+
+			path_move_to(&path, 0, 0)
+			path_line_to(&path, 100, 100)
+			// path_line_to(&path, 75, 150)
+			path_line_to(&path, 150, 75)
+			path_line_to(&path, 200, 50)
+			path_close(&path)
 
 			clear(&output)
 			scale := [2]f32 { 1, 1 }
-			offset := [2]f32 { 0, 0 }
+			offset := [2]f32 { 50, 50 }
 			curves_preprocess(&output, curves[:], scale, offset)
 
 			fmt.eprintln("~~~~~~~~~~~~~~~", len(output))
