@@ -3,64 +3,12 @@
 layout(local_size_x = 1, local_size_y = 1) in;
 layout(rgba8, binding = 0) uniform image2D img_output;
 
-// vec4 linear_solve(float a, float b) {
-// 	vec4 result;
-	
-// 	if (a == 0) {
-// 		if (b == 0) {
-// 			result.x = 1;
-// 		} 
-// 	} else {
-// 		result.x = 1;
-// 		result.y = -b / a;
-// 	}
-
-// 	return result;
-// }
-
-// vec4 quadratic_solve(float a, float b, float c, float delta, int e) {
-//   if (a == 0) {
-// 		return linear_solve(b,c);
-//   }
-
-// 	vec4 r;
-// 	if (delta < 0) {
-// 		return r;
-// 	}
-
-// 	if (b > 0.0) {
-// 		b /= 2.0;
-
-// 		float q = b+sqrt(delta);
-// 		r[0] = 2;
-// 		r[1] = -c/q;
-// 		r[2] = -q/a;
-// 	} else if (b < 0.0) {
-// 		b /= 2.0;
-
-// 		float q = -b+sqrt(delta);
-// 		r[0] = 2;
-// 		r[1] = q/a;
-// 		r[2] = c/q;
-// 	} else {
-// 		float q = sqrt(-a*c);
-// 		r[0] = 2;
-// 		if (abs(a) >= abs(c)) {
-// 			r[1] = q/a;
-// 			r[2] = -q/a;
-// 		} else {
-// 			r[1] = -c/q;
-// 			r[2] = c/q;
-// 		}
-// 	}
-
-// 	return r;
-// }
-
+// kind of curve
 #define C_LINE 0
 #define C_QUADRATIC 1
 #define C_CUBIC 2
 
+// orientation of curve
 #define C_BL 0
 #define C_BR 1
 #define C_TL 2
@@ -90,33 +38,6 @@ layout(std140, binding = 0) buffer Curves {
 	Implicit_Curve data[];
 } curves;
 
-#define C_GOING_UP uint(1)
-#define C_GOING_RIGHT uint(2)
-#define C_GEOM_TO_LEFT uint(4)
-#define C_WHICH_CORNER uint(8)
-#define C_OUT_IS_LEFT uint(16)
-#define C_NEGATIVE uint(32)
-
-// int box_hit(vec2 bmin, vec2 bmax, vec2 ray) {
-// 	if (ray.x < bmin.y) {
-// 		return 0;
-// 	}
-
-// 	if (ray.y >= bmax.y) {
-// 		return 0;
-// 	}
-
-// 	if (ray.x >= bmax.x) {
-// 		return 0;
-// 	}
-
-// 	if (ray.x < bmin.x) {
-// 		return 1;
-// 	}
-
-// 	return -1;
-// }
-
 float ccw(vec2 p, vec2 a, vec2 b) {
 	float d00 = p.x - a.x;
 	float d01 = p.y - a.y;
@@ -132,236 +53,6 @@ bool going_right(Implicit_Curve curve) {
 bool going_up(Implicit_Curve curve) { 
 	return curve.orientation == C_TL || curve.orientation == C_TR;
 }
-
-// vec2 begpoint(Implicit_Curve curve) {
-// 	return vec2(
-// 		going_right(curve) ? curve.bmin.x : curve.bmax.x,
-// 		going_up(curve) ? curve.bmin.y : curve.bmax.y
-// 	);
-// }
-
-// vec2 endpoint(Implicit_Curve curve) {
-// 	return vec2(
-// 		going_right(curve) ? curve.bmax.x : curve.bmin.x,
-// 		going_up(curve) ? curve.bmax.y : curve.bmin.y
-// 	);
-// }
-
-// float ic1_eval(Implicit_Curve curve, vec2 pt) {
-// 	vec2 b = begpoint(curve);
-// 	vec2 e = endpoint(curve);
-
-// 	float A = e.y - b.y;
-// 	float B = b.x - e.x;
-// 	float C = -b.y*B - b.x*A;
-// 	float u = A*pt.x + B*pt.y + C;
-
-// 	// If b.y < e.y then the ccw-left is the global left and we are OK.
-// 	// Otherwise, we need to change the sign of the function
-// 	if (A > 0) {
-// 		return u;
-// 	}	else {
-// 		return -u;
-// 	}
-// }
-
-// int ic1_hit_chull(Implicit_Curve curve, vec2 pt) {
-// 	return -1;
-// }
-
-// int ic1_hit(Implicit_Curve curve, vec2 pt) {
-// 	int check = box_hit(curve.bmin, curve.bmax, pt);
-	
-// 	if (check == 0) {
-// 		return 0;
-// 	}
-
-// 	if (check == 1 || ic1_eval(curve, pt) < 0) { // < 0 ? hit
-// 		return going_up(curve) ? 1 : -1;
-// 	}
-
-// 	return 0;
-// }
-
-// float ic2_eval(Implicit_Curve curve, vec2 pt, vec2 b, vec2 e) {
-// 	vec2 p = pt - b;
-
-// 	float u = curve.M[0][0]*p.x + curve.M[0][1]*p.y;
-// 	float v = curve.M[1][0]*p.x + curve.M[1][1]*p.y;
-
-// 	float f = u*u - v;
-// 	if (curve.negative) {
-// 		return -f;
-// 	} else {
-// 		return f;
-// 	}
-// }
-
-// float ic2_eval_simple(Implicit_Curve curve, vec2 pt) {
-// 	return ic2_eval(curve, pt, begpoint(curve), endpoint(curve));
-// }
-
-// int ic2_hit_chull(Implicit_Curve curve, vec2 pt, vec2 b, vec2 e) {
-// 	bool sample_to_the_left = ccw(pt, b, e) < 0;
-
-// 	if (sample_to_the_left == curve.geom_to_left) {
-// 		return -1;
-// 	}
-
-// 	// sample is on the opposite side of geometry
-// 	if (curve.out_is_left) {
-// 		return 1;
-// 	}	else {
-// 		return 0;
-// 	}
-// }
-
-// int ic2_hit_chull_simple(Implicit_Curve curve, vec2 pt) {
-// 	return ic2_hit_chull(curve, pt, begpoint(curve), endpoint(curve));
-// }
-
-// int ic2_hit(Implicit_Curve curve, vec2 pt) {
-// 	int check = box_hit(curve.bmin, curve.bmax, pt);
-	
-// 	if (check == 0) {
-// 		return 0; //above, bellow or to the right
-// 	}	else if (check == 1) { // to the left
-// 		return going_up(curve) ? 1 : -1;
-// 	} else {
-// 		vec2 b = begpoint(curve); 
-// 		vec2 e = endpoint(curve);
-// 		check = ic2_hit_chull(curve, pt, b, e);
-// 		if (check == 0) {
-// 			return 0;
-// 		} else if(check == 1) {
-// 			return going_up(curve) ? 1 : -1;
-// 		}	else {
-// 			if(ic2_eval(curve, pt, b, e) < 0) {
-// 				return going_up(curve) ? 1 : -1;
-// 			}
-// 		}
-// 	}
-// 	return 0;
-// }
-
-// float ic3_eval(Implicit_Curve curve, vec2 pt) {
-// 	vec2 s = pt - curve.base;
-
-// 	float k = curve.M[0][0]*s.x + curve.M[0][1]*s.y + curve.M[0][2];
-// 	float l = curve.M[1][0]*s.x + curve.M[1][1]*s.y + curve.M[1][2];
-// 	float m = curve.M[2][0]*s.x + curve.M[2][1]*s.y + curve.M[2][2];
-
-// 	float f = k*k*k - l*m;
-
-// 	if (curve.negative) {
-// 		return -f;
-// 	} else {
-// 		return f;
-// 	}
-// }
-
-// int ic3_hit_chull(Implicit_Curve curve, vec2 pt) {
-// 	vec2 b = begpoint(curve);
-// 	vec2 e = endpoint(curve);
-
-// 	bool sample_to_the_left = ccw(pt, b, e) < 0;
-// 	if (sample_to_the_left == curve.geom_to_left) {
-// 		// test if sample is inside the triangle beE
-// 		if ((ccw(pt, e, curve.E) < 0) == sample_to_the_left) {
-// 			if((ccw(pt, curve.E, b) < 0) == sample_to_the_left) {
-// 				return -1; // inside control polygon
-// 			}
-// 		}
-
-// 		// is outside
-// 		if (curve.out_is_left) {
-// 			return 0;
-// 		}	else {
-// 			return 1;
-// 		}
-// 	}
-	
-// 	// sample is on the opposite side of geometry
-// 	if (curve.out_is_left) {
-// 		return 1;
-// 	} else {
-// 		return 0;
-// 	}
-// }
-
-// int ic3_hit(Implicit_Curve curve, vec2 pt) {
-// 	int check = box_hit(curve.bmin, curve.bmax, pt);
-	
-// 	if (check == 0) {
-// 		return 0; //above, bellow or to the right
-// 	}	else if (check == 1) { // to the left
-// 		return going_up(curve) ? 1 : -1;
-// 	}	else {
-// 		// float2 b = begpoint(), e = endpoint(); // never used
-// 		check = ic3_hit_chull(curve, pt);
-// 		if (check == 0) {
-// 			return 0;
-// 		}	else if(check == 1) {
-// 			return going_up(curve) ? 1 : -1;
-// 		}	else {
-// 			if (ic3_eval(curve, pt) < 0) {
-// 				return going_up(curve) ? 1 : -1;
-// 			}
-// 		}
-// 	}
-
-// 	return 0;
-// }
-
-// int curve_eval(Implicit_Curve curve, vec2 pt) {
-// 	// above or below bbox?
-// 	// if (pt.y < curve.bmin.y || pt.y >= curve.bmax.y) {
-// 	if (pt.y <= curve.bmin.y || pt.y > curve.bmax.y) {
-// 		// if (curve.bmin.x <= pt.x && pt.x < curve.bmax.x) {
-// 		if (pt.x > curve.bmin.x && pt.x <= curve.bmax.x) {
-// 			if(pt.y > curve.bmax.y) {
-// 				return going_right(curve) == going_up(curve) ? -1 : 1;
-// 			} else {
-// 				return going_right(curve) == going_up(curve) ? 1 : -1;
-// 			}
-// 		}
-// 		// }	else {
-// 		// 	return 0;
-// 		// }
-// 	} else if(pt.x > curve.bmax.x) {
-// 		// after bbox?
-// 		return 1;
-// 	} else if(pt.x <= curve.bmin.x) {
-// 		// before bbox?
-// 		return -1;
-// 	} else {
-// 		int check = 0;
-		
-// 		if (curve.range == 0) {
-// 			check = ic1_hit_chull(curve, pt);
-// 		} else if (curve.range == 1) {
-// 			check = ic2_hit_chull_simple(curve, pt);
-// 		} else if (curve.range == 2) {
-// 			check = ic3_hit_chull(curve, pt);
-// 		}
-		
-// 		if (check != -1) {
-// 			return check == 1 ? -1 : 1;
-// 		}
-
-// 		float eval = 0;
-
-// 		if (curve.range == 0) {
-// 			eval = ic1_eval(curve, pt);
-// 		} else if (curve.range == 1) {
-// 			eval = ic2_eval_simple(curve, pt);
-// 		} else if (curve.range == 2) {
-// 			eval = ic3_eval(curve, pt);
-// 		}
-
-// 		return eval < 0 ? -1 : 1; // hit ? left : right
-// 	}
-// }
 
 int curve_eval(Implicit_Curve curve, vec2 pt) {
 	int side = 0;
@@ -436,67 +127,7 @@ int curve_eval(Implicit_Curve curve, vec2 pt) {
 	return(side);
 }
 
-// int curve_get_intersections_one(Implicit_Curve curve, vec2 coord) {
-// 	int val = going_up(curve) ? 1 : -1;
-// 	vec2 b = begpoint(curve);
-// 	vec2 e = endpoint(curve);
-
-// 	bool opposite_side = ((ccw(coord, b, e) < 0) != geom_to_left(curve));
-// 	int check = box_hit(curve.bmin, curve.bmax, coord);
-// 	int intersections = 0;
-
-// 	if (check == 0) {
-
-// 	} else if (check == 1) {
-// 		intersections += val;
-// 	} else if (opposite_side) {
-// 		if (out_is_left(curve)) {
-// 			intersections += val;
-// 		}
-// 	} else if (curve.range == 0) {
-// 		if (going_up(curve)) {
-// 			intersections += val;
-// 		}
-// 	} else if (curve.range == 1) {
-// 		if (ic2_eval_simple(curve, coord) < 0) {
-// 			intersections += val;
-// 		}
-// 	} else if (curve.range == 2) {
-// 		bool sample_to_the_left = ccw(coord, b, e) < 0;
-// 		if ((ccw(coord, e, curve.E) < 0) == sample_to_the_left && (ccw(coord, curve.E, b) < 0) == sample_to_the_left) {
-// 			if (ic3_eval(curve, coord) < 0) {
-// 				intersections += val;
-// 			}
-// 		} else {
-// 			if (!out_is_left(curve)) {
-// 				intersections += val;
-// 			}
-// 		}
-// 	}
-
-// 	// is shortcut
-// 	// if is
-
-// 	return intersections;
-// }
-
-// int curve_get_intersections_two(Implicit_Curve curve, vec2 coord) {
-// 	int intersections = 0;
-
-// 	if (curve.range == 0) {
-// 		intersections += ic1_hit(curve, coord);
-// 	} else if (curve.range == 1) {
-// 		intersections += ic2_hit(curve, coord);
-// 	} else if (curve.range == 2) {
-// 		intersections += ic3_hit(curve, coord);
-// 	}
-
-// 	// is shortcut
-// 	// if is
-
-// 	return intersections;
-// }
-
+// fill rules
 #define RULE_ODD 1
 #define RULE_EVEN 2
 #define RULE_NONZERO 3
@@ -523,8 +154,6 @@ void main() {
 	int winding_number = 0;
 	for (int i = 0; i < curves.data.length(); i += 1) {
 		Implicit_Curve curve = curves.data[i];
-		// winding_number += curve_get_intersections_one(curve, px);
-		// winding_number += curve_get_intersections_two(curve, px);
 		winding_number += curve_eval(curve, px);
 	}
 

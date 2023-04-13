@@ -69,7 +69,7 @@ c3_preprocess1 :: proc(
 	}
 }
 
-c1_split :: proc(output: ^[dynamic]IC, curve: Curve, roots: ^Roots) {
+c1_split :: proc(output: ^[dynamic]Implicit_Curve, curve: Curve, roots: ^Roots) {
 	assert(curve.count == 0)
 	last_root: f32
 
@@ -81,7 +81,7 @@ c1_split :: proc(output: ^[dynamic]IC, curve: Curve, roots: ^Roots) {
 }
 
 c1_process :: proc(
-	output: ^[dynamic]IC,
+	output: ^[dynamic]Implicit_Curve,
 	curve: Curve, 
 	scale: [2]f32,
 	offset: [2]f32,
@@ -92,7 +92,7 @@ c1_process :: proc(
 	c1_split(output, temp, &roots)
 }
 
-c2_split :: proc(output: ^[dynamic]IC, curve: Curve, roots: ^Roots) {
+c2_split :: proc(output: ^[dynamic]Implicit_Curve, curve: Curve, roots: ^Roots) {
 	assert(curve.count == 1)
 	last_root: f32
 
@@ -104,7 +104,7 @@ c2_split :: proc(output: ^[dynamic]IC, curve: Curve, roots: ^Roots) {
 }
 
 c2_process :: proc(
-	output: ^[dynamic]IC,
+	output: ^[dynamic]Implicit_Curve,
 	curve: Curve, 
 	scale: [2]f32,
 	offset: [2]f32,
@@ -115,7 +115,7 @@ c2_process :: proc(
 	c2_split(output, temp, &roots)
 }
 
-c3_split :: proc(output: ^[dynamic]IC, curve: Curve, roots: ^Roots, ctx: ^Implicizitation_Context) {
+c3_split :: proc(output: ^[dynamic]Implicit_Curve, curve: Curve, roots: ^Roots, ctx: ^Implicizitation_Context) {
 	assert(curve.count == 2)
 	last_root: f32
 
@@ -127,7 +127,7 @@ c3_split :: proc(output: ^[dynamic]IC, curve: Curve, roots: ^Roots, ctx: ^Implic
 }
 
 c3_process :: proc(
-	output: ^[dynamic]IC,
+	output: ^[dynamic]Implicit_Curve,
 	curve: Curve, 
 	scale: [2]f32,
 	offset: [2]f32,
@@ -147,7 +147,7 @@ c3_process :: proc(
 }
 
 Process_Call :: #type proc(
-	output: ^[dynamic]IC,
+	output: ^[dynamic]Implicit_Curve,
 	curve: Curve, 
 	scale: [2]f32,
 	offset: [2]f32,
@@ -160,7 +160,7 @@ process := [3]Process_Call {
 }
 
 curves_preprocess :: proc(
-	output: ^[dynamic]IC,
+	output: ^[dynamic]Implicit_Curve,
 	curves: []Curve, 
 	scale: [2]f32,
 	offset: [2]f32,

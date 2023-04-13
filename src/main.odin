@@ -190,7 +190,7 @@ main :: proc() {
 	gl.GenBuffers(1, &compute_ssbo)
 	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, compute_ssbo)
 
-	output := make([dynamic]IC, 0, 32)
+	output := make([dynamic]Implicit_Curve, 0, 32)
 	defer delete(output)
 
 	curves := make([dynamic]Curve, 0, 32)
@@ -205,8 +205,8 @@ main :: proc() {
 
 			clear(&curves)
 			path := path_make(&curves)
-			// path_rect(&path, mouse.x, mouse.y, 200, 100)
-			path_triangle(&path, mouse.x, mouse.y, 50)
+			path_rect(&path, mouse.x, mouse.y, 200, 100)
+			// path_triangle(&path, mouse.x, mouse.y, 50)
 			// path_circle(&path, mouse.x + 50, mouse.y + 50, 50)
 
 			clear(&output)
@@ -225,7 +225,7 @@ main :: proc() {
 
 			gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, compute_ssbo)
 			gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, compute_ssbo)
-			gl.BufferData(gl.SHADER_STORAGE_BUFFER, len(output) * size_of(IC), raw_data(output), gl.STREAM_DRAW)
+			gl.BufferData(gl.SHADER_STORAGE_BUFFER, len(output) * size_of(Implicit_Curve), raw_data(output), gl.STREAM_DRAW)
 
 			gl.DispatchCompute(800, 800, 1)
 		}

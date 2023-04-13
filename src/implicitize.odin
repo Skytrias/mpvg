@@ -6,7 +6,7 @@ import glm "core:math/linalg/glsl"
 
 // TYPE1
 
-c1_implicitize :: proc(using curve: Curve, t0, t1: f32) -> (res: IC) {
+c1_implicitize :: proc(using curve: Curve, t0, t1: f32) -> (res: Implicit_Curve) {
 	res.kind = .LINE
 	res.box = curve_get_xy_mono_box(curve)
 	res.orientation = orientation_get(B[0].x < B[1].x, B[0].y < B[1].y)
@@ -41,7 +41,7 @@ create_quad_matrix :: proc(p0, p1, p2: [2]f32) -> (m: glm.mat4) {
 	return
 }
 
-c2_implicitize :: proc(using curve: Curve, t0, t1: f32) -> (res: IC) {
+c2_implicitize :: proc(using curve: Curve, t0, t1: f32) -> (res: Implicit_Curve) {
 	res.kind = .QUADRATIC
 	res.box = curve_get_xy_mono_box(curve)
 	res.orientation = orientation_get(B[0].x < B[2].x, B[0].y < B[2].y)
@@ -508,7 +508,7 @@ c3_implicitize :: proc(
 	using curve: Curve, 
 	t0, t1: f32, 
 	ctx: ^Implicizitation_Context,
-) -> (res: IC) {
+) -> (res: Implicit_Curve) {
 	res.kind = .CUBIC
 	res.box = curve_get_xy_mono_box(curve)
 	res.orientation = orientation_get(B[0].x < B[3].x, B[0].y < B[3].y)
