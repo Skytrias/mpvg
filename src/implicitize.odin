@@ -1,18 +1,19 @@
 package src
 
+import "core:fmt"
 import "core:math"
 import "core:math/linalg"
 import glm "core:math/linalg/glsl"
 
-c1_implicitize :: proc(using curve: Curve, t0, t1: f32) -> (res: Implicit_Curve) {
+c1_implicitize :: proc(using curve: Curve) -> (res: Implicit_Curve) {
 	res.kind = .LINE
 	res.box = curve_get_xy_mono_box(curve)
 
-	goes_right := B[0].x < B[1].x
-	goes_up := B[0].y < B[1].y
+	going_right := B[0].x < B[1].x
+	going_up := B[0].y < B[1].y
 
-	// res.orientation = orientation_get(B[0].x < B[1].x, B[0].y < B[1].y) OLD
-	res.orientation = goes_up == goes_right ? .BR : .TR
+	res.orientation = going_up == going_right ? .BR : .TR
+	res.going_up = b32(going_up)
 	return
 }
 
@@ -37,7 +38,12 @@ create_quad_matrix :: proc(p0, p1, p2: [2]f32) -> (m: glm.mat4) {
 c2_implicitize :: proc(using curve: Curve, t0, t1: f32) -> (res: Implicit_Curve) {
 	res.kind = .QUADRATIC
 	res.box = curve_get_xy_mono_box(curve)
-	res.orientation = orientation_get(B[0].x < B[2].x, B[0].y < B[2].y)
+
+	going_right := B[0].x < B[2].x
+	going_up := B[0].y < B[2].y
+	res.orientation = orientation_get(going_right, going_up)
+	res.going_up = b32(going_up)
+	fmt.eprintln("QUAD", res.orientation)
 
 	// by definition the set { (x,y) f(x,y) < 0 } is the convex subset defined
 	// by the quadratic. Assuming that we are dealing with monotonic segments,
@@ -49,10 +55,6 @@ c2_implicitize :: proc(using curve: Curve, t0, t1: f32) -> (res: Implicit_Curve)
 	b := B[0]
 	c := B[1]
 	e := B[2]
-
-	// if ccw(c, b, e) < 0 {
-	// 	res.geom_to_left = true
-	// }
 
 	if res.orientation == .TL {
 		res.negative = true
@@ -504,19 +506,15 @@ c3_implicitize :: proc(
 ) -> (res: Implicit_Curve) {
 	res.kind = .CUBIC
 	res.box = curve_get_xy_mono_box(curve)
-	res.orientation = orientation_get(B[0].x < B[3].x, B[0].y < B[3].y)
+
+	going_right := B[0].x < B[3].x
+	going_up := B[0].y < B[3].y
+	res.orientation = orientation_get(going_right, going_up)
+	res.going_up = b32(going_up)
 
 	res.M = ctx.M
 	res.base = ctx.base
 	res.E = c3_cubic_find_end(curve)
-
-	// if ccw(res.E, B[0], B[3]) < 0 {
-	// 	res.geom_to_left = true
-	// }
-
-	// if res.orientation != .TL {
-	// 	res.out_is_left = true
-	// }
 
 	// find the sign
 	if ctx.cubic_type == .LOOP {

@@ -25,6 +25,17 @@ c1_init :: proc(curve: ^Curve, a, b: [2]f32) {
 	curve.count = 0
 }
 
+c1_eval :: proc(using curve: Curve, t: f32) -> [2]f32 {
+	return (1-t)*B[0] + t*B[1]
+}
+
+c1_subcurve  :: proc(using curve: Curve, u, v: f32) -> (out: Curve) {
+	out.count = curve.count
+	out.B[0] = math.lerp(B[0], B[1], u)
+	out.B[1] = math.lerp(B[0], B[1], v)
+	return
+}
+
 c2_make :: proc(a, b, c: [2]f32) -> (res: Curve) {
 	c2_init(&res, a, b, c)
 	return
@@ -35,30 +46,6 @@ c2_init :: proc(curve: ^Curve, a, b, c: [2]f32) {
 	curve.B[1] = b
 	curve.B[2] = c
 	curve.count = 1
-}
-
-c3_make :: proc(a, b, c, d: [2]f32) -> (res: Curve) {
-	c3_init(&res, a, b, c, d)
-	return
-}
-
-c3_init :: proc(curve: ^Curve, a, b, c, d: [2]f32) {
-	curve.B[0] = a
-	curve.B[1] = b
-	curve.B[2] = c
-	curve.B[3] = d
-	curve.count = 2
-}
-
-c1_eval :: proc(using curve: Curve, t: f32) -> [2]f32 {
-	return (1-t)*B[0] + t*B[1]
-}
-
-c1_subcurve  :: proc(using curve: Curve, u, v: f32) -> (out: Curve) {
-	out.count = curve.count
-	out.B[0] = math.lerp(B[0], B[1], u)
-	out.B[1] = math.lerp(B[0], B[1], v)
-	return
 }
 
 c2_eval :: proc(using curve: Curve, t: f32) -> [2]f32 {
@@ -105,6 +92,19 @@ c2_calc_roots :: proc(using curve: Curve, roots: ^Roots) -> (nroots: int) {
 	update(roots, &nroots, a.y, b.y)
 
 	return
+}
+
+c3_make :: proc(a, b, c, d: [2]f32) -> (res: Curve) {
+	c3_init(&res, a, b, c, d)
+	return
+}
+
+c3_init :: proc(curve: ^Curve, a, b, c, d: [2]f32) {
+	curve.B[0] = a
+	curve.B[1] = b
+	curve.B[2] = c
+	curve.B[3] = d
+	curve.count = 2
 }
 
 c3_eval :: proc(using curve: Curve, t: f32) -> [2]f32 {
@@ -188,7 +188,6 @@ c3_calc_roots :: proc(using curve: Curve, roots: ^Roots) -> (nroots: int) {
 	return
 }
 
-import "core:fmt"
 curve_get_xy_mono_box :: proc(curve: Curve) -> (res: Box) {
 	first := curve.B[0]
 	last := curve.B[curve.count + 1]

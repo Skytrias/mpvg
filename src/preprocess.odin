@@ -1,5 +1,8 @@
 package src
 
+import "core:fmt"
+import "core:slice"
+
 illustration_to_image :: proc(using curve: Curve, scale, offset: [2]f32) -> (res: Curve) {
 	res.count = curve.count
 
@@ -10,12 +13,9 @@ illustration_to_image :: proc(using curve: Curve, scale, offset: [2]f32) -> (res
 	return
 }
 
-c1_preprocess1 :: proc(curve: Curve, roots: ^Roots) {
-	roots[0] = 1
-	roots[1] = max(f32)
-}
+c1_preprocess1 :: proc(curve: Curve, roots: ^Roots, ctx: ^Implicizitation_Context) {}
 
-c2_preprocess1 :: proc(curve: Curve, roots: ^Roots) {
+c2_preprocess1 :: proc(curve: Curve, roots: ^Roots, ctx: ^Implicizitation_Context) {
 	nroots := c2_calc_roots(curve, roots)
 	roots[nroots] = 1
 	nroots += 1
@@ -32,9 +32,10 @@ c3_preprocess1 :: proc(
 
 	#partial switch ctx.cubic_type {
 	case .QUADRATIC, .LINE: 
-		temp: Curve
-		c1_init(&temp, B[0], B[3])
-		c1_preprocess1(temp, roots)
+		// temp: Curve
+		fmt.eprintln("called")
+		// c1_init(&temp, B[0], B[3])
+		c1_preprocess1({}, roots, ctx)
 		return
 
 	case .POINT:
@@ -58,8 +59,11 @@ c3_preprocess1 :: proc(
 		}
 	}
 
-	// TODO sort
-	// sort()
+	if nroots > 1 {
+		// fmt.eprintln("BEFORE", roots[:nroots])
+		slice.stable_sort(roots[:nroots])
+		// fmt.eprintln("AFTER", roots[:nroots])
+	}
 
 	roots[nroots] = 1
 	nroots += 1
@@ -69,104 +73,126 @@ c3_preprocess1 :: proc(
 	}
 }
 
-c1_split :: proc(output: ^[dynamic]Implicit_Curve, curve: Curve, roots: ^Roots) {
-	assert(curve.count == 0)
-	last_root: f32
-
-	for i := 0; i < MAX_ROOTS && roots[i] < max(f32); i += 1 {
-		root := roots[i]
-		append(output, c1_implicitize(c1_subcurve(curve, last_root, root), last_root, root))
-		last_root = root
-	}
-}
-
-c1_process :: proc(
-	output: ^[dynamic]Implicit_Curve,
-	curve: Curve, 
-	scale: [2]f32,
-	offset: [2]f32,
+c1_split :: proc(
+	output: []Implicit_Curve, 
+	output_index: ^int,
+	curve: Curve,
 ) {
-	roots: Roots
-	c1_preprocess1(curve, &roots)
-	temp := illustration_to_image(curve, scale, offset)
-	c1_split(output, temp, &roots)
+	output[output_index^] = c1_implicitize(c1_subcurve(curve, 0, 1))
+	output_index^ += 1
 }
 
-c2_split :: proc(output: ^[dynamic]Implicit_Curve, curve: Curve, roots: ^Roots) {
+c2_split :: proc(
+	output: []Implicit_Curve, 
+	output_index: ^int,
+	curve: Curve, 
+	roots: ^Roots,
+) {
 	assert(curve.count == 1)
 	last_root: f32
 
 	for i := 0; i < MAX_ROOTS && roots[i] < max(f32); i += 1 {
 		root := roots[i]
-		append(output, c2_implicitize(c2_subcurve(curve, last_root, root), last_root, root))
+		output[output_index^] = c2_implicitize(c2_subcurve(curve, last_root, root), last_root, root)
+		output_index^ += 1
 		last_root = root
 	}
 }
 
-c2_process :: proc(
-	output: ^[dynamic]Implicit_Curve,
+c3_split :: proc(
+	output: []Implicit_Curve, 
+	output_index: ^int,
 	curve: Curve, 
-	scale: [2]f32,
-	offset: [2]f32,
+	roots: ^Roots, 
+	ctx: ^Implicizitation_Context,
 ) {
-	roots: Roots
-	c2_preprocess1(curve, &roots)
-	temp := illustration_to_image(curve, scale, offset)
-	c2_split(output, temp, &roots)
-}
-
-c3_split :: proc(output: ^[dynamic]Implicit_Curve, curve: Curve, roots: ^Roots, ctx: ^Implicizitation_Context) {
 	assert(curve.count == 2)
 	last_root: f32
 
 	for i := 0; i < MAX_ROOTS && roots[i] < max(f32); i += 1 {
 		root := roots[i]
-		append(output, c3_implicitize(c3_subcurve(curve, last_root, root), last_root, root, ctx))
+		output[output_index^] = c3_implicitize(c3_subcurve(curve, last_root, root), last_root, root, ctx)
+		output_index^ += 1
 		last_root = root
 	}
 }
 
-c3_process :: proc(
-	output: ^[dynamic]Implicit_Curve,
-	curve: Curve, 
+c1_preprocess2 :: proc(
+	output: []Implicit_Curve,
+	output_index: ^int,
+	curve: Curve,
+	roots: ^Roots,
 	scale: [2]f32,
 	offset: [2]f32,
+	ctx: ^Implicizitation_Context,
 ) {
-	roots: Roots
-	ctx: Implicizitation_Context
-	c3_preprocess1(curve, &roots, &ctx)
-	
+	c1_split(output, output_index, illustration_to_image(curve, scale, offset))
+}
+
+c2_preprocess2 :: proc(
+	output: []Implicit_Curve,
+	output_index: ^int,
+	curve: Curve,
+	roots: ^Roots,
+	scale: [2]f32,
+	offset: [2]f32,
+	ctx: ^Implicizitation_Context,
+) {
+	c2_split(output, output_index, illustration_to_image(curve, scale, offset), roots)
+}
+
+c3_preprocess2 :: proc(
+	output: []Implicit_Curve,
+	output_index: ^int,
+	curve: Curve,
+	roots: ^Roots,
+	scale: [2]f32,
+	offset: [2]f32,
+	ctx: ^Implicizitation_Context,
+) {
 	if ctx.cubic_type == .QUADRATIC || ctx.cubic_type == .LINE {
 		c := c1_make(curve.B[0], curve.B[3])
 		temp := illustration_to_image(c, scale, offset)
-		c1_split(output, temp, &roots)
+		c1_split(output, output_index, temp)
 	} else {
 		temp := illustration_to_image(curve, scale, offset)
-		c3_split(output, temp, &roots, &ctx)
-	}
+		c3_split(output, output_index, temp, roots, ctx)
+	}	
 }
 
-Process_Call :: #type proc(
-	output: ^[dynamic]Implicit_Curve,
-	curve: Curve, 
-	scale: [2]f32,
-	offset: [2]f32,
-)
+Preprocess1_Call :: #type proc(Curve, ^Roots, ^Implicizitation_Context)
 
-// LUT for process calls
-process := [3]Process_Call {
-	c1_process,
-	c2_process,
-	c3_process,
+preprocess1 := [3]Preprocess1_Call {
+	c1_preprocess1,
+	c2_preprocess1,
+	c3_preprocess1,
 }
 
-curves_preprocess :: proc(
-	output: ^[dynamic]Implicit_Curve,
-	curves: []Curve, 
-	scale: [2]f32,
-	offset: [2]f32,
-) {
-	for c in curves {
-		process[c.count](output, c, scale, offset)
-	}
+// curves_preprocess1 :: proc(curves: []Curve, roots: []Roots, contexts: []Implicizitation_Context) {
+// 	for c, i in curves {
+// 		preprocess1[c.count](c, &roots[i], &contexts[i])
+// 	}
+// }
+
+Preprocess2_Call :: #type proc([]Implicit_Curve, ^int, Curve, ^Roots, [2]f32, [2]f32, ^Implicizitation_Context)
+
+// // LUT for process calls
+preprocess2 := [3]Preprocess2_Call {
+	c1_preprocess2,
+	c2_preprocess2,
+	c3_preprocess2,
 }
+
+// curves_preprocess2 :: proc(
+// 	curves: []Curve, 
+// 	roots: []Roots,
+// 	output: []Implicit_Curve,
+// 	output_index: ^int,
+// 	scale: [2]f32,
+// 	offset: [2]f32,
+// ) {
+// 	for c, i in curves {
+// 		root := &roots[i]
+// 		preprocess2[c.count](output, output_index, c, root, scale, offset, ctx)
+// 	}
+// }

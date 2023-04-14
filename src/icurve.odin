@@ -17,10 +17,14 @@ Implicit_Curve_Orientation :: enum i32 {
 }
 
 orientation_get :: proc(right, up: bool) -> Implicit_Curve_Orientation {
+	// if right == up {
+	// 	return .BR : .TR
+	// }
+
 	if right {
-		return up ? .TR : .BR
+		return up ? .BR : .TR
 	} else {
-		return up ? .TL : .BL
+		return up ? .BL : .TL
 	}
 }
 
@@ -35,17 +39,17 @@ Implicit_Curve :: struct {
 	kind: Implicit_Curve_Kind, 
 	orientation: Implicit_Curve_Orientation,
 	negative: b32,
-	padding: i32,
+	going_up: b32,
 }
 
 Box :: struct #packed {
 	bmin, bmax: [2]f32,
 }
 
-ccw :: proc(p, a, b: [2]f32) -> f32 {
-	d00 := p.x - a.x
-	d01 := p.y - a.y
-	d10 := b.x - a.x
-	d11 := b.y - a.y
-	return d00 * d11 - d01 * d10
-}
+// ccw :: proc(p, a, b: [2]f32) -> f32 {
+// 	d00 := p.x - a.x
+// 	d01 := p.y - a.y
+// 	d10 := b.x - a.x
+// 	d11 := b.y - a.y
+// 	return d00 * d11 - d01 * d10
+// }
