@@ -13,7 +13,10 @@ illustration_to_image :: proc(using curve: Curve, scale, offset: [2]f32) -> (res
 	return
 }
 
-c1_preprocess1 :: proc(curve: Curve, roots: ^Roots, ctx: ^Implicizitation_Context) {}
+c1_preprocess1 :: proc(curve: Curve, roots: ^Roots, ctx: ^Implicizitation_Context) {
+	roots[0] = 1
+	roots[1] = max(f32)
+}
 
 c2_preprocess1 :: proc(curve: Curve, roots: ^Roots, ctx: ^Implicizitation_Context) {
 	nroots := c2_calc_roots(curve, roots)
@@ -27,13 +30,14 @@ c3_preprocess1 :: proc(
 	roots: ^Roots, 
 	ctx: ^Implicizitation_Context,
 ) {
+	// fmt.eprintln("1 TYPE", curve)
 	ts, type := c3_classify_with_ctx(curve, ctx)
 	ctx.cubic_type = type
 
 	#partial switch ctx.cubic_type {
 	case .QUADRATIC, .LINE: 
 		// temp: Curve
-		fmt.eprintln("called")
+		// fmt.eprintln("called")
 		// c1_init(&temp, B[0], B[3])
 		c1_preprocess1({}, roots, ctx)
 		return
@@ -59,11 +63,11 @@ c3_preprocess1 :: proc(
 		}
 	}
 
-	if nroots > 1 {
+	// if nroots > 1 {
 		// fmt.eprintln("BEFORE", roots[:nroots])
 		slice.stable_sort(roots[:nroots])
 		// fmt.eprintln("AFTER", roots[:nroots])
-	}
+	// }
 
 	roots[nroots] = 1
 	nroots += 1
@@ -150,6 +154,7 @@ c3_preprocess2 :: proc(
 	offset: [2]f32,
 	ctx: ^Implicizitation_Context,
 ) {
+	// fmt.eprintln("2", ctx.cubic_type, curve)
 	if ctx.cubic_type == .QUADRATIC || ctx.cubic_type == .LINE {
 		c := c1_make(curve.B[0], curve.B[3])
 		temp := illustration_to_image(c, scale, offset)
@@ -168,12 +173,6 @@ preprocess1 := [3]Preprocess1_Call {
 	c3_preprocess1,
 }
 
-// curves_preprocess1 :: proc(curves: []Curve, roots: []Roots, contexts: []Implicizitation_Context) {
-// 	for c, i in curves {
-// 		preprocess1[c.count](c, &roots[i], &contexts[i])
-// 	}
-// }
-
 Preprocess2_Call :: #type proc([]Implicit_Curve, ^int, Curve, ^Roots, [2]f32, [2]f32, ^Implicizitation_Context)
 
 // // LUT for process calls
@@ -182,17 +181,3 @@ preprocess2 := [3]Preprocess2_Call {
 	c2_preprocess2,
 	c3_preprocess2,
 }
-
-// curves_preprocess2 :: proc(
-// 	curves: []Curve, 
-// 	roots: []Roots,
-// 	output: []Implicit_Curve,
-// 	output_index: ^int,
-// 	scale: [2]f32,
-// 	offset: [2]f32,
-// ) {
-// 	for c, i in curves {
-// 		root := &roots[i]
-// 		preprocess2[c.count](output, output_index, c, root, scale, offset, ctx)
-// 	}
-// }

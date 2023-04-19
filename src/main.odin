@@ -13,7 +13,7 @@ import glfw "vendor:GLFW"
 import gl "vendor:OpenGL"
 
 length :: linalg.vector_length
-KAPPA90 :: 0.5522847493 * 2.5
+KAPPA90 :: 0.5522847493 * 2
 
 Mouse :: struct {
 	x: f32,
@@ -111,6 +111,9 @@ main :: proc() {
 	renderer := renderer_make()
 	defer renderer_destroy(&renderer)
 
+	renderer_font_push(&renderer, "Lato-Regular.ttf")
+
+	count: f32
 	for !glfw.WindowShouldClose(window) {
 		free_all(context.temp_allocator)
 		width := 800
@@ -121,27 +124,21 @@ main :: proc() {
 
 			renderer_clear(&renderer)
 			path := renderer_path_make(&renderer)
+
+			// path_quadratic_test(&path, mouse.x, mouse.y)
+			// path_cubic_test(&path, mouse.x, mouse.y, 100, count)
 			
-			// if true {
-			// 	path_move_to(&path, 0, 0)
-			// 	path_line_to(&path, 50, 50)
-			// 	path_line_to(&path, 75, 100)
-			// 	// path_line_to(&path, 125, 150)
-			// 	path_quadratic_to(&path, 125, 150, 110, 120)
-			// 	// path_line_to(&path, 125, 75)
-			// 	path_print(&path)
-			// } else {
-			// 	path_move_to(&path, 0, 0)
-			// 	path_line_to(&path, 50, 50)
-			// 	path_line_to(&path, 25, -25)
-			// 	path_print(&path)
-			// }
-
-			path_rect_test(&path, 0, 0, 200, 100)
+			// path_rect_test(&path, mouse.x, mouse.y, 200, 100)
 			// path_triangle(&path, 0, 0, 100)
-			// path_circle(&path, 0, 0, 100)
+			// path_circle(&path, mouse.x, mouse.y, 100)
 
-			renderer_path_finish(&renderer, &path)
+			renderer_text_push(&renderer, "e", 400, 100, 400)
+			fmt.eprintln("len:", renderer.curve_index)
+
+			// renderer_glyph_push(&renderer, 'y', 200, 100, 100)
+			// renderer_path_finish(&renderer, &path)
+			// renderer_glyph_push(&renderer, 'x', 200, 150, 100)
+			// renderer_path_finish(&renderer, &path)
 
 			// path_move_to(&path, 0, 0)
 			// path_line_to(&path, 100, 100)
@@ -150,8 +147,8 @@ main :: proc() {
 			// path_line_to(&path, 200, 50)
 			// path_close(&path)
 
-			scale := [2]f32 { 2, 2 }
-			offset := [2]f32 { mouse.x, mouse.y }
+			scale := [2]f32 { 1, 1 }
+			offset := [2]f32 { 0, 0 }
 			renderer_process(&renderer, scale, offset)
 
 			// fmt.eprintln("~~~~~~~~~~~~~~~", len(output))
@@ -203,5 +200,6 @@ main :: proc() {
 
 		glfw.SwapBuffers(window)
 		glfw.PollEvents()
+		count += 1
 	}
 }

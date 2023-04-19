@@ -153,9 +153,9 @@ void main() {
 
 	vec4 color = vec4(1, 1, 1, 1);
 
-	// if (intersects(RULE_ODD, winding_number)) {
+	if (intersects(RULE_ODD, winding_number)) {
 	// if (intersects(RULE_EVEN, winding_number)) {
-	if (intersects(RULE_NONZERO, winding_number)) {
+	// if (intersects(RULE_NONZERO, winding_number)) {
 	// if (intersects(RULE_ZERO, winding_number)) {
 		color = vec4(1, 0, 0, 1);
 	}

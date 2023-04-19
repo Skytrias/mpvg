@@ -12,6 +12,7 @@ c1_implicitize :: proc(using curve: Curve) -> (res: Implicit_Curve) {
 	going_right := B[0].x < B[1].x
 	going_up := B[0].y < B[1].y
 
+	// res.orientation = orientation_get(going_right, going_up)
 	res.orientation = going_up == going_right ? .BR : .TR
 	res.going_up = b32(going_up)
 	return
@@ -27,7 +28,7 @@ create_quad_matrix :: proc(p0, p1, p2: [2]f32) -> (m: glm.mat4) {
 	det_inv := 1/(-b*c + a*d + b*e - d*e - a*f + c*f)
 	//{{(b - d)/det + (-b + f)/(2 det), (-a + c)/det + (a - e)/(2 det), 0},
 	//{(b - d)/det, (-a + c)/det, 0}} 
-	m = glm.identity(glm.mat4)
+	// m = glm.identity(glm.mat4)
 	m[0][0] = det_inv*(b-d) + det_inv*(-b+f)/2
 	m[0][1] = det_inv*(-a+c) + det_inv*(a-e)/2
 	m[1][0] = det_inv*(b-d)
@@ -43,7 +44,7 @@ c2_implicitize :: proc(using curve: Curve, t0, t1: f32) -> (res: Implicit_Curve)
 	going_up := B[0].y < B[2].y
 	res.orientation = orientation_get(going_right, going_up)
 	res.going_up = b32(going_up)
-	fmt.eprintln("QUAD", res.orientation)
+	// fmt.eprintln("QUAD", res.orientation)
 
 	// by definition the set { (x,y) f(x,y) < 0 } is the convex subset defined
 	// by the quadratic. Assuming that we are dealing with monotonic segments,
@@ -56,9 +57,9 @@ c2_implicitize :: proc(using curve: Curve, t0, t1: f32) -> (res: Implicit_Curve)
 	c := B[1]
 	e := B[2]
 
-	if res.orientation == .TL {
-		res.negative = true
-	}
+	// if res.orientation == .TL {
+	// 	res.negative = true
+	// }
 
 	res.M = create_quad_matrix(b, c, e)
 	return
@@ -70,7 +71,7 @@ Cubic_Type :: enum {
 	UNKOWN,
 	SERPENTINE,
 	LOOP,
-	CUST_AT_INFINITY,
+	CUSP_AT_INFINITY,
 	QUADRATIC,
 	LINE,
 	POINT,
@@ -330,7 +331,7 @@ c3_classify :: proc(using curve: Curve) -> (
 	} else {
 		if d[2] != 0 {
 			f, ts := find_cusp_at_infinity_matrix(d)
-			type = .CUST_AT_INFINITY
+			type = .CUSP_AT_INFINITY
 			m = premultiply_f_by_m3_inverse(f)
 		} else if d[3] != 0 {
 			m = c3_cubic_find_degenerated_as_quadratic_matrix(curve)
@@ -553,7 +554,7 @@ c3_implicitize :: proc(
 	// side of the *curve*. For that we need the curve
 	// to be monotonic.
 	// If it's going up then we need to change the sign
-	if B[0].y < B[3].y {
+	if going_up {
 		// flip negative bit
 		res.negative = !res.negative
 	}
