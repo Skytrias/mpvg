@@ -14,18 +14,6 @@ layout(rgba8, binding = 0) uniform image2D img_output;
 #define C_TL 2
 #define C_TR 3
 
-struct Tile {
-	int winding_number;
-	bool skip;
-	int pad1;
-	int pad2;
-	vec4 color;
-};
-
-layout(std140, binding = 1) buffer Tiles {
-	Tile data[];
-} tiles;
-
 struct Implicit_Curve {
 	vec4 box;
 	
@@ -38,11 +26,39 @@ struct Implicit_Curve {
 	int orientation;
 	bool negative;
 	bool going_up;
+
+	int winding_increment;
+	int pad1;
+	int pad2;
+	int pad3;
 };
 
 layout(std140, binding = 0) buffer Curves {
 	Implicit_Curve data[];
 } curves;
+
+struct Tile {
+	int winding_number;
+	int command_offset;
+	int command_count;
+	int pad1;
+	vec4 color;
+};
+
+layout(std140, binding = 1) buffer Tiles {
+	Tile data[];
+} tiles;
+
+struct Command {
+	int curve_index;
+	bool crossed_right;
+	int tile_index;
+	int pad2;
+};
+
+layout(std140, binding = 2) buffer Commands {
+	Command data[];
+} commands;
 
 float ccw(vec2 a, vec2 b, vec2 c) {
 	return((b.x-a.x)*(c.y-a.y) - (b.y-a.y)*(c.x-a.x));
@@ -153,20 +169,21 @@ void main() {
 	uint tile_index = gl_WorkGroupID.x + gl_WorkGroupID.y * 25;
 	Tile tile = tiles.data[tile_index];
 
-	if (tile.skip) {
+	if (tile.command_count == 0) {
+		imageStore(img_output, pixel_coords, vec4(0));
 		return;
 	}
 
 	int winding_number = tile.winding_number;
-	for (int i = 0; i < curves.data.length(); i += 1) {
-		Implicit_Curve curve = curves.data[i];
+	for (int i = 0; i < tile.command_count; i += 1) {
+		Command cmd = commands.data[tile.command_offset + i];
+		Implicit_Curve curve = curves.data[cmd.curve_index];
 
 		if (px.y > curve.box.y && px.y <= curve.box.w) {
 			int count = curve_eval(curve, px);
 
 			if (count < 0) {
-				int increment = curve.going_up ? 1 : -1;
-				winding_number += increment;
+				winding_number += curve.winding_increment;
 			}
 		}
 	}

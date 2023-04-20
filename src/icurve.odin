@@ -42,16 +42,13 @@ Implicit_Curve :: struct {
 	orientation: Implicit_Curve_Orientation,
 	negative: b32,
 	going_up: b32,
+
+	winding_increment: i32,
+	pad1: b32,
+	pad2: i32,
+	pad3: i32,
 }
 
 Box :: struct #packed {
 	bmin, bmax: [2]f32,
 }
-
-// ccw :: proc(p, a, b: [2]f32) -> f32 {
-// 	d00 := p.x - a.x
-// 	d01 := p.y - a.y
-// 	d10 := b.x - a.x
-// 	d11 := b.y - a.y
-// 	return d00 * d11 - d01 * d10
-// }

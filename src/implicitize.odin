@@ -15,6 +15,7 @@ c1_implicitize :: proc(using curve: Curve) -> (res: Implicit_Curve) {
 	// res.orientation = orientation_get(going_right, going_up)
 	res.orientation = going_up == going_right ? .BR : .TR
 	res.going_up = b32(going_up)
+	res.winding_increment = going_up ? 1 : -1
 	return
 }
 
@@ -44,6 +45,7 @@ c2_implicitize :: proc(using curve: Curve, t0, t1: f32) -> (res: Implicit_Curve)
 	going_up := B[0].y < B[2].y
 	res.orientation = orientation_get(going_right, going_up)
 	res.going_up = b32(going_up)
+	res.winding_increment = going_up ? 1 : -1
 	// fmt.eprintln("QUAD", res.orientation)
 
 	// by definition the set { (x,y) f(x,y) < 0 } is the convex subset defined
@@ -512,6 +514,7 @@ c3_implicitize :: proc(
 	going_up := B[0].y < B[3].y
 	res.orientation = orientation_get(going_right, going_up)
 	res.going_up = b32(going_up)
+	res.winding_increment = going_up ? 1 : -1
 
 	res.M = ctx.M
 	res.base = ctx.base

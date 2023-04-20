@@ -2,6 +2,7 @@ package src
 
 import "core:mem"
 import "core:fmt"
+import "core:slice"
 import "core:runtime"
 import "core:math/rand"
 
@@ -124,30 +125,46 @@ path_cubic_test :: proc(path: ^Path, x, y, r: f32, count: f32) {
 ///////////////////////////////////////////////////////////
 
 Renderer :: struct {
-	output: []Implicit_Curve,
-	output_index: int,
-
+	// raw curves that were inserted by the user
 	curves: []Curve,
 	curve_index: int,
 
+	// tag along data processing curves
 	contexts: []Implicizitation_Context,
 	roots: []Roots,
 
-	font_pool: Pool(8, Font),
+	// result of monotization & implicitization
+	output: []Implicit_Curve,
+	output_index: int,
 
+	// result of monotization & implicitization
+	commands: []Renderer_Command,
+	command_index: int,
+
+	// tiling temp
 	tiles: []Renderer_Tile,
 	tile_index: int,
 	tile_count: int,
 	tiles_x: int,
 	tiles_y: int,
+
+	// font data
+	font_pool: Pool(8, Font),
 }
 
 Renderer_Tile :: struct #packed {
 	winding_number: i32,
-	skip: b32,
-	pad1: i32,
-	pad2: i32,
+	command_offset: i32,
+	command_count: i32,
+	pad3: i32,
 	color: [4]f32,
+}
+
+Renderer_Command :: struct #packed {
+	curve_index: i32,
+	crossed_right: b32,
+	tile_index: i32,
+	pad1: i32,
 }
 
 renderer_init :: proc(renderer: ^Renderer) {
@@ -156,6 +173,7 @@ renderer_init :: proc(renderer: ^Renderer) {
 	renderer.contexts = make([]Implicizitation_Context, 256)
 	renderer.curves = make([]Curve, 256)
 	renderer.tiles = make([]Renderer_Tile, 1028)
+	renderer.commands = make([]Renderer_Command, 1028)
 	pool_clear(&renderer.font_pool)
 }
 
@@ -170,6 +188,7 @@ renderer_destroy :: proc(renderer: ^Renderer) {
 	delete(renderer.roots)
 	delete(renderer.contexts)
 	delete(renderer.tiles)
+	delete(renderer.commands)
 
 	// TODO destroy fonts
 }
@@ -182,6 +201,7 @@ renderer_clear :: proc(
 ) {
 	renderer.curve_index = 0
 	renderer.output_index = 0
+	renderer.command_index = 1
 
 	if renderer.tile_count != tile_count {
 		for i in 0..<tile_count {
@@ -265,42 +285,111 @@ renderer_font_push :: proc(renderer: ^Renderer, path: string) -> u32 {
 	return index
 }
 
-renderer_process_tiles :: proc(renderer: ^Renderer) {
-	for i in 0..<renderer.tile_index {
+renderer_process_tiles :: proc(renderer: ^Renderer, width, height: f32) {
+	for i in 0..<renderer.tile_count {
 		tile := &renderer.tiles[i]
 		tile.winding_number = 0
-		tile.skip = false
-		// tile.skip = true
+		tile.command_offset = 100_000
+		tile.command_count = 0
+	}
+
+	start: [2]f32
+	end: [2]f32
+
+	// loop through all implicit curves
+	curve_loop: for j in 0..<renderer.output_index {
+		curve := &renderer.output[j]
+		start = curve.box.bmin
+		end = curve.box.bmax
+
+		// swap
+		if curve.orientation == .BL || curve.orientation == .TL {
+			start, end = end, start
+		}
+
+		// loop through all tiles
+		for x in 0..<renderer.tiles_x {
+			for y in 0..<renderer.tiles_y {
+				index := x + y * renderer.tiles_x
+				tile := &renderer.tiles[index]
+
+				// tile in real coordinates
+				x1 := f32(x) / f32(renderer.tiles_x) * width
+				y1 := f32(y) / f32(renderer.tiles_x) * height
+				x2 := f32(x + 1) / f32(renderer.tiles_x) * width
+				y2 := f32(y + 1) / f32(renderer.tiles_x) * height
+
+				// inside tile check
+				start_inside := x1 < end.x && y1 < end.y && end.x < x2 && end.y < y2 
+				
+				// inside tile check
+				end_inside := x1 < start.x && y1 < start.y && start.x < x2 && start.y < y2 
+		
+				// left edge crossing (start->end or end->start)
+				left_edge := (start.x < x1 && end.x > x1 || end.x < x1 && start.x > x1) && y1 < end.y && end.y < y2 
+
+				// right edge crossing (start->end or end->start)
+				right_edge := (start.x < x2 && end.x > x2 || end.x < x2 && start.x > x2) && y1 < end.y && end.y < y2
+
+				// top edge crossing  (start->end or end->start)
+				top_edge := (start.y < y1 && end.y > y1 || end.y < y1 && start.y > y1) && x1 < end.x && end.x < x2
+
+				// -1 winding for every segement that crosses bottom edge
+				// bottom edge crossing  (start->end or end->start)
+				bottom_edge := (start.y < y2 && end.y > y2 || end.y < y2 && start.y > y2) && x1 < end.x && end.x < x2
+
+				if end_inside || start_inside || left_edge || right_edge || top_edge || bottom_edge {
+					cmd := Renderer_Command { curve_index = i32(j) }
+					cmd.tile_index = i32(index)
+
+					if right_edge {
+						cmd.crossed_right = true
+					}
+
+					if bottom_edge {
+						tile.winding_number += curve.winding_increment
+					}
+
+					renderer.commands[renderer.command_index] = cmd
+					renderer.command_index += 1
+					tile.command_count += 1
+					// continue curve_loop
+				}
+			}
+
+			// TEMP CHECK fill all curve data per tile
+			// copy(renderer.final[renderer.final_index:], renderer.output[:renderer.output_index])
+			// renderer.final_index += renderer.output_index
+			// tile.curve_count = i32(renderer.output_index)
+		}
 	}	
 
-	// width := f32(renderer.tiles_x)
-	// tiles: for i in 0..<renderer.tile_index {
+	// sort by tile index on each command
+	slice.sort_by(renderer.commands[:renderer.command_index], proc(a, b: Renderer_Command) -> bool {
+		return a.tile_index < b.tile_index
+	})
+
+	// assign proper min offset to tile
+	last := i32(100_000)
+	for i in 0..<renderer.command_index {
+		cmd := renderer.commands[i]
+		defer last = cmd.tile_index
+
+		if last == cmd.tile_index {
+			continue
+		}
+
+		tile := &renderer.tiles[cmd.tile_index]
+		tile.command_offset = min(tile.command_offset, i32(i))
+	}
+
+	// // post process winding?
+	// for i in 0..<renderer.tile_index {
 	// 	tile := &renderer.tiles[i]
-	// 	// tile
-	// 	// x := i % renderer.tiles_x
-	// 	// y := i / renderer.tiles_x
 
-	// 	for j in 0..<renderer.output_index {
-	// 		curve := renderer.output[j]
-	// 		i2 := int(curve.box.bmin.x + curve.box.bmin.y * width)
-	// 		i3 := int(curve.box.bmax.x + curve.box.bmax.y * width)
-
-	// 		if i2 == i || i3 == i {
-	// 			tile.skip	= false
-	// 			continue tiles
-	// 		}
-
-
-	// 		// x2 := int(curve.box.bmin.x) / renderer.tiles_x - 1
-	// 		// x3 := int(curve.box.bmax.x) / renderer.tiles_x - 1
-	// 		// y2 := int(curve.box.bmin.y) / renderer.tiles_x
-	// 		// y3 := int(curve.box.bmax.y) / renderer.tiles_x
-
-	// 		// if (x2 == x || x3 == x) && (y2 == y || y3 == y) {
-	// 		// 	tile.skip	= false
-	// 		// 	continue tiles
-	// 		// }
-	// 	} 
+	// 	if tile.command_offset != 100_000 {
+	// 		fmt.eprintln("~~~i", i, tile.command_offset, tile.command_count)
+	// 	}
 	// }
 }
 

@@ -112,6 +112,10 @@ main :: proc() {
 	gl.GenBuffers(1, &compute_tiles_ssbo)
 	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, compute_tiles_ssbo)
 
+	compute_commands_ssbo: u32
+	gl.GenBuffers(1, &compute_commands_ssbo)
+	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, compute_commands_ssbo)
+
 	renderer := renderer_make()
 	defer renderer_destroy(&renderer)
 
@@ -138,11 +142,14 @@ main :: proc() {
 			// path_cubic_test(&path, mouse.x, mouse.y, 100, count)
 			
 			// path_rect_test(&path, mouse.x, mouse.y, 200, 100)
-			// path_triangle(&path, 0, 0, 100)
+			// renderer_path_finish(&renderer, &path)
+
+			path_triangle(&path, mouse.x, mouse.y, 100)
+			renderer_path_finish(&renderer, &path)
+
 			// path_circle(&path, mouse.x, mouse.y, 100)
 
-			renderer_text_push(&renderer, "e", 400, 100, 400)
-			fmt.eprintln("len:", renderer.curve_index)
+			// renderer_text_push(&renderer, "e", 400, 100, 400)
 
 			// renderer_glyph_push(&renderer, 'y', 200, 100, 100)
 			// renderer_path_finish(&renderer, &path)
@@ -157,14 +164,16 @@ main :: proc() {
 			// path_close(&path)
 
 			scale := [2]f32 { 1, 1 }
-			offset := [2]f32 { mouse.x, mouse.y }
+			// offset := [2]f32 { mouse.x, mouse.y }
+			offset := [2]f32 {}
 			renderer_process(&renderer, scale, offset)
 
-			renderer_process_tiles(&renderer)
+			renderer_process_tiles(&renderer, f32(width), f32(height))
+			// fmt.eprintln("len:", renderer.curve_index, renderer.output_index)
 
-			// fmt.eprintln("~~~~~~~~~~~~~~~", len(output))
-			// for i in 0..<len(output) {
-			// 	c := output[i]
+			// fmt.eprintln("~~~~~~~~~~~~~~~", renderer.output_index)
+			// for i in 0..<renderer.output_index {
+			// 	c := renderer.output[i]
 			// 	fmt.eprintln(c.orientation)
 			// }
 
@@ -175,6 +184,10 @@ main :: proc() {
 			gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, 1, compute_tiles_ssbo)
 			gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, compute_tiles_ssbo)
 			gl.BufferData(gl.SHADER_STORAGE_BUFFER, renderer.tile_index * size_of(Renderer_Tile), raw_data(renderer.tiles), gl.STREAM_DRAW)
+
+			gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, 2, compute_commands_ssbo)
+			gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, compute_commands_ssbo)
+			gl.BufferData(gl.SHADER_STORAGE_BUFFER, renderer.command_index * size_of(Renderer_Command), raw_data(renderer.commands), gl.STREAM_DRAW)
 
 			gl.DispatchCompute(u32(tiles_x), u32(tiles_y), 1)
 		}
