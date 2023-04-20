@@ -104,9 +104,13 @@ main :: proc() {
 	}
 	gl.BindTexture(gl.TEXTURE_2D, 0)
 
-	compute_ssbo: u32
-	gl.GenBuffers(1, &compute_ssbo)
-	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, compute_ssbo)
+	compute_curves_ssbo: u32
+	gl.GenBuffers(1, &compute_curves_ssbo)
+	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, compute_curves_ssbo)
+
+	compute_tiles_ssbo: u32
+	gl.GenBuffers(1, &compute_tiles_ssbo)
+	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, compute_tiles_ssbo)
 
 	renderer := renderer_make()
 	defer renderer_destroy(&renderer)
@@ -119,10 +123,15 @@ main :: proc() {
 		width := 800
 		height := 800
 
+		TILE_SIZE :: 32
+		tiles_x := width / TILE_SIZE
+		tiles_y := height / TILE_SIZE
+		// fmt.eprintln("tiles_x", tiles_x, tiles_y)
+
 		{
 			gl.UseProgram(compute_program)
 
-			renderer_clear(&renderer)
+			renderer_clear(&renderer, tiles_x * tiles_y, tiles_x, tiles_y)
 			path := renderer_path_make(&renderer)
 
 			// path_quadratic_test(&path, mouse.x, mouse.y)
@@ -148,8 +157,10 @@ main :: proc() {
 			// path_close(&path)
 
 			scale := [2]f32 { 1, 1 }
-			offset := [2]f32 { 0, 0 }
+			offset := [2]f32 { mouse.x, mouse.y }
 			renderer_process(&renderer, scale, offset)
+
+			renderer_process_tiles(&renderer)
 
 			// fmt.eprintln("~~~~~~~~~~~~~~~", len(output))
 			// for i in 0..<len(output) {
@@ -157,11 +168,15 @@ main :: proc() {
 			// 	fmt.eprintln(c.orientation)
 			// }
 
-			gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, compute_ssbo)
-			gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, compute_ssbo)
+			gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, compute_curves_ssbo)
+			gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, compute_curves_ssbo)
 			gl.BufferData(gl.SHADER_STORAGE_BUFFER, renderer.output_index * size_of(Implicit_Curve), raw_data(renderer.output), gl.STREAM_DRAW)
 
-			gl.DispatchCompute(800, 800, 1)
+			gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, 1, compute_tiles_ssbo)
+			gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, compute_tiles_ssbo)
+			gl.BufferData(gl.SHADER_STORAGE_BUFFER, renderer.tile_index * size_of(Renderer_Tile), raw_data(renderer.tiles), gl.STREAM_DRAW)
+
+			gl.DispatchCompute(u32(tiles_x), u32(tiles_y), 1)
 		}
 
 		gl.MemoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT)

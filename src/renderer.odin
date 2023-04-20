@@ -1,8 +1,9 @@
 package src
 
-import "core:runtime"
 import "core:mem"
 import "core:fmt"
+import "core:runtime"
+import "core:math/rand"
 
 ///////////////////////////////////////////////////////////
 // GENERIC PATH
@@ -133,6 +134,20 @@ Renderer :: struct {
 	roots: []Roots,
 
 	font_pool: Pool(8, Font),
+
+	tiles: []Renderer_Tile,
+	tile_index: int,
+	tile_count: int,
+	tiles_x: int,
+	tiles_y: int,
+}
+
+Renderer_Tile :: struct #packed {
+	winding_number: i32,
+	skip: b32,
+	pad1: i32,
+	pad2: i32,
+	color: [4]f32,
 }
 
 renderer_init :: proc(renderer: ^Renderer) {
@@ -140,6 +155,7 @@ renderer_init :: proc(renderer: ^Renderer) {
 	renderer.roots = make([]Roots, 256)
 	renderer.contexts = make([]Implicizitation_Context, 256)
 	renderer.curves = make([]Curve, 256)
+	renderer.tiles = make([]Renderer_Tile, 1028)
 	pool_clear(&renderer.font_pool)
 }
 
@@ -153,13 +169,37 @@ renderer_destroy :: proc(renderer: ^Renderer) {
 	delete(renderer.curves)
 	delete(renderer.roots)
 	delete(renderer.contexts)
+	delete(renderer.tiles)
 
 	// TODO destroy fonts
 }
 
-renderer_clear :: proc(renderer: ^Renderer) {
+renderer_clear :: proc(
+	renderer: ^Renderer, 
+	tile_count: int,
+	tiles_x: int,
+	tiles_y: int,
+) {
 	renderer.curve_index = 0
 	renderer.output_index = 0
+
+	if renderer.tile_count != tile_count {
+		for i in 0..<tile_count {
+			renderer.tiles[i] = {
+				color = {
+					rand.float32(),
+					rand.float32(),
+					rand.float32(),
+					1,
+				},
+			}
+		}
+	}
+
+	renderer.tiles_x = tiles_x
+	renderer.tiles_y = tiles_y
+	renderer.tile_count = tile_count
+	renderer.tile_index = tile_count
 }
 
 renderer_path_make :: proc(renderer: ^Renderer) -> (res: Path) {
@@ -223,6 +263,45 @@ renderer_font_push :: proc(renderer: ^Renderer, path: string) -> u32 {
 	font := pool_at(&renderer.font_pool, index)
 	font_init(font, path)
 	return index
+}
+
+renderer_process_tiles :: proc(renderer: ^Renderer) {
+	for i in 0..<renderer.tile_index {
+		tile := &renderer.tiles[i]
+		tile.winding_number = 0
+		tile.skip = false
+		// tile.skip = true
+	}	
+
+	// width := f32(renderer.tiles_x)
+	// tiles: for i in 0..<renderer.tile_index {
+	// 	tile := &renderer.tiles[i]
+	// 	// tile
+	// 	// x := i % renderer.tiles_x
+	// 	// y := i / renderer.tiles_x
+
+	// 	for j in 0..<renderer.output_index {
+	// 		curve := renderer.output[j]
+	// 		i2 := int(curve.box.bmin.x + curve.box.bmin.y * width)
+	// 		i3 := int(curve.box.bmax.x + curve.box.bmax.y * width)
+
+	// 		if i2 == i || i3 == i {
+	// 			tile.skip	= false
+	// 			continue tiles
+	// 		}
+
+
+	// 		// x2 := int(curve.box.bmin.x) / renderer.tiles_x - 1
+	// 		// x3 := int(curve.box.bmax.x) / renderer.tiles_x - 1
+	// 		// y2 := int(curve.box.bmin.y) / renderer.tiles_x
+	// 		// y3 := int(curve.box.bmax.y) / renderer.tiles_x
+
+	// 		// if (x2 == x || x3 == x) && (y2 == y || y3 == y) {
+	// 		// 	tile.skip	= false
+	// 		// 	continue tiles
+	// 		// }
+	// 	} 
+	// }
 }
 
 ///////////////////////////////////////////////////////////

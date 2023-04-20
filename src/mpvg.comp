@@ -1,6 +1,6 @@
 #version 450 core
 
-layout(local_size_x = 1, local_size_y = 1) in;
+layout(local_size_x = 32, local_size_y = 32) in;
 layout(rgba8, binding = 0) uniform image2D img_output;
 
 // kind of curve
@@ -13,6 +13,18 @@ layout(rgba8, binding = 0) uniform image2D img_output;
 #define C_BR 1
 #define C_TL 2
 #define C_TR 3
+
+struct Tile {
+	int winding_number;
+	bool skip;
+	int pad1;
+	int pad2;
+	vec4 color;
+};
+
+layout(std140, binding = 1) buffer Tiles {
+	Tile data[];
+} tiles;
 
 struct Implicit_Curve {
 	vec4 box;
@@ -134,10 +146,18 @@ bool intersects(int rule, int intersections) {
 }
 
 void main() {
+	// vec2 px = gl_GlobalInvocationID.xy * gl_LocalInvocationID.xy;
 	ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
 	vec2 px = gl_GlobalInvocationID.xy;
 
-	int winding_number = 0;
+	uint tile_index = gl_WorkGroupID.x + gl_WorkGroupID.y * 25;
+	Tile tile = tiles.data[tile_index];
+
+	if (tile.skip) {
+		return;
+	}
+
+	int winding_number = tile.winding_number;
 	for (int i = 0; i < curves.data.length(); i += 1) {
 		Implicit_Curve curve = curves.data[i];
 
@@ -157,8 +177,10 @@ void main() {
 	// if (intersects(RULE_EVEN, winding_number)) {
 	// if (intersects(RULE_NONZERO, winding_number)) {
 	// if (intersects(RULE_ZERO, winding_number)) {
-		color = vec4(1, 0, 0, 1);
+		// color = vec4(1, 0, 0, 1);
+		color = tile.color;
 	}
 
+	// imageStore(img_output, ivec2(int(px.x), int(px.y)), color);
 	imageStore(img_output, pixel_coords, color);
 }
