@@ -298,13 +298,15 @@ renderer_process_tiles :: proc(renderer: ^Renderer, width, height: f32) {
 
 	// loop through all implicit curves
 	curve_loop: for j in 0..<renderer.output_index {
-		curve := &renderer.output[j]
-		start = curve.box.xy
-		end = curve.box.zw
+		curve := renderer.output[j]
 
 		// swap
-		if curve.orientation == .BL || curve.orientation == .TL {
-			start, end = end, start
+		if curve.orientation == .TL || curve.orientation == .BR {
+			start = curve.box.xy
+			end = curve.box.zw
+		} else {
+			start = curve.box.xw
+			end = curve.box.zy
 		}
 
 		// loop through all tiles
@@ -319,48 +321,58 @@ renderer_process_tiles :: proc(renderer: ^Renderer, width, height: f32) {
 				x2 := f32(x + 1) / f32(renderer.tiles_x) * width
 				y2 := f32(y + 1) / f32(renderer.tiles_x) * height
 
-				// inside tile check
-				start_inside := x1 < end.x && y1 < end.y && end.x < x2 && end.y < y2 
+				sbl := curve_eval(curve, { x1, y1 })
+				sbr := curve_eval(curve, { x2, y1 })
+				str := curve_eval(curve, { x2, y2 })
+				stl := curve_eval(curve, { x1, y2 })
+
+				crossL := (stl * sbl) < 0
+				crossR := (str * sbr) < 0
+				crossT := (stl * str) < 0
+				crossB := (sbl * sbr) < 0
+
+				start_inside := start.x >= x1 && start.x < x2 && start.y >= y1 && start.y < y2
+				end_inside := end.x >= x1 && end.x < x2 && end.y >= y1 && end.y < y2
+
+				// // inside tile check
+				// start_inside := x1 < end.x && y1 < end.y && end.x < x2 && end.y < y2 
 				
-				// inside tile check
-				end_inside := x1 < start.x && y1 < start.y && start.x < x2 && start.y < y2 
+				// // inside tile check
+				// end_inside := x1 < start.x && y1 < start.y && start.x < x2 && start.y < y2 
 		
-				// left edge crossing (start->end or end->start)
-				left_edge := (start.x < x1 && end.x > x1 || end.x < x1 && start.x > x1) && y1 < end.y && end.y < y2 
+				// // left edge crossing (start->end or end->start)
+				// left_edge := (start.x < x1 && end.x > x1 || end.x < x1 && start.x > x1) && y1 < end.y && end.y < y2 
 
-				// right edge crossing (start->end or end->start)
-				right_edge := (start.x < x2 && end.x > x2 || end.x < x2 && start.x > x2) && y1 < end.y && end.y < y2
+				// // right edge crossing (start->end or end->start)
+				// right_edge := (start.x < x2 && end.x > x2 || end.x < x2 && start.x > x2) && y1 < end.y && end.y < y2
 
-				// top edge crossing  (start->end or end->start)
-				top_edge := (start.y < y1 && end.y > y1 || end.y < y1 && start.y > y1) && x1 < end.x && end.x < x2
+				// // top edge crossing  (start->end or end->start)
+				// top_edge := (start.y < y1 && end.y > y1 || end.y < y1 && start.y > y1) && x1 < end.x && end.x < x2
 
-				// -1 winding for every segement that crosses bottom edge
-				// bottom edge crossing  (start->end or end->start)
-				bottom_edge := (start.y < y2 && end.y > y2 || end.y < y2 && start.y > y2) && x1 < end.x && end.x < x2
+				// // -1 winding for every segement that crosses bottom edge
+				// // bottom edge crossing  (start->end or end->start)
+				// bottom_edge := (start.y < y2 && end.y > y2 || end.y < y2 && start.y > y2) && x1 < end.x && end.x < x2
 
-				if end_inside || start_inside || left_edge || right_edge || top_edge || bottom_edge {
+				// if end_inside || start_inside || left_edge || right_edge || top_edge || bottom_edge {
+				if end_inside || start_inside || crossL || crossR || crossT || crossB {
 					cmd := Renderer_Command { curve_index = i32(j) }
 					cmd.tile_index = i32(index)
 
-					if right_edge {
+					if crossR {
+					// if right_edge {
 						cmd.crossed_right = true
 					}
 
-					if bottom_edge {
+					if crossB {
+						// fmt.eprintln("cross b", curve.winding_increment)
 						tile.winding_number += curve.winding_increment
 					}
 
 					renderer.commands[renderer.command_index] = cmd
 					renderer.command_index += 1
 					tile.command_count += 1
-					// continue curve_loop
 				}
 			}
-
-			// TEMP CHECK fill all curve data per tile
-			// copy(renderer.final[renderer.final_index:], renderer.output[:renderer.output_index])
-			// renderer.final_index += renderer.output_index
-			// tile.curve_count = i32(renderer.output_index)
 		}
 	}	
 
