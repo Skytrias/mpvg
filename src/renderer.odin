@@ -299,8 +299,8 @@ renderer_process_tiles :: proc(renderer: ^Renderer, width, height: f32) {
 	// loop through all implicit curves
 	curve_loop: for j in 0..<renderer.output_index {
 		curve := &renderer.output[j]
-		start = curve.box.bmin
-		end = curve.box.bmax
+		start = curve.box.xy
+		end = curve.box.zw
 
 		// swap
 		if curve.orientation == .BL || curve.orientation == .TL {

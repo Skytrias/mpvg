@@ -193,19 +193,19 @@ curve_get_xy_mono_box :: proc(curve: Curve) -> (res: Box) {
 	last := curve.B[curve.count + 1]
 
 	if first.x < last.x {
-		res.bmin.x = first.x
-		res.bmax.x = last.x
+		res.x = first.x
+		res.z = last.x
 	} else {
-		res.bmin.x = last.x
-		res.bmax.x = first.x
+		res.x = last.x
+		res.z = first.x
 	}
 
 	if first.y < last.y {
-		res.bmin.y = first.y
-		res.bmax.y = last.y
+		res.y = first.y
+		res.w = last.y
 	} else {
-		res.bmin.y = last.y
-		res.bmax.y = first.y
+		res.y = last.y
+		res.w = first.y
 	}
 
 	return
