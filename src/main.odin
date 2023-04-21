@@ -35,6 +35,20 @@ shader_vert := #load("vertex.glsl")
 shader_frag := #load("fragment.glsl")
 shader_compute := #load("mpvg.comp")
 
+// main :: proc() {
+// 	values := [5]int { 0, 10, 20, 30, 40 }
+// 	output: [5]int
+
+// 	sum: int
+// 	for i := len(values) - 1; i >= 0; i -= 1 {
+// 		temp := values[i]
+// 		output[i] = sum
+// 		sum += temp
+// 	}
+
+// 	fmt.eprintln(output)
+// }
+
 main :: proc() {
 	glfw.Init()
 	defer glfw.Terminate()
@@ -141,10 +155,10 @@ main :: proc() {
 			// path_quadratic_test(&path, mouse.x, mouse.y)
 			// path_cubic_test(&path, mouse.x, mouse.y, 100, count)
 			
-			// path_rect_test(&path, mouse.x, mouse.y, 200, 100)
+			// path_rect_test(&path, mouse.x, mouse.y, 200, 200)
 			// renderer_path_finish(&renderer, &path)
 
-			path_triangle(&path, mouse.x, mouse.y, 100)
+			path_triangle(&path, mouse.x, mouse.y, 300)
 			renderer_path_finish(&renderer, &path)
 
 			// path_circle(&path, mouse.x, mouse.y, 100)
@@ -171,11 +185,12 @@ main :: proc() {
 			renderer_process_tiles(&renderer, f32(width), f32(height))
 			// fmt.eprintln("len:", renderer.curve_index, renderer.output_index)
 
-			// fmt.eprintln("~~~~~~~~~~~~~~~", renderer.output_index)
-			// for i in 0..<renderer.output_index {
-			// 	c := renderer.output[i]
-			// 	fmt.eprintln(c.orientation)
-			// }
+			fmt.eprintln("~~~~~~~~~~~~~~~", renderer.output_index)
+			for i in 0..<renderer.output_index {
+				c := renderer.output[i]
+				fmt.eprint(c.orientation, ' ')
+			}
+			fmt.eprintln()
 
 			gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, compute_curves_ssbo)
 			gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, compute_curves_ssbo)

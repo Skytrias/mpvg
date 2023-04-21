@@ -69,6 +69,7 @@ path_rect_test :: proc(path: ^Path, x, y, w, h: f32) {
 	path_move_to(path, x, y)
 	path_line_to(path, x - 50, y + h + 50)
 	path_line_to(path, x + w - 50, y + h)
+	// path_line_to(path, x + w, y + 10)
 	path_line_to(path, x + w, y)
 	path_close(path)
 }
@@ -156,13 +157,14 @@ Renderer_Tile :: struct #packed {
 	winding_number: i32,
 	command_offset: i32,
 	command_count: i32,
-	pad3: i32,
+	had_cross_right: i32,
+
 	color: [4]f32,
 }
 
 Renderer_Command :: struct #packed {
 	curve_index: i32,
-	crossed_right: b32,
+	crossed_right: i32,
 	tile_index: i32,
 	pad1: i32,
 }
@@ -291,6 +293,7 @@ renderer_process_tiles :: proc(renderer: ^Renderer, width, height: f32) {
 		tile.winding_number = 0
 		tile.command_offset = 100_000
 		tile.command_count = 0
+		tile.had_cross_right = 0
 	}
 
 	start: [2]f32
@@ -360,7 +363,9 @@ renderer_process_tiles :: proc(renderer: ^Renderer, width, height: f32) {
 
 					if crossR {
 					// if right_edge {
-						cmd.crossed_right = true
+						// cmd.crossed_right = true
+						cmd.crossed_right = start.x < end.x ? -1 : 1
+						// tile.had_cross_right = start.x < end.x ? 1 : -1
 					}
 
 					if crossB {
@@ -403,6 +408,19 @@ renderer_process_tiles :: proc(renderer: ^Renderer, width, height: f32) {
 	// 		fmt.eprintln("~~~i", i, tile.command_offset, tile.command_count)
 	// 	}
 	// }
+
+	// prefix sum backpropogation
+	for y in 0..<renderer.tiles_y {
+		sum: i32
+
+		for x := renderer.tiles_x - 1; x >= 0; x -= 1 {
+			index := x + y * renderer.tiles_x
+			tile := &renderer.tiles[index]
+			temp := tile.winding_number
+			tile.winding_number = sum
+			sum += temp
+		}
+	}
 }
 
 ///////////////////////////////////////////////////////////

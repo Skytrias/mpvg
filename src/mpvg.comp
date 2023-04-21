@@ -41,7 +41,8 @@ struct Tile {
 	int winding_number;
 	int command_offset;
 	int command_count;
-	int pad1;
+	bool had_cross_right;
+
 	vec4 color;
 };
 
@@ -51,7 +52,7 @@ layout(std140, binding = 1) buffer Tiles {
 
 struct Command {
 	int curve_index;
-	bool crossed_right;
+	int crossed_right;
 	int tile_index;
 	int pad2;
 };
@@ -169,15 +170,20 @@ void main() {
 	uint tile_index = gl_WorkGroupID.x + gl_WorkGroupID.y * 25;
 	Tile tile = tiles.data[tile_index];
 
-	if (tile.command_count == 0) {
-		imageStore(img_output, pixel_coords, vec4(0));
-		return;
-	}
+	// if (tile.command_count == 0) {
+	// 	imageStore(img_output, pixel_coords, vec4(0));
+	// 	return;
+	// }
 
+	// int winding_number = tile.winding_number + int(tile.had_cross_right);
 	int winding_number = tile.winding_number;
 	for (int i = 0; i < tile.command_count; i += 1) {
 		Command cmd = commands.data[tile.command_offset + i];
 		Implicit_Curve curve = curves.data[cmd.curve_index];
+		
+		if (curve.orientation != C_BR) {
+			winding_number += cmd.crossed_right;
+		}
 
 		if (px.y > curve.box.y && px.y <= curve.box.w) {
 			int count = curve_eval(curve, px);
@@ -190,12 +196,13 @@ void main() {
 
 	vec4 color = vec4(1, 1, 1, 1);
 
-	if (intersects(RULE_ODD, winding_number)) {
+	// if (intersects(RULE_ODD, winding_number)) {
 	// if (intersects(RULE_EVEN, winding_number)) {
-	// if (intersects(RULE_NONZERO, winding_number)) {
+	if (intersects(RULE_NONZERO, winding_number)) {
 	// if (intersects(RULE_ZERO, winding_number)) {
-		// color = vec4(1, 0, 0, 1);
-		color = tile.color;
+		color = vec4(1, 0, 0, 1);
+		// color = tile.color;
+		color.a = abs(winding_number) / 1.8;
 	}
 
 	// imageStore(img_output, ivec2(int(px.x), int(px.y)), color);
