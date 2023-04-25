@@ -3,6 +3,9 @@
 layout(local_size_x = 32, local_size_y = 32) in;
 layout(rgba8, binding = 0) uniform image2D img_output;
 
+uniform int color_mode;
+uniform int fill_rule;
+
 // kind of curve
 #define C_LINE 0
 #define C_QUADRATIC 1
@@ -65,10 +68,14 @@ float ccw(vec2 a, vec2 b, vec2 c) {
 	return((b.x-a.x)*(c.y-a.y) - (b.y-a.y)*(c.x-a.x));
 }
 
-int curve_eval(Implicit_Curve curve, vec2 pt) {
+int curve_side(Implicit_Curve curve, vec2 pt) {
 	int side = 0;
+
+	// pt.y inside box
 	if (pt.y > curve.box.w || pt.y <= curve.box.y) {
+		// pt.x inside box
 		if (pt.x > curve.box.x && pt.x <= curve.box.z) {
+			// pt.y really inside
 			if (pt.y > curve.box.w) {
 				side = (curve.orientation == C_TL || curve.orientation == C_BR) ? -1 : 1;
 			}	else {
@@ -76,8 +83,10 @@ int curve_eval(Implicit_Curve curve, vec2 pt) {
 			}
 		}
 	} else if(pt.x > curve.box.z) {
+		// pt.x to right of the curve
 		side = 1;
 	} else if(pt.x <= curve.box.x) {
+		// pt.x to left of the curve
 		side = -1;
 	} else {
 		vec2 a, b;
@@ -143,10 +152,10 @@ int curve_eval(Implicit_Curve curve, vec2 pt) {
 }
 
 // fill rules
-#define RULE_ODD 1
-#define RULE_EVEN 2
-#define RULE_NONZERO 3
-#define RULE_ZERO 4
+#define RULE_ODD 0
+#define RULE_EVEN 1
+#define RULE_NONZERO 2
+#define RULE_ZERO 3
 
 bool intersects(int rule, int intersections) {
 	if (rule == RULE_ODD) {
@@ -162,6 +171,18 @@ bool intersects(int rule, int intersections) {
 	return false;
 }
 
+vec4 colors_positive[3] = vec4[](
+	vec4(1, 0, 0, 1),
+	vec4(0, 1, 0, 1),
+	vec4(0, 0, 1, 1)
+);
+
+vec4 colors_negative[3] = vec4[](
+	vec4(0.5, 0, 0, 1),
+	vec4(0, 0.5, 0, 1),
+	vec4(0, 0, 0.5, 1)
+);
+
 void main() {
 	// vec2 px = gl_GlobalInvocationID.xy * gl_LocalInvocationID.xy;
 	ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
@@ -170,39 +191,86 @@ void main() {
 	uint tile_index = gl_WorkGroupID.x + gl_WorkGroupID.y * 25;
 	Tile tile = tiles.data[tile_index];
 
-	// if (tile.command_count == 0) {
-	// 	imageStore(img_output, pixel_coords, vec4(0));
-	// 	return;
-	// }
-
-	// int winding_number = tile.winding_number + int(tile.had_cross_right);
 	int winding_number = tile.winding_number;
 	for (int i = 0; i < tile.command_count; i += 1) {
 		Command cmd = commands.data[tile.command_offset + i];
 		Implicit_Curve curve = curves.data[cmd.curve_index];
-		
-		if (curve.orientation != C_BR) {
-			winding_number += cmd.crossed_right;
-		}
 
+		int side = curve_side(curve, px);
 		if (px.y > curve.box.y && px.y <= curve.box.w) {
-			int count = curve_eval(curve, px);
+			if (curve.orientation != C_BR) {
+				// winding_number += cmd.crossed_right;
+				// winding_number += -1;
+			}
 
-			if (count < 0) {
+			if (curve.orientation != C_BR && side > 0) {
+				// winding_number += -1;
+			}
+
+			// NOTE fixes left/right crossings
+
+			if (side < 0) {
 				winding_number += curve.winding_increment;
 			}
+		} 
+
+		// NOTE fixes flat top
+		// if (cmd.crossed_right != 0) {
+		// 	if (side < 0) {
+		// 		// winding_number += -1;
+		// 		winding_number += cmd.crossed_right;
+		// 		// winding_number += curve.winding_increment;
+		// 	}
+		// }
+
+		// if (px.y <= curve.box.y && curve.orientation == C_BR) {
+		if (px.y > curve.box.w) {
+		// if (px.y <= curve.box.w) {
+			if (side < 0) {
+				// if (px.x > curve.box.x && px.x <= curve.box.z) {
+					// winding_number += cmd.crossed_right;
+					// winding_number += curve.winding_increment;
+					// winding_number += +1;
+				// }
+			}
 		}
+
+		// if (px.y > curve.box.y && cmd.crossed_right != 0 && curve.orientation != C_BR) {
+		// 	winding_number += cmd.crossed_right;
+		// }
 	}
 
 	vec4 color = vec4(1, 1, 1, 1);
 
+	if (intersects(fill_rule, winding_number)) {
 	// if (intersects(RULE_ODD, winding_number)) {
 	// if (intersects(RULE_EVEN, winding_number)) {
-	if (intersects(RULE_NONZERO, winding_number)) {
+	// if (intersects(RULE_NONZERO, winding_number)) {
 	// if (intersects(RULE_ZERO, winding_number)) {
-		color = vec4(1, 0, 0, 1);
-		// color = tile.color;
-		color.a = abs(winding_number) / 1.8;
+		color = vec4(0, 0, 0, 1);
+
+		if (abs(winding_number) <= 3) {
+			if (winding_number < 0) {
+				color = colors_negative[abs(winding_number) - 1];
+			} else {
+				color = colors_positive[winding_number - 1];
+			}
+		}
+
+		if (color_mode == 0) {
+			color = vec4(1, 0, 0, 1);
+		} else if (color_mode == 1) {
+			color = tile.color;
+		} else if (color_mode == 2) {
+			color.a = abs(winding_number) / 1.8;
+		} else if (color_mode == 3) {
+			color = vec4(1, 0, 0, 1);
+
+			// highlight wanted levels
+			if (winding_number > 50) {
+				color = vec4(0, 1, 0, 1);
+			}
+		}
 	}
 
 	// imageStore(img_output, ivec2(int(px.x), int(px.y)), color);

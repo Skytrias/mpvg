@@ -1,53 +1,119 @@
 package src
 
+import "core:time"
 import "core:fmt"
 import "core:math"
-import "core:math/linalg"
-import glm "core:math/linalg/glsl"
-
 import "core:os"
+import "core:bytes"
 import "core:strings"
 import "core:runtime"
 import "core:strconv"
+import "core:math/linalg"
+import glm "core:math/linalg/glsl"
 import glfw "vendor:GLFW"
 import gl "vendor:OpenGL"
 
 length :: linalg.vector_length
-KAPPA90 :: 0.5522847493 * 2
+
+App :: struct {
+	mouse: Mouse,
+	renderer: Renderer,
+	ctrl: bool,
+}
+app: App
 
 Mouse :: struct {
 	x: f32,
 	y: f32,
+	left: bool,
+	right: bool,
 }
-mouse: Mouse
+
+TESTING :: #config(TESTING, true)
 
 window_cursor_pos_callback :: proc "c" (handle: glfw.WindowHandle, x, y: f64) {
-	mouse.x = f32(x)
-	mouse.y = f32(y)
+	app.mouse.x = f32(x)
+	app.mouse.y = f32(y)
 }
 
-Vertex :: struct {
-	pos: [2]f32,
-	uv: [2]f32,
+window_mouse_button_callback :: proc "c" (handle: glfw.WindowHandle, button, action, mods: i32) {
+	if button == glfw.MOUSE_BUTTON_LEFT {
+		app.mouse.left = action == glfw.PRESS
+	}
+
+	if button == glfw.MOUSE_BUTTON_RIGHT {
+		app.mouse.right = action == glfw.PRESS
+	}
 }
 
-shader_vert := #load("vertex.glsl")
-shader_frag := #load("fragment.glsl")
-shader_compute := #load("mpvg.comp")
+window_key_callback :: proc "c" (handle: glfw.WindowHandle, key, scancode, action, mods: i32) {
+	context = runtime.default_context()
+	down := action == glfw.PRESS || action == glfw.REPEAT
 
-// main :: proc() {
-// 	values := [5]int { 0, 10, 20, 30, 40 }
-// 	output: [5]int
+	if mods == glfw.MOD_CONTROL {
+		app.ctrl = down
+	}
 
-// 	sum: int
-// 	for i := len(values) - 1; i >= 0; i -= 1 {
-// 		temp := values[i]
-// 		output[i] = sum
-// 		sum += temp
-// 	}
+	if mods != 0 {
+		return
+	}
 
-// 	fmt.eprintln(output)
-// }
+	if key == glfw.KEY_LEFT_CONTROL {
+		app.ctrl = down
+	}
+
+	if down {
+		switch key {
+		case glfw.KEY_1: app.renderer.color_mode = 0
+		case glfw.KEY_2: app.renderer.color_mode = 1
+		case glfw.KEY_3: app.renderer.color_mode = 2
+		case glfw.KEY_4: app.renderer.color_mode = 3
+
+		case glfw.KEY_Q: app.renderer.fill_rule = 0
+		case glfw.KEY_W: app.renderer.fill_rule = 1
+		case glfw.KEY_E: app.renderer.fill_rule = 2
+		case glfw.KEY_R: app.renderer.fill_rule = 3
+		}
+	}
+}
+
+POINTS_PATH :: "test.points"
+
+points_read :: proc(p1, p2, p3: ^[2]f32) {
+	content, ok := os.read_entire_file(POINTS_PATH, context.temp_allocator)
+
+	if !ok {
+		p1^ = { 0, 0 }
+		p2^ = { -50, 100 }
+		p3^ = { +50, 100 }
+		return
+	} 
+
+	read := read_make(content[:])
+	size := size_of([2]f32)
+	read_ptr(&read, p1, size)
+	read_ptr(&read, p2, size)
+	read_ptr(&read, p3, size)
+	
+	read_ptr(&read, &app.renderer.color_mode, size_of(int))
+	read_ptr(&read, &app.renderer.fill_rule, size_of(int))
+}
+
+points_write :: proc(p1, p2, p3: ^[2]f32) {
+	fixed: [512]u8
+	blob: Blob
+	blob.data_buffer = fixed[:]
+
+	size := size_of([2]f32)
+	blob_write_ptr(&blob, p1, size)
+	blob_write_ptr(&blob, p2, size)
+	blob_write_ptr(&blob, p3, size)
+
+	blob_write_ptr(&blob, &app.renderer.color_mode, size_of(int))
+	blob_write_ptr(&blob, &app.renderer.fill_rule, size_of(int))
+
+	os.write_entire_file(POINTS_PATH, blob_result(blob))
+}
 
 main :: proc() {
 	glfw.Init()
@@ -69,74 +135,27 @@ main :: proc() {
 	}
 
 	glfw.SetCursorPosCallback(window, window_cursor_pos_callback)
+	glfw.SetMouseButtonCallback(window, window_mouse_button_callback)
+	glfw.SetKeyCallback(window, window_key_callback)
 
 	glfw.MakeContextCurrent(window)
 	gl.load_up_to(4, 3, glfw.gl_set_proc_address)
 
-	vao: u32
-	gl.GenVertexArrays(1, &vao)
-	gl.BindVertexArray(vao)
-	defer gl.BindVertexArray(0)
+	renderer_init(&app.renderer)
+	defer renderer_destroy(&app.renderer)
 
-	vbo: u32
-	gl.GenBuffers(1, &vbo)
-	gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
+	renderer_font_push(&app.renderer, "Lato-Regular.ttf")
 
-	size := i32(size_of(Vertex))
-	gl.VertexAttribPointer(0, 2, gl.FLOAT, gl.FALSE, size, 0)
-	gl.EnableVertexAttribArray(0)
-	gl.VertexAttribPointer(1, 2, gl.FLOAT, gl.FALSE, size, offset_of(Vertex, uv))
-	gl.EnableVertexAttribArray(1)
-
-	program, ok := gl.shader_load_sources({ 
-		{ shader_vert, .VERTEX }, 
-		{ shader_frag, .FRAGMENT },
-	})
-	if !ok {
-		panic("failed loading frag/vert shader")
-	}
-	loc_projection := gl.GetUniformLocation(program, "projection")
-
-	compute_program, compute_ok := gl.shader_load_sources({{ shader_compute, .COMPUTE }})
-	if !compute_ok {
-		panic("failed loading compute shader")
-	}
-
-	texture_id: u32
-	gl.GenTextures(1, &texture_id)
-	gl.BindTexture(gl.TEXTURE_2D, texture_id)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-	gl.BindImageTexture(0, texture_id, 0, gl.FALSE, 0, gl.WRITE_ONLY, gl.RGBA8)
-
-	{
-		w := 800
-		h := 800
-		gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, i32(w), i32(h), 0, gl.RGBA, gl.UNSIGNED_BYTE, nil)
-	}
-	gl.BindTexture(gl.TEXTURE_2D, 0)
-
-	compute_curves_ssbo: u32
-	gl.GenBuffers(1, &compute_curves_ssbo)
-	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, compute_curves_ssbo)
-
-	compute_tiles_ssbo: u32
-	gl.GenBuffers(1, &compute_tiles_ssbo)
-	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, compute_tiles_ssbo)
-
-	compute_commands_ssbo: u32
-	gl.GenBuffers(1, &compute_commands_ssbo)
-	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, compute_commands_ssbo)
-
-	renderer := renderer_make()
-	defer renderer_destroy(&renderer)
-
-	renderer_font_push(&renderer, "Lato-Regular.ttf")
-
+	p1, p2, p3: [2]f32
+	points_read(&p1, &p2, &p3)
+	defer points_write(&p1, &p2, &p3)
+	scale: [2]f32
+	offset: [2]f32
+	
 	count: f32
+	duration: time.Duration
 	for !glfw.WindowShouldClose(window) {
+		time.SCOPED_TICK_DURATION(&duration)
 		free_all(context.temp_allocator)
 		width := 800
 		height := 800
@@ -146,24 +165,55 @@ main :: proc() {
 		tiles_y := height / TILE_SIZE
 		// fmt.eprintln("tiles_x", tiles_x, tiles_y)
 
-		{
-			gl.UseProgram(compute_program)
+		mouse_tile_x := clamp(int(app.mouse.x), 0, width) / TILE_SIZE
+		mouse_tile_y := clamp(int(app.mouse.y), 0, height) / TILE_SIZE
+		window_text := fmt.ctprintf(
+			"mpvg %fms, tilex: %d, tiley: %d, tileid: %d", 
+			time.duration_milliseconds(duration),
+			mouse_tile_x,
+			mouse_tile_y,
+			mouse_tile_x + mouse_tile_y * tiles_x,
+		)
+		glfw.SetWindowTitle(window, window_text)
 
-			renderer_clear(&renderer, tiles_x * tiles_y, tiles_x, tiles_y)
-			path := renderer_path_make(&renderer)
+		gl.Viewport(0, 0, i32(width), i32(height))
+		gl.ClearColor(1, 1, 1, 1)
+		gl.Clear(gl.COLOR_BUFFER_BIT)
+
+		{
+			renderer_start(&app.renderer, tiles_x * tiles_y, tiles_x, tiles_y)
+			defer renderer_end(&app.renderer, width, height)
+			
+			path := renderer_path_make(&app.renderer)
+			path_move_to(&path, p1.x, p1.y)
+			path_line_to(&path, p2.x, p2.y)
+			path_line_to(&path, p3.x, p3.y)
+			path_close(&path)
+			renderer_path_finish(&app.renderer, &path)
+
+			if app.mouse.left {
+				p := app.ctrl ? &p1 : &p2
+				p.x = app.mouse.x - offset.x
+				p.y = app.mouse.y - offset.y
+			}
+
+			if app.mouse.right {
+				p3.x = app.mouse.x - offset.x
+				p3.y = app.mouse.y - offset.y
+			}
 
 			// path_quadratic_test(&path, mouse.x, mouse.y)
 			// path_cubic_test(&path, mouse.x, mouse.y, 100, count)
 			
-			// path_rect_test(&path, mouse.x, mouse.y, 200, 200)
+			// path_rect_test(&path, mouse.x, mouse.y, 200, 100)
 			// renderer_path_finish(&renderer, &path)
 
-			path_triangle(&path, mouse.x, mouse.y, 300)
-			renderer_path_finish(&renderer, &path)
+			// path_triangle(&path, mouse.x, mouse.y, 200)
+			// renderer_path_finish(&renderer, &path)
 
 			// path_circle(&path, mouse.x, mouse.y, 100)
 
-			// renderer_text_push(&renderer, "e", 400, 100, 400)
+			// renderer_text_push(&app.renderer, "e", 400, app.mouse.x, app.mouse.y)
 
 			// renderer_glyph_push(&renderer, 'y', 200, 100, 100)
 			// renderer_path_finish(&renderer, &path)
@@ -177,68 +227,17 @@ main :: proc() {
 			// path_line_to(&path, 200, 50)
 			// path_close(&path)
 
-			scale := [2]f32 { 1, 1 }
-			// offset := [2]f32 { mouse.x, mouse.y }
-			offset := [2]f32 {}
-			renderer_process(&renderer, scale, offset)
+			scale = [2]f32 { 1, 1 }
+			offset = [2]f32 { 200, 200 }
+			renderer_process(&app.renderer, scale, offset)
 
-			renderer_process_tiles(&renderer, f32(width), f32(height))
 			// fmt.eprintln("len:", renderer.curve_index, renderer.output_index)
 
-			fmt.eprintln("~~~~~~~~~~~~~~~", renderer.output_index)
-			for i in 0..<renderer.output_index {
-				c := renderer.output[i]
-				fmt.eprint(c.orientation, ' ')
-			}
-			fmt.eprintln()
-
-			gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, compute_curves_ssbo)
-			gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, compute_curves_ssbo)
-			gl.BufferData(gl.SHADER_STORAGE_BUFFER, renderer.output_index * size_of(Implicit_Curve), raw_data(renderer.output), gl.STREAM_DRAW)
-
-			gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, 1, compute_tiles_ssbo)
-			gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, compute_tiles_ssbo)
-			gl.BufferData(gl.SHADER_STORAGE_BUFFER, renderer.tile_index * size_of(Renderer_Tile), raw_data(renderer.tiles), gl.STREAM_DRAW)
-
-			gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, 2, compute_commands_ssbo)
-			gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, compute_commands_ssbo)
-			gl.BufferData(gl.SHADER_STORAGE_BUFFER, renderer.command_index * size_of(Renderer_Command), raw_data(renderer.commands), gl.STREAM_DRAW)
-
-			gl.DispatchCompute(u32(tiles_x), u32(tiles_y), 1)
-		}
-
-		gl.MemoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT)
-
-		gl.Viewport(0, 0, i32(width), i32(height))
-		gl.ClearColor(1, 1, 1, 1)
-		gl.Clear(gl.COLOR_BUFFER_BIT)
-
-		gl.Enable(gl.BLEND)
-		gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-		gl.Disable(gl.CULL_FACE)
-		gl.Disable(gl.DEPTH_TEST)
-		gl.BindVertexArray(vao)
-		gl.UseProgram(program)
-
-		projection := glm.mat4Ortho3d(0, f32(width), f32(height), 0, 0, 1)
-		gl.UniformMatrix4fv(loc_projection, 1, gl.FALSE, &projection[0][0])
-
-		gl.BindTexture(gl.TEXTURE_2D, texture_id)
-		gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
-
-		{
-			w := f32(width)
-			h := f32(height)
-			data := [6]Vertex {
-				{{ 0, 0 }, { 0, 0 }},
-				{{ 0, h }, { 0, 1 }},
-				{{ w, 0 }, { 1, 0 }},
-				{{ 0, h }, { 0, 1 }},
-				{{ w, 0 }, { 1, 0 }},
-				{{ w, h }, { 1, 1 }},
-			}
-			gl.BufferData(gl.ARRAY_BUFFER, size_of(data), &data[0], gl.STREAM_DRAW)
-			gl.DrawArrays(gl.TRIANGLES, 0, 6)
+			// fmt.eprint(renderer.output_index, ' ')
+			// for i in 0..<renderer.output_index {
+			// 	c := renderer.output[i]
+			// 	fmt.eprint(c.orientation, ' ')
+			// }
 		}
 
 		glfw.SwapBuffers(window)
