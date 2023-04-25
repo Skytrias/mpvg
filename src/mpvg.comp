@@ -5,6 +5,7 @@ layout(rgba8, binding = 0) uniform image2D img_output;
 
 uniform int color_mode;
 uniform int fill_rule;
+uniform int ignore_temp;
 
 // kind of curve
 #define C_LINE 0
@@ -55,7 +56,7 @@ layout(std140, binding = 1) buffer Tiles {
 
 struct Command {
 	int curve_index;
-	int crossed_right;
+	bool crossed_right;
 	int tile_index;
 	int pad2;
 };
@@ -198,46 +199,18 @@ void main() {
 
 		int side = curve_side(curve, px);
 		if (px.y > curve.box.y && px.y <= curve.box.w) {
-			if (curve.orientation != C_BR) {
-				// winding_number += cmd.crossed_right;
-				// winding_number += -1;
-			}
-
-			if (curve.orientation != C_BR && side > 0) {
-				// winding_number += -1;
-			}
-
-			// NOTE fixes left/right crossings
-
 			if (side < 0) {
 				winding_number += curve.winding_increment;
-			}
-		} 
-
-		// NOTE fixes flat top
-		// if (cmd.crossed_right != 0) {
-		// 	if (side < 0) {
-		// 		// winding_number += -1;
-		// 		winding_number += cmd.crossed_right;
-		// 		// winding_number += curve.winding_increment;
-		// 	}
-		// }
-
-		// if (px.y <= curve.box.y && curve.orientation == C_BR) {
-		if (px.y > curve.box.w) {
-		// if (px.y <= curve.box.w) {
-			if (side < 0) {
-				// if (px.x > curve.box.x && px.x <= curve.box.z) {
-					// winding_number += cmd.crossed_right;
-					// winding_number += curve.winding_increment;
-					// winding_number += +1;
-				// }
-			}
+			} 
 		}
 
-		// if (px.y > curve.box.y && cmd.crossed_right != 0 && curve.orientation != C_BR) {
-		// 	winding_number += cmd.crossed_right;
-		// }
+		if (cmd.crossed_right) {
+			if ((curve.orientation == C_BR || curve.orientation == C_TL) && (px.y > curve.box.w)) {
+				winding_number += curve.winding_increment;
+			} else if( (curve.orientation == C_BL || curve.orientation == C_TR) && (px.y > curve.box.y)) {
+				winding_number -= curve.winding_increment;
+			}
+		}
 	}
 
 	vec4 color = vec4(1, 1, 1, 1);
@@ -270,6 +243,10 @@ void main() {
 			if (winding_number > 50) {
 				color = vec4(0, 1, 0, 1);
 			}
+		}
+
+		if (pixel_coords.x % 32 == 0 || pixel_coords.y % 32 == 0) {
+			color = vec4(0, 0, 0, 1);
 		}
 	}
 

@@ -174,6 +174,7 @@ Renderer :: struct {
 	// uniform options
 	color_mode: int,
 	fill_rule: int,
+	ignore_temp: int,
 
 	// platform dependent implementation
 	gpu: Renderer_GL,
@@ -188,6 +189,7 @@ Renderer_GL :: struct {
 	compute_program: u32,
 	compute_loc_color_mode: i32,
 	compute_loc_fill_rule: i32,
+	compute_loc_ignore_temp: i32,
 	compute_texture_id: u32,
 
 	compute_curves_ssbo: u32,
@@ -206,7 +208,7 @@ Renderer_Tile :: struct #packed {
 
 Renderer_Command :: struct #packed {
 	curve_index: i32,
-	crossed_right: i32,
+	crossed_right: b32,
 	tile_index: i32,
 	x: f32,
 }
@@ -409,7 +411,7 @@ renderer_process_tiles :: proc(renderer: ^Renderer, width, height: f32) {
 					cmd.x = min(curve.box.x, curve.box.z)
 
 					if crossR {
-						cmd.crossed_right = start.x < end.x ? -1 : 1
+						cmd.crossed_right = true
 					}
 
 					if crossB {
@@ -457,9 +459,10 @@ renderer_process_tiles :: proc(renderer: ^Renderer, width, height: f32) {
 		
 		if tile.command_offset != 100_000 {
 			// fmt.eprintln(tile.command_offset, tile.command_count)
-			// slice.sort_by(renderer.commands[tile.command_offset:tile.command_offset + tile.command_count], proc(a, b: Renderer_Command) -> bool {
-			// 	return a.x < b.x
-			// })
+			slice.sort_by(renderer.commands[tile.command_offset:tile.command_offset + tile.command_count], proc(a, b: Renderer_Command) -> bool {
+				// return a.x < b.x
+				return a.curve_index < b.curve_index
+			})
 		}
 	}
 
@@ -514,6 +517,7 @@ renderer_gpu_gl_init :: proc(using gpu: ^Renderer_GL) {
 		}
 		compute_loc_color_mode = gl.GetUniformLocation(compute_program, "color_mode")
 		compute_loc_fill_rule = gl.GetUniformLocation(compute_program, "fill_rule")
+		compute_loc_ignore_temp = gl.GetUniformLocation(compute_program, "ignore_temp")
 
 		gl.GenTextures(1, &compute_texture_id)
 		gl.BindTexture(gl.TEXTURE_2D, compute_texture_id)
@@ -557,6 +561,7 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 	gl.UseProgram(compute_program)
 	gl.Uniform1i(compute_loc_color_mode, i32(renderer.color_mode))
 	gl.Uniform1i(compute_loc_fill_rule, i32(renderer.fill_rule))
+	gl.Uniform1i(compute_loc_ignore_temp, i32(renderer.ignore_temp))
 
 	gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, compute_curves_ssbo)
 	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, compute_curves_ssbo)

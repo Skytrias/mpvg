@@ -73,6 +73,8 @@ window_key_callback :: proc "c" (handle: glfw.WindowHandle, key, scancode, actio
 		case glfw.KEY_W: app.renderer.fill_rule = 1
 		case glfw.KEY_E: app.renderer.fill_rule = 2
 		case glfw.KEY_R: app.renderer.fill_rule = 3
+
+		case glfw.KEY_SPACE: app.renderer.ignore_temp = app.renderer.ignore_temp == 0 ? 1 : 0
 		}
 	}
 }
