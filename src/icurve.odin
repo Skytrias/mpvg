@@ -16,17 +16,16 @@ Implicit_Curve_Orientation :: enum i32 {
 	TR,
 }
 
-orientation_get :: proc(right, up: bool) -> Implicit_Curve_Orientation {
-	// if right {
-	// 	return up ? .BR : .TR
-	// } else {
-	// 	return up ? .BL : .TL
-	// }
-
-	if right {
-		return up ? .BR : .BL
+orientation_get :: proc(
+	going_right, going_up: bool, 
+	dx, dy: f32,
+	ofs: f32,
+	alpha: f32,
+) -> Implicit_Curve_Orientation {
+	if going_right == going_up {
+		return dy > alpha * dx ? .TL : .BR
 	} else {
-		return up ? .TR : .TL
+		return dy < ofs - alpha * dx ? .BL : .TR
 	}
 }
 

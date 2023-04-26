@@ -43,7 +43,13 @@ c2_implicitize :: proc(using curve: Curve, t0, t1: f32) -> (res: Implicit_Curve)
 
 	going_right := B[0].x < B[2].x
 	going_up := B[0].y < B[2].y
-	res.orientation = orientation_get(going_right, going_up)
+
+	dx := B[1].x - res.box.x
+	dy := B[1].y - res.box.y
+	alpha := (res.box.w - res.box.y) / (res.box.z - res.box.x)
+	ofs := res.box.w - res.box.y
+
+	res.orientation = orientation_get(going_right, going_up, dx, dy, alpha, ofs)
 	res.going_up = b32(going_up)
 	res.winding_increment = going_up ? 1 : -1
 	// fmt.eprintln("QUAD", res.orientation)
@@ -512,7 +518,14 @@ c3_implicitize :: proc(
 
 	going_right := B[0].x < B[3].x
 	going_up := B[0].y < B[3].y
-	res.orientation = orientation_get(going_right, going_up)
+
+	// TODO
+	// dx := B[1].x - res.box.x
+	// dy := B[1].y - res.box.y
+	// alpha := (res.box.w - res.box.y) / (res.box.z - res.box.x)
+	// ofs := res.box.w - res.box.y
+
+	// res.orientation = orientation_get(going_right, going_up)
 	res.going_up = b32(going_up)
 	res.winding_increment = going_up ? 1 : -1
 

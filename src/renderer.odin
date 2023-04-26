@@ -47,10 +47,20 @@ path_move_to :: proc(path: ^Path, x, y: f32) {
 	path.last = { x, y }
 }
 
+path_move_to_rel :: proc(path: ^Path, x, y: f32) {
+	path.last = path.last + { x, y }
+}
+
 path_line_to :: proc(path: ^Path, x, y: f32) {
 	path.curves[path.offset] = c1_make(path.last, { x, y })
 	path.offset += 1
 	path.last = { x, y }
+}
+
+path_line_to_rel :: proc(path: ^Path, x, y: f32) {
+	path.curves[path.offset] = c1_make(path.last, path.last + { x, y })
+	path.offset += 1
+	path.last = path.last + { x, y }
 }
 
 path_quadratic_to :: proc(path: ^Path, x, y, cx, cy: f32) {
@@ -59,10 +69,22 @@ path_quadratic_to :: proc(path: ^Path, x, y, cx, cy: f32) {
 	path.last = { x, y }
 }
 
+path_quadratic_to_rel :: proc(path: ^Path, x, y, cx, cy: f32) {
+	path.curves[path.offset] = c2_make(path.last, path.last + { cx, cy }, path.last + { x, y })
+	path.offset += 1
+	path.last = path.last + { x, y }
+}
+
 path_cubic_to :: proc(path: ^Path, x, y, c1x, c1y, c2x, c2y: f32) {
 	path.curves[path.offset] = c3_make(path.last, { c1x, c1y }, { c2x, c2y }, { x, y })
 	path.offset += 1
 	path.last = { x, y }
+}
+
+path_cubic_to_rel :: proc(path: ^Path, x, y, c1x, c1y, c2x, c2y: f32) {
+	path.curves[path.offset] = c3_make(path.last, path.last + { c1x, c1y }, path.last + { c2x, c2y }, path.last + { x, y })
+	path.offset += 1
+	path.last = path.last + { x, y }
 }
 
 path_close :: proc(path: ^Path) {
@@ -78,19 +100,9 @@ path_finish_curves :: proc(path: ^Path, curves: ^[]Curve) {
 
 path_triangle :: proc(path: ^Path, x, y, r: f32) {
 	path_move_to(path, x, y - r/2)
-	path_line_to(path, x - r/2, y + r/2 - 50)
-	// path_line_to(path, x + r/2, y + r/2 - 100)
+	path_line_to(path, x - r/2, y + r/2)
 	path_line_to(path, x + r/2, y + r/2)
 	path_close(path)	
-}
-
-path_rect_test :: proc(path: ^Path, x, y, w, h: f32) {
-	path_move_to(path, x, y)
-	path_line_to(path, x - 50, y + h + 50)
-	path_line_to(path, x + w - 50, y + h)
-	// path_line_to(path, x + w, y + 10)
-	path_line_to(path, x + w, y)
-	path_close(path)
 }
 
 path_rect :: proc(path: ^Path, x, y, w, h: f32) {
@@ -138,6 +150,40 @@ path_cubic_test :: proc(path: ^Path, x, y, r: f32, count: f32) {
 	off := f32(0)
 	path_cubic_to(path, xx, yy, xx - off * 0.5, yy - 10, xx + 10 + off, yy - 15)
 	// path_close(path)
+}
+
+path_mpvg_test :: proc(path: ^Path, x, y: f32) {
+	path_move_to(path, x, y)
+	
+	// red
+	// path_quadratic_to_rel(path, 0, 0, -20, -40)
+	path_line_to_rel(path, -10, -40)
+	path_quadratic_to_rel(path, 40, 50, 10, 20)
+	// path_line_to_rel(path, 40, -50)
+	path_line_to_rel(path, 10, 0)
+	path_line_to_rel(path, 20, 20)
+	
+	// black
+	path_line_to_rel(path, 40, 30)
+	path_line_to_rel(path, 35, -20)
+	path_line_to_rel(path, 40, -20)
+	path_line_to_rel(path, 20, 0)
+	path_line_to_rel(path, 10, 10)
+	
+	// orange
+	path_line_to_rel(path, 5, 10)
+	path_line_to_rel(path, -10, 20)
+	path_line_to_rel(path, -10, 25)
+	path_line_to_rel(path, 5, 10)
+	
+	// blue
+	path_line_to_rel(path, 5, 10)
+	path_line_to_rel(path, -70, 20)
+	
+	// green
+	// path_line_to_rel(path, -70, 20)
+	
+	path_close(path)
 }
 
 ///////////////////////////////////////////////////////////
@@ -285,6 +331,13 @@ renderer_path_make :: proc(renderer: ^Renderer) -> (res: Path) {
 
 renderer_path_finish :: proc(renderer: ^Renderer, path: ^Path) {
 	renderer.curve_index += path.offset
+}
+
+renderer_curves_push :: proc(renderer: ^Renderer, curves: []Curve) {
+	if len(curves) > 0 {
+		copy(renderer.curves[renderer.curve_index:], curves)
+		renderer.curve_index += len(curves)
+	}
 }
 
 renderer_process :: proc(using renderer: ^Renderer, scale, offset: [2]f32) {
