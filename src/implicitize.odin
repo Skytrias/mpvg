@@ -78,183 +78,183 @@ c2_implicitize :: proc(using curve: Curve, t0, t1: f32) -> (res: Implicit_Curve)
 Cubic_Type :: enum {
 	UNKOWN,
 	SERPENTINE,
-	LOOP,
+	CUSP,
 	CUSP_AT_INFINITY,
-	QUADRATIC,
-	LINE,
-	POINT,
+	CUBIC_LOOP,
+	DEGENERATE_QUADRATIC,
+	DEGENERATE_LINE,
 }
 
 // TODO
 // TODO REFACTOR all array accessors here 
 // TODO
 
-c3_coeficients_matrix :: proc(using curve: Curve) -> (m: glm.mat3) #no_bounds_check {
-	a := B[0].x
-	b := B[0].y
-	c := B[1].x
-	d := B[1].y
-	e := B[2].x
-	f := B[2].y
-	g := B[3].x
-	h := B[3].y
+// c3_coeficients_matrix :: proc(using curve: Curve) -> (m: glm.mat3) #no_bounds_check {
+// 	a := B[0].x
+// 	b := B[0].y
+// 	c := B[1].x
+// 	d := B[1].y
+// 	e := B[2].x
+// 	f := B[2].y
+// 	g := B[3].x
+// 	h := B[3].y
 
-	m = glm.identity(glm.mat3)
-	m[0][0] =              a; m[0][1] =           b; m[0][2] = 1
-	m[1][0] =       -3*(a-c); m[1][1] =    -3*(b-d); m[1][2] = 0
-	m[2][0] =    3*(a-2*c+e); m[2][1] = 3*(b-2*d+f); m[2][2] = 0
-	m[3][0] =    g+3*(c-e)-a; m[3][1] = h+3*(d-f)-b; m[3][2] = 0
-	return
-}
+// 	m = glm.identity(glm.mat3)
+// 	m[0][0] =              a; m[0][1] =           b; m[0][2] = 1
+// 	m[1][0] =       -3*(a-c); m[1][1] =    -3*(b-d); m[1][2] = 0
+// 	m[2][0] =    3*(a-2*c+e); m[2][1] = 3*(b-2*d+f); m[2][2] = 0
+// 	m[3][0] =    g+3*(c-e)-a; m[3][1] = h+3*(d-f)-b; m[3][2] = 0
+// 	return
+// }
 
-find_discriminant_coeficients :: proc(m: glm.mat3) -> (dc: [4]f32) #no_bounds_check {
-	c := m[1][0]
-	d := m[1][1]
-	e := m[2][0]
-	f := m[2][1]
-	g := m[3][0]
-	h := m[3][1]
+// find_discriminant_coeficients :: proc(m: glm.mat3) -> (dc: [4]f32) #no_bounds_check {
+// 	c := m[1][0]
+// 	d := m[1][1]
+// 	e := m[2][0]
+// 	f := m[2][1]
+// 	g := m[3][0]
+// 	h := m[3][1]
 
-	dc[1] = f*g - e*h
-	dc[2] = c*h - d*g
-	dc[3] = d*e - c*f
-	return
-}
+// 	dc[1] = f*g - e*h
+// 	dc[2] = c*h - d*g
+// 	dc[3] = d*e - c*f
+// 	return
+// }
 
-find_serpentine_matrix :: proc(
-	d: [4]f32,
-	tmtl: [4]f32, // only 2 used
-) -> (m: glm.mat4, ts: [2][2]f32) #no_bounds_check {
-	tl := tmtl[1]
-	sl := 2*d[1]
+// find_serpentine_matrix :: proc(
+// 	d: [4]f32,
+// 	tmtl: [4]f32, // only 2 used
+// ) -> (m: glm.mat4, ts: [2][2]f32) #no_bounds_check {
+// 	tl := tmtl[1]
+// 	sl := 2*d[1]
 
-	inv_norm := 1 / math.sqrt(tl*tl + sl*sl)
-	tl *= inv_norm
-	sl *= inv_norm
+// 	inv_norm := 1 / math.sqrt(tl*tl + sl*sl)
+// 	tl *= inv_norm
+// 	sl *= inv_norm
 
-	tm := tmtl[0]
-	sm := 2*d[1]
+// 	tm := tmtl[0]
+// 	sm := 2*d[1]
 
-	inv_norm = 1 / math.sqrt(tm*tm + sm*sm)
-	tm *= inv_norm
-	sm *= inv_norm
+// 	inv_norm = 1 / math.sqrt(tm*tm + sm*sm)
+// 	tm *= inv_norm
+// 	sm *= inv_norm
 
-	// now assemble the matrix
-	// {
-	// {tl*tm, tl^3, tm^3, 1},
-	// {-sm*tl - sl*tm, -3 sl*tl^2, -3*sm*tm^2, 0},
-	// {sl*sm, 3 sl^2 tl, 3 sm^2 tm, 0},
-	// {0, -sl^3, -sm^3, 0}
-	// }
-	//
-	m = glm.identity(glm.mat4)
-	m[0][0] =        tl*tm; m[0][1] =    tl*tl*tl; m[0][2] =    tm*tm*tm; m[0][3] = 1
-	m[1][0] = -sm*tl-sl*tm; m[1][1] = -3*sl*tl*tl; m[1][2] = -3*sm*tm*tm; m[1][3] = 0
-	m[2][0] =        sl*sm; m[2][1] =  3*sl*sl*tl; m[2][2] =  3*sm*sm*tm; m[2][3] = 0
-	m[3][0] =            0; m[3][1] =   -sl*sl*sl; m[3][2] =   -sm*sm*sm; m[3][3] = 0
+// 	// now assemble the matrix
+// 	// {
+// 	// {tl*tm, tl^3, tm^3, 1},
+// 	// {-sm*tl - sl*tm, -3 sl*tl^2, -3*sm*tm^2, 0},
+// 	// {sl*sm, 3 sl^2 tl, 3 sm^2 tm, 0},
+// 	// {0, -sl^3, -sm^3, 0}
+// 	// }
+// 	//
+// 	m = glm.identity(glm.mat4)
+// 	m[0][0] =        tl*tm; m[0][1] =    tl*tl*tl; m[0][2] =    tm*tm*tm; m[0][3] = 1
+// 	m[1][0] = -sm*tl-sl*tm; m[1][1] = -3*sl*tl*tl; m[1][2] = -3*sm*tm*tm; m[1][3] = 0
+// 	m[2][0] =        sl*sm; m[2][1] =  3*sl*sl*tl; m[2][2] =  3*sm*sm*tm; m[2][3] = 0
+// 	m[3][0] =            0; m[3][1] =   -sl*sl*sl; m[3][2] =   -sm*sm*sm; m[3][3] = 0
 
-	// save the roots for later (tl,sl) and (tm,sm)
-	ts[0] = { tl, sl }
-	ts[1] = { tm, sm }
-	// other inflection points:
-	// tn == 1, sn == 0
-	return
-}
+// 	// save the roots for later (tl,sl) and (tm,sm)
+// 	ts[0] = { tl, sl }
+// 	ts[1] = { tm, sm }
+// 	// other inflection points:
+// 	// tn == 1, sn == 0
+// 	return
+// }
 
-find_loop_matrix :: proc(
-	d: [4]f32,
-	tetd: [4]f32, // only 2 used
-) -> (m: glm.mat4, ts: [2][2]f32) #no_bounds_check {
-	td := tetd[1]
-	sd := 2*d[1]
+// find_loop_matrix :: proc(
+// 	d: [4]f32,
+// 	tetd: [4]f32, // only 2 used
+// ) -> (m: glm.mat4, ts: [2][2]f32) #no_bounds_check {
+// 	td := tetd[1]
+// 	sd := 2*d[1]
 
-	inv_norm := 1 / math.sqrt(td*td + sd*sd)
-	td *= inv_norm
-	sd *= inv_norm
+// 	inv_norm := 1 / math.sqrt(td*td + sd*sd)
+// 	td *= inv_norm
+// 	sd *= inv_norm
 
-	te := tetd[0]
-	se := 2*d[1]
+// 	te := tetd[0]
+// 	se := 2*d[1]
 
-	inv_norm = 1 / math.sqrt(te*te + se*se)
-	te *= inv_norm
-	se *= inv_norm
+// 	inv_norm = 1 / math.sqrt(te*te + se*se)
+// 	te *= inv_norm
+// 	se *= inv_norm
 
-	// assemble the matrix
-	// {
-	// {td*te, td^2 te, td te^2, 1},
-	// {-se*td - sd*te, -se*td^2 - 2 sd te td, -sd te^2 - 2 se td te, 0},
-	// {sd*se, te sd^2 + 2 se td sd, td se^2 + 2 sd te se, 0},
-	// {0, -sd^2 se, -sd se^2, 0}
-	// }
-	m = glm.identity(glm.mat4)
-	m[0][0] =        td*te; m[0][1] =             td*td*te; m[0][2] =             td*te*te; m[0][3] = 1
-	m[1][0] = -se*td-sd*te; m[1][1] = -se*td*td-2*sd*te*td; m[1][2] = -sd*te*te-2*se*td*te; m[1][3] = 0
-	m[2][0] =        sd*se; m[2][1] =  te*sd*sd+2*se*td*sd; m[2][2] =  td*se*se+2*sd*te*se; m[2][3] = 0
-	m[3][0] =            0; m[3][1] =            -sd*sd*se; m[3][2] =            -sd*se*se; m[3][3] = 0
+// 	// assemble the matrix
+// 	// {
+// 	// {td*te, td^2 te, td te^2, 1},
+// 	// {-se*td - sd*te, -se*td^2 - 2 sd te td, -sd te^2 - 2 se td te, 0},
+// 	// {sd*se, te sd^2 + 2 se td sd, td se^2 + 2 sd te se, 0},
+// 	// {0, -sd^2 se, -sd se^2, 0}
+// 	// }
+// 	m = glm.identity(glm.mat4)
+// 	m[0][0] =        td*te; m[0][1] =             td*td*te; m[0][2] =             td*te*te; m[0][3] = 1
+// 	m[1][0] = -se*td-sd*te; m[1][1] = -se*td*td-2*sd*te*td; m[1][2] = -sd*te*te-2*se*td*te; m[1][3] = 0
+// 	m[2][0] =        sd*se; m[2][1] =  te*sd*sd+2*se*td*sd; m[2][2] =  td*se*se+2*sd*te*se; m[2][3] = 0
+// 	m[3][0] =            0; m[3][1] =            -sd*sd*se; m[3][2] =            -sd*se*se; m[3][3] = 0
 
-	// save the roots for later (td,sd) and (te,se)
-	ts[0] = { td, sd }
-	ts[1] = { te, se }
+// 	// save the roots for later (td,sd) and (te,se)
+// 	ts[0] = { td, sd }
+// 	ts[1] = { te, se }
 
-	return
-}
+// 	return
+// }
 
-find_cusp_at_infinity_matrix :: proc(d: [4]f32) -> (m: glm.mat4, ts: [2][2]f32) #no_bounds_check {
-	// compute and normalize the pair (tl, sl)
-	tl := d[3]
-	sl := 3*d[2]
-	inv_norm := 1 / math.sqrt(tl*tl + sl*sl)
-	tl *= inv_norm
-	sl *= inv_norm
+// find_cusp_at_infinity_matrix :: proc(d: [4]f32) -> (m: glm.mat4, ts: [2][2]f32) #no_bounds_check {
+// 	// compute and normalize the pair (tl, sl)
+// 	tl := d[3]
+// 	sl := 3*d[2]
+// 	inv_norm := 1 / math.sqrt(tl*tl + sl*sl)
+// 	tl *= inv_norm
+// 	sl *= inv_norm
 
-	// assemble the matrix
-	// {
-	// {tl, tl^3, 1,1},
-	// {-sl,-3sl tl^2, 0,0},
-	// {0, 3sl^2 tl, 0,0},
-	// {0,-sl^3,0,0}
-	// }
-	m = glm.identity(glm.mat4)
-	m[0][0] =  tl; m[0][1] =    tl*tl*tl; m[0][2] = 1; m[0][3] = 1
-	m[1][0] = -sl; m[1][1] = -3*sl*tl*tl; m[1][2] = 0; m[1][3] = 0
-	m[2][0] =   0; m[2][1] =  3*sl*sl*tl; m[2][2] = 0; m[2][3] = 0
-	m[3][0] =   0; m[3][1] =   -sl*sl*sl; m[3][2] = 0; m[3][3] = 0
+// 	// assemble the matrix
+// 	// {
+// 	// {tl, tl^3, 1,1},
+// 	// {-sl,-3sl tl^2, 0,0},
+// 	// {0, 3sl^2 tl, 0,0},
+// 	// {0,-sl^3,0,0}
+// 	// }
+// 	m = glm.identity(glm.mat4)
+// 	m[0][0] =  tl; m[0][1] =    tl*tl*tl; m[0][2] = 1; m[0][3] = 1
+// 	m[1][0] = -sl; m[1][1] = -3*sl*tl*tl; m[1][2] = 0; m[1][3] = 0
+// 	m[2][0] =   0; m[2][1] =  3*sl*sl*tl; m[2][2] = 0; m[2][3] = 0
+// 	m[3][0] =   0; m[3][1] =   -sl*sl*sl; m[3][2] = 0; m[3][3] = 0
 
-	// save the roots for later (tl,sl)
-	ts[0] = { tl, sl }
-	ts[1] = { 2, 1 } // won't be used, enough to skip root creation
-	// other inflection points are:
-	// tm == 1, sm == 0
-	// tn == 1, sn == 0
-	return
-}
+// 	// save the roots for later (tl,sl)
+// 	ts[0] = { tl, sl }
+// 	ts[1] = { 2, 1 } // won't be used, enough to skip root creation
+// 	// other inflection points are:
+// 	// tm == 1, sm == 0
+// 	// tn == 1, sn == 0
+// 	return
+// }
 
-premultiply_f_by_m3_inverse :: proc(fm: glm.mat4) -> (m: glm.mat4) #no_bounds_check {
-	a := fm[0][0]
-	b := fm[0][1]
-	c := fm[0][2] // skip 0,3
-	d := fm[1][0]
-	e := fm[1][1]
-	f := fm[1][2] // skip 1,3
-	g := fm[2][0]
-	h := fm[2][1]
-	i := fm[2][2] // skip 2,3
-	j := fm[3][1]
-	k := fm[3][2] // skip 3,0 and 3,3
+// premultiply_f_by_m3_inverse :: proc(fm: glm.mat4) -> (m: glm.mat4) #no_bounds_check {
+// 	a := fm[0][0]
+// 	b := fm[0][1]
+// 	c := fm[0][2] // skip 0,3
+// 	d := fm[1][0]
+// 	e := fm[1][1]
+// 	f := fm[1][2] // skip 1,3
+// 	g := fm[2][0]
+// 	h := fm[2][1]
+// 	i := fm[2][2] // skip 2,3
+// 	j := fm[3][1]
+// 	k := fm[3][2] // skip 3,0 and 3,3
 
-	//{
-	//{a,b,c,1},
-	//{a+d/3,b+e/3,c+f/3,1},
-	//{a+(2 d)/3+g/3,b+(2 e)/3+h/3,c+(2 f)/3+i/3,1},
-	//{a+d+g,b+e+h+j,c+f+i+k,1}
-	//}
-	m = glm.identity(glm.mat4)
-	m[0][0] =           a; m[0][1] =           b; m[0][2] =           c; m[0][3] = 1
-	m[1][0] =       a+d/3; m[1][1] =       b+e/3; m[1][2] =       c+f/3; m[1][3] = 1
-	m[2][0] = a+2*d/3+g/3; m[2][1] = b+2*e/3+h/3; m[2][2] = c+2*f/3+i/3; m[2][3] = 1
-	m[3][0] =       a+d+g; m[3][1] =     b+e+h+j; m[3][2] =     c+f+i+k; m[3][3] = 1
-	return
-}
+// 	//{
+// 	//{a,b,c,1},
+// 	//{a+d/3,b+e/3,c+f/3,1},
+// 	//{a+(2 d)/3+g/3,b+(2 e)/3+h/3,c+(2 f)/3+i/3,1},
+// 	//{a+d+g,b+e+h+j,c+f+i+k,1}
+// 	//}
+// 	m = glm.identity(glm.mat4)
+// 	m[0][0] =           a; m[0][1] =           b; m[0][2] =           c; m[0][3] = 1
+// 	m[1][0] =       a+d/3; m[1][1] =       b+e/3; m[1][2] =       c+f/3; m[1][3] = 1
+// 	m[2][0] = a+2*d/3+g/3; m[2][1] = b+2*e/3+h/3; m[2][2] = c+2*f/3+i/3; m[2][3] = 1
+// 	m[3][0] =       a+d+g; m[3][1] =     b+e+h+j; m[3][2] =     c+f+i+k; m[3][3] = 1
+// 	return
+// }
 
 c3_cubic_find_degenerated_as_quadratic_matrix :: proc(using curve: Curve) -> (f: glm.mat4) {
 	// since we have a quadratic, we begin by finding its control points.
@@ -288,73 +288,196 @@ c3_cubic_find_degenerated_as_quadratic_matrix :: proc(using curve: Curve) -> (f:
 	return
 }
 
-c3_classify :: proc(using curve: Curve) -> (
-	m: glm.mat4, 
-	ts: [2][2]f32,
-	d: [4]f32,
-	type: Cubic_Type,
-)	{
-	cm := c3_coeficients_matrix(curve)
-	d = find_discriminant_coeficients(cm)
-	f: glm.mat4
+// c3_classify :: proc(using curve: Curve) -> (
+// 	m: glm.mat4, 
+// 	ts: [2][2]f32,
+// 	d: [4]f32,
+// 	type: Cubic_Type,
+// )	{
+// 	cm := c3_coeficients_matrix(curve)
+// 	d = find_discriminant_coeficients(cm)
+// 	f: glm.mat4
 
-	if abs(d[1]) > 1e-6 {
-		// I've decided to change the original quadraticsolve to receive
-		// the delta var as a argument. The reason is that the next two
-		// quadratic have the same delta, except for a constant multiplication.
-		// That is: delta_serp = -1/3 * delta_loop.
-		// Calculating the deltas using the A,B and C coeficients from the
-		// respective equations gives disagreeing results such as both deltas < 0.
-		// The first equation is: t^2 -2*d2 + (4/3)*d1*d3,
-		// the second is: t^2 - 2*d2 + 4*(d2^2 -d1*d3).
-		// Using Blinn's convention we have delta = b*b - a*c,
-		// where b = B/2.
+// 	if abs(d[1]) > 1e-6 {
+// 		// I've decided to change the original quadraticsolve to receive
+// 		// the delta var as a argument. The reason is that the next two
+// 		// quadratic have the same delta, except for a constant multiplication.
+// 		// That is: delta_serp = -1/3 * delta_loop.
+// 		// Calculating the deltas using the A,B and C coeficients from the
+// 		// respective equations gives disagreeing results such as both deltas < 0.
+// 		// The first equation is: t^2 -2*d2 + (4/3)*d1*d3,
+// 		// the second is: t^2 - 2*d2 + 4*(d2^2 -d1*d3).
+// 		// Using Blinn's convention we have delta = b*b - a*c,
+// 		// where b = B/2.
 
-		delta := 3*d[2]*d[2] - 4*d[1]*d[3]
-		if delta >= 0 {
-			tmtl: [4]f32
-			n := quadratic_solve(1, -2*d[2], (4/3)*d[1]*d[3], (1/3)*delta, &tmtl)
+// 		delta := 3*d[2]*d[2] - 4*d[1]*d[3]
+// 		if delta >= 0 {
+// 			tmtl: [4]f32
+// 			n := quadratic_solve(1, -2*d[2], (4/3)*d[1]*d[3], (1/3)*delta, &tmtl)
 
-			if tmtl[0] > tmtl[1] {
-				tmtl[0], tmtl[1] = tmtl[1], tmtl[0]
-			}
+// 			if tmtl[0] > tmtl[1] {
+// 				tmtl[0], tmtl[1] = tmtl[1], tmtl[0]
+// 			}
 
-			// serpentine and cusp with inflection at infinity
-			f, ts = find_serpentine_matrix(d, tmtl)
-			type = .SERPENTINE
-		} else {
-			// loop
-			tetd: [4]f32
-			quadratic_solve(1, -2*d[2], 4*(d[2]*d[2] - d[1]*d[3]), -delta, &tetd)
+// 			// serpentine and cusp with inflection at infinity
+// 			f, ts = find_serpentine_matrix(d, tmtl)
+// 			type = .SERPENTINE
+// 		} else {
+// 			// loop
+// 			tetd: [4]f32
+// 			quadratic_solve(1, -2*d[2], 4*(d[2]*d[2] - d[1]*d[3]), -delta, &tetd)
 			
-			if tetd[0] > tetd[1] {
-				tetd[0], tetd[1] = tetd[1], tetd[0]
-			}
+// 			if tetd[0] > tetd[1] {
+// 				tetd[0], tetd[1] = tetd[1], tetd[0]
+// 			}
 
-			f, ts = find_loop_matrix(d, tetd)
-			type = .LOOP
-		}
+// 			f, ts = find_loop_matrix(d, tetd)
+// 			type = .LOOP
+// 		}
 		
-		m = premultiply_f_by_m3_inverse(f)
-	} else {
-		if d[2] != 0 {
-			f, ts := find_cusp_at_infinity_matrix(d)
-			type = .CUSP_AT_INFINITY
-			m = premultiply_f_by_m3_inverse(f)
-		} else if d[3] != 0 {
-			m = c3_cubic_find_degenerated_as_quadratic_matrix(curve)
-			type = .QUADRATIC
-		} else {
-			f = glm.identity(glm.mat4)
+// 		m = premultiply_f_by_m3_inverse(f)
+// 	} else {
+// 		if d[2] != 0 {
+// 			f, ts := find_cusp_at_infinity_matrix(d)
+// 			type = .CUSP_AT_INFINITY
+// 			m = premultiply_f_by_m3_inverse(f)
+// 		} else if d[3] != 0 {
+// 			m = c3_cubic_find_degenerated_as_quadratic_matrix(curve)
+// 			type = .QUADRATIC
+// 		} else {
+// 			f = glm.identity(glm.mat4)
 
-			if (B[0] == B[1] && B[1] == B[3]) || (B[0] == B[2] && B[2] == B[3]) {
-				type = .POINT
-			} else {
-				type = .LINE
-			}
+// 			if (B[0] == B[1] && B[1] == B[3]) || (B[0] == B[2] && B[2] == B[3]) {
+// 				type = .POINT
+// 			} else {
+// 				type = .LINE
+// 			}
+// 		}
+// 	}
+
+// 	return
+// }
+
+Cubic_Info :: struct {
+	type: Cubic_Type,
+	K: glm.mat4,
+	ts: [2][2]f32,
+	d1: f32,
+	d2: f32,
+	d3: f32,
+}
+
+square :: #force_inline proc(a: f32) -> f32 {
+	return a*a 
+}
+
+cube :: #force_inline proc(a: f32) -> f32 {
+	return a*a*a 
+}
+
+c3_classify :: proc(using curve: Curve) -> (res: Cubic_Info) #no_bounds_check {
+	F: glm.mat4
+
+	d1 := -(B[3].y*B[2].x - B[3].x*B[2].y)
+	d2 := -(B[3].x*B[1].y - B[3].y*B[1].x)
+	d3 := -(B[2].y*B[1].x - B[2].x*B[1].y)
+
+	discr_factor2 := 3.0 * square(d2) - 4.0*d3*d1
+
+	if abs(d1) <= 1e-6 && abs(d2) <= 1e-6 && abs(3) > 1e-6 {
+		res.type = .DEGENERATE_QUADRATIC
+	} else if (discr_factor2 > 0 && abs(d1) > 1e-6) || (discr_factor2 == 0 && abs(d1) > 1e-6) {
+		fmt.eprintln("cust or serpentine")
+
+		tmtl: [4]f32
+		n := quadratic_solve(1, -2*d2, (4. / 3.)*d1*d3, (1. / 3.)*discr_factor2, &tmtl)
+
+		tm := tmtl[0]
+		sm := 2*d1
+		tl := tmtl[1]
+		sl := 2*d1
+
+		invNorm := 1/math.sqrt(square(tm) + square(sm))
+		tm *= invNorm
+		sm *= invNorm
+
+		invNorm = 1/math.sqrt(square(tl) + square(sl))
+		tl *= invNorm
+		sl *= invNorm
+
+		res.type = (discr_factor2 > 0 && d1 != 0) ? .SERPENTINE : .CUSP
+
+		F = {
+			tl*tm, -sm*tl-sl*tm, sl*sm, 0,
+			cube(tl), -3*sl*square(tl), 3*square(sl)*tl, -cube(sl),
+			cube(tm), -3*sm*square(tm), 3*square(sm)*tm, -cube(sm),
+			1, 0, 0, 0,
 		}
+
+		res.ts[0] = {tm, sm}
+		res.ts[1] = {tl, sl}
+
+	} else if discr_factor2 < 0 && abs(d1) > 1e-6 {
+		fmt.eprintln("loop")
+		res.type = .CUBIC_LOOP
+
+		tmtl: [4]f32
+		n := quadratic_solve(1, -2*d2, 4*(square(d2)-d1*d3), -discr_factor2, &tmtl)
+
+		td := tmtl[1]
+		sd := 2*d1
+		te := tmtl[0]
+		se := 2*d1
+
+		invNorm := 1/math.sqrt(square(td) + square(sd))
+		td *= invNorm
+		sd *= invNorm
+
+		invNorm = 1/math.sqrt(square(te) + square(se))
+		te *= invNorm
+		se *= invNorm
+
+		F = {
+			td*te, -se*td-sd*te, sd*se, 0,
+			square(td)*te, -se*square(td)-2*sd*te*td, te*square(sd)+2*se*td*sd, -square(sd)*se,
+			td*square(te), -sd*square(te)-2*se*td*te, td*square(se)+2*sd*te*se, -sd*square(se),
+			1, 0, 0, 0,
+		}
+
+		res.ts[0] = {td, sd}
+		res.ts[1] = {te, se}
+	} else if d2 != 0 {
+		tl := d3
+		sl := 3*d2
+
+		invNorm := 1/math.sqrt(square(tl)+square(sl))
+		tl *= invNorm
+		sl *= invNorm
+
+		res.type = .CUSP_AT_INFINITY
+
+		F = {
+			tl, -sl, 0, 0,
+		  cube(tl), -3*sl*square(tl), 3*square(sl)*tl, -cube(sl),
+		  1, 0, 0, 0,
+		  1, 0, 0, 0,
+		}
+
+		res.ts[0] = {tl, sl}
+		res.ts[1] = {0, 0}
+	} else {
+		res.type = .DEGENERATE_LINE
 	}
 
+	inv_M3 := glm.mat4 {
+		1, 1, 1, 1,
+		0, 1./3., 2./3., 1,
+		0, 0, 1./3., 1,
+		0, 0, 0, 1,
+	};
+
+	// TODO double check transpose?
+	res.K = inv_M3*F
 	return
 }
 
@@ -446,67 +569,82 @@ find_klm_matrix_and_transpose :: proc(cm: glm.mat4, klm_matrix: ^glm.mat4, i, j,
 c3_classify_with_ctx :: proc(
 	using curve: Curve, 
 	ctx: ^Implicizitation_Context,
-) -> (
-	ts: [2][2]f32,
-	cubic_type: Cubic_Type,
 ) {
-	im: glm.mat4
-	bm: glm.mat4
-	klm_matrix: glm.mat4
-
-	b := B[0]
-	c1 := B[1]
-	c2 := B[2]
-	e := B[3]
-
-	im, ts, ctx.d, cubic_type = c3_classify(curve)
-
-	// now im contains the matrix with the coefficients for the cubic,
-	// the first line for b, the second for c1, third for c2 and the
-	// fourth for e.
-	// Now we find wich subset of the control points (b, c1, c2, e)
-	// forms the better triangle
-	//
-	// if b!=e we choose between c1 and c2. This may not be the optimal
-	// choice because b and e may be close to each other.
-	// TODO: find a better constant
-	if length(b-e) > 1e-5 {
-		v1 := cubic_determinant(b, c1, e)
-		v2 := cubic_determinant(b, c2, e)
-		if abs(v1) > abs(v2) {
-			ctx.base = c1
-			bm = create_baricentric_matrix(b-c1, c1-c1, e-c1)
-			find_klm_matrix_and_transpose(im, &klm_matrix, 0, 1, 3)
-		}	else {
-			ctx.base = c2
-			bm = create_baricentric_matrix(b-c2, c2-c2, e-c2)
-			find_klm_matrix_and_transpose(im, &klm_matrix, 0, 2, 3)
-		}
-	} else {
-		v1 := cubic_determinant(b, c1, c2)
-		v2 := cubic_determinant(e, c1, c2)
-		if abs(v1) > abs(v2) {
-			ctx.base = c1
-			bm = create_baricentric_matrix(b-c1, c1-c1, c2-c1)
-			find_klm_matrix_and_transpose(im, &klm_matrix, 0, 1, 2)
-		}	else {
-			ctx.base = c1;
-			bm = create_baricentric_matrix(e-c1, c1-c1, c2-c1)
-			find_klm_matrix_and_transpose(im, &klm_matrix, 3, 1, 2)
-		}
+	c := [4][2]f32 {
+		B[0],
+		3.0*(B[1] - B[0]),
+		3.0*(B[0] + B[2] - 2*B[1]),
+		3.0*(B[1] - B[2]) + B[3] - B[0],
 	}
 
-	// multiply the klm_matrix by the baricentric transformation
-	// this way we will have:
-	// [k l m]^t = K*B[x y 1]^t, where K is klm_matrix and B is bm.
-	// B will transform the vector [x y 1]^t into [a b c]^t which are
-	// the baricentric coodinates relatives to the triagle chosen above.
-	// K*[a b c]^t will make a convex combination of the K columns (given
-	// by the 2005 paper) resulting in the desired values for [k l m]^t.
-
-	ctx.M = klm_matrix * bm
 	return
 }
+
+// c3_classify_with_ctx :: proc(
+// 	using curve: Curve, 
+// 	ctx: ^Implicizitation_Context,
+// ) -> (
+// 	ts: [2][2]f32,
+// 	cubic_type: Cubic_Type,
+// ) {
+// 	im: glm.mat4
+// 	bm: glm.mat4
+// 	klm_matrix: glm.mat4
+
+// 	b := B[0]
+// 	c1 := B[1]
+// 	c2 := B[2]
+// 	e := B[3]
+
+// 	res := c3_classify(curve)
+// 	// ctx.d = res.d
+
+// 	// now im contains the matrix with the coefficients for the cubic,
+// 	// the first line for b, the second for c1, third for c2 and the
+// 	// fourth for e.
+// 	// Now we find wich subset of the control points (b, c1, c2, e)
+// 	// forms the better triangle
+// 	//
+// 	// if b!=e we choose between c1 and c2. This may not be the optimal
+// 	// choice because b and e may be close to each other.
+// 	// TODO: find a better constant
+// 	if length(b-e) > 1e-5 {
+// 		v1 := cubic_determinant(b, c1, e)
+// 		v2 := cubic_determinant(b, c2, e)
+// 		if abs(v1) > abs(v2) {
+// 			ctx.base = c1
+// 			bm = create_baricentric_matrix(b-c1, c1-c1, e-c1)
+// 			find_klm_matrix_and_transpose(im, &klm_matrix, 0, 1, 3)
+// 		}	else {
+// 			ctx.base = c2
+// 			bm = create_baricentric_matrix(b-c2, c2-c2, e-c2)
+// 			find_klm_matrix_and_transpose(im, &klm_matrix, 0, 2, 3)
+// 		}
+// 	} else {
+// 		v1 := cubic_determinant(b, c1, c2)
+// 		v2 := cubic_determinant(e, c1, c2)
+// 		if abs(v1) > abs(v2) {
+// 			ctx.base = c1
+// 			bm = create_baricentric_matrix(b-c1, c1-c1, c2-c1)
+// 			find_klm_matrix_and_transpose(im, &klm_matrix, 0, 1, 2)
+// 		}	else {
+// 			ctx.base = c1;
+// 			bm = create_baricentric_matrix(e-c1, c1-c1, c2-c1)
+// 			find_klm_matrix_and_transpose(im, &klm_matrix, 3, 1, 2)
+// 		}
+// 	}
+
+// 	// multiply the klm_matrix by the baricentric transformation
+// 	// this way we will have:
+// 	// [k l m]^t = K*B[x y 1]^t, where K is klm_matrix and B is bm.
+// 	// B will transform the vector [x y 1]^t into [a b c]^t which are
+// 	// the baricentric coodinates relatives to the triagle chosen above.
+// 	// K*[a b c]^t will make a convex combination of the K columns (given
+// 	// by the 2005 paper) resulting in the desired values for [k l m]^t.
+
+// 	ctx.M = klm_matrix * bm
+// 	return
+// }
 
 c3_implicitize :: proc(
 	using curve: Curve, 
@@ -519,13 +657,22 @@ c3_implicitize :: proc(
 	going_right := B[0].x < B[3].x
 	going_up := B[0].y < B[3].y
 
-	// TODO
-	// dx := B[1].x - res.box.x
-	// dy := B[1].y - res.box.y
-	// alpha := (res.box.w - res.box.y) / (res.box.z - res.box.x)
-	// ofs := res.box.w - res.box.y
+	control: [2]f32
 
-	// res.orientation = orientation_get(going_right, going_up)
+	sqr_norm0 := linalg.vector_length(B[1] - B[0])
+	sqr_norm1 := linalg.vector_length(B[3] - B[2])
+	if sqr_norm0 < sqr_norm1 {
+		control = B[2]
+	} else {
+		control = B[1]
+	}
+
+	dx := control.x - res.box.x
+	dy := control.y - res.box.y
+	alpha := (res.box.w - res.box.y) / (res.box.z - res.box.x)
+	ofs := res.box.w - res.box.y
+
+	res.orientation = orientation_get(going_right, going_up, dx, dy, alpha, ofs)
 	res.going_up = b32(going_up)
 	res.winding_increment = going_up ? 1 : -1
 
@@ -534,7 +681,7 @@ c3_implicitize :: proc(
 	res.E = c3_cubic_find_end(curve)
 
 	// find the sign
-	if ctx.cubic_type == .LOOP {
+	if ctx.cubic_type == .CUBIC_LOOP {
 		// for loops we need to find the sign for each segment :-/
 		// we compare the values of H(t/s,1) at each point of the
 		// segment. see Loop and Blin 2005, section 4.4 The loop, last

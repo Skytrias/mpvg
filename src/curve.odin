@@ -48,9 +48,9 @@ c2_init :: proc(curve: ^Curve, a, b, c: [2]f32) {
 	curve.count = 1
 }
 
-c2_eval :: proc(using curve: Curve, t: f32) -> [2]f32 {
-	return math.lerp(math.lerp(B[0],B[1],t), math.lerp(B[1],B[2],t), t);
-}
+// c2_eval :: proc(using curve: Curve, t: f32) -> [2]f32 {
+// 	return math.lerp(math.lerp(B[0],B[1],t), math.lerp(B[1],B[2],t), t);
+// }
 
 c2_blossom :: proc(using curve: Curve, u, v: f32) -> [2]f32 {
 	return B[0]*(u*v - u - v+1) + B[1]*(u + v - 2*u*v) + B[2]*(u*v)
@@ -107,44 +107,56 @@ c3_init :: proc(curve: ^Curve, a, b, c, d: [2]f32) {
 	curve.count = 2
 }
 
-c3_eval :: proc(using curve: Curve, t: f32) -> [2]f32 {
-	temp: Curve
-	c2_init(
-		&temp,
-		math.lerp(B[0], B[1], t),
-		math.lerp(B[1], B[2], t),
-		math.lerp(B[2], B[3], t),
-	)
-	return c2_eval(temp, t)
-}
+// c3_eval :: proc(using curve: Curve, t: f32) -> [2]f32 {
+// 	temp: Curve
+// 	c2_init(
+// 		&temp,
+// 		math.lerp(B[0], B[1], t),
+// 		math.lerp(B[1], B[2], t),
+// 		math.lerp(B[2], B[3], t),
+// 	)
+// 	return c2_eval(temp, t)
+// }
 
 c3_blossom :: proc(using curve: Curve, u, v, w: f32) -> [2]f32 {
-	return B[0]*(-u*v*w + v*w + u*w + u*v - (v + u + w) + 1) +
-		B[1]*(3*u*v*w - 2*(v*w + u*w + u*v) + u + v + w) +
-		B[2]*(-3*u*v*w + v*w + u*w + u*v) +
-		B[3]*(u*v*w);
+	b10 := u*B[1] + (1-u)*B[0]
+	b11 := u*B[2] + (1-u)*B[1]
+	b12 := u*B[3] + (1-u)*B[2]
+	b20 := v*b11 + (1-v)*b10
+	b21 := v*b12 + (1-v)*b11
+	b30 := w*b21 + (1-w)*b20
+	return b30
+
+	// return B[0]*(-u*v*w + v*w + u*w + u*v - (v + u + w) + 1) +
+	// 	B[1]*(3*u*v*w - 2*(v*w + u*w + u*v) + u + v + w) +
+	// 	B[2]*(-3*u*v*w + v*w + u*w + u*v) +
+	// 	B[3]*(u*v*w);
 }
 
 c3_subcurve :: proc(using curve: Curve, u, v: f32) -> (out: Curve) {
 	out.count = curve.count
 
-	if u == 0 {
-		out.B[0] = B[0]
-		out.B[1] = c3_blossom(curve,u,u,v)
-		out.B[2] = c3_blossom(curve,u,v,v)
-		out.B[3] = c3_blossom(curve,v,v,v)
-	}	else if v == 1 {
-		out.B[0] = c3_blossom(curve,u,u,u)
-		out.B[1] = c3_blossom(curve,u,u,v)
-		out.B[2] = c3_blossom(curve,u,v,v)
-		out.B[3] = B[3]
-	} else {
-		out.B[0] = c3_blossom(curve,u,u,u)
-		out.B[1] = c3_blossom(curve,u,u,v)
-		out.B[2] = c3_blossom(curve,u,v,v)
-		out.B[3] = c3_blossom(curve,v,v,v)
-	}
+	// if u == 0 {
+	// 	out.B[0] = B[0]
+	// 	out.B[1] = c3_blossom(curve,u,u,v)
+	// 	out.B[2] = c3_blossom(curve,u,v,v)
+	// 	out.B[3] = c3_blossom(curve,v,v,v)
+	// }	else if v == 1 {
+	// 	out.B[0] = c3_blossom(curve,u,u,u)
+	// 	out.B[1] = c3_blossom(curve,u,u,v)
+	// 	out.B[2] = c3_blossom(curve,u,v,v)
+	// 	out.B[3] = B[3]
+	// } else {
+	// 	out.B[0] = c3_blossom(curve,u,u,u)
+	// 	out.B[1] = c3_blossom(curve,u,u,v)
+	// 	out.B[2] = c3_blossom(curve,u,v,v)
+	// 	out.B[3] = c3_blossom(curve,v,v,v)
+	// }
 
+	out.B[0] = u == 0 ? B[0] : c3_blossom(curve, u, u, u)
+	out.B[1] = c3_blossom(curve, u, u, v)
+	out.B[2] = c3_blossom(curve, u, v, v)
+	out.B[3] = v == 0 ? B[3] : c3_blossom(curve, v, v, v)
 	return
 }
 

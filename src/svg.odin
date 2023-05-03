@@ -98,8 +98,11 @@ path_svg :: proc(path: ^Path, svg: string) {
 		case .Horizontal_Line_To_Relative: path_line_to_rel(path, points[0], 0)
 
 		// TODO check where the control points should be
-		case .Curve_To_Absolute: path_cubic_to(path, points[0], points[1], points[2], points[3], points[4], points[5])
-		case .Curve_To_Relative: path_cubic_to_rel(path, points[0], points[1], points[2], points[3], points[4], points[5])
+		case .Curve_To_Absolute: 
+			fmt.eprintln("C", points[:point_index])
+			path_cubic_to(path, points[4], points[5], points[0], points[1], points[2], points[3])
+		// case .Curve_To_Absolute: path_line_to(path, points[4], points[5])
+		case .Curve_To_Relative: path_cubic_to_rel(path, points[4], points[5], points[0], points[1], points[2], points[3])
 
 		case .Close_Path: path_close(path)
 		}

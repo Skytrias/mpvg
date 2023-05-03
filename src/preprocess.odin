@@ -31,20 +31,22 @@ c3_preprocess1 :: proc(
 	ctx: ^Implicizitation_Context,
 ) {
 	// fmt.eprintln("1 TYPE", curve)
-	ts, type := c3_classify_with_ctx(curve, ctx)
+	res := c3_classify_with_ctx(curve, ctx)
 	ctx.cubic_type = type
 
+	if 
+
 	#partial switch ctx.cubic_type {
-	case .QUADRATIC, .LINE: 
+	case .DEGENERATE_QUADRATIC, .DEGENERATE_LINE: 
 		// temp: Curve
-		// fmt.eprintln("called")
+		fmt.eprintln("called")
 		// c1_init(&temp, B[0], B[3])
 		c1_preprocess1({}, roots, ctx)
 		return
 
-	case .POINT:
-		roots[0] = max(f32)
-		return
+	// case .POINT:
+	// 	roots[0] = max(f32)
+	// 	return
 	}
 
 	nroots := c3_calc_roots(curve, roots)
@@ -155,7 +157,7 @@ c3_preprocess2 :: proc(
 	ctx: ^Implicizitation_Context,
 ) {
 	// fmt.eprintln("2", ctx.cubic_type, curve)
-	if ctx.cubic_type == .QUADRATIC || ctx.cubic_type == .LINE {
+	if ctx.cubic_type == .DEGENERATE_QUADRATIC || ctx.cubic_type == .DEGENERATE_LINE {
 		c := c1_make(curve.B[0], curve.B[3])
 		temp := illustration_to_image(c, scale, offset)
 		c1_split(output, output_index, temp)

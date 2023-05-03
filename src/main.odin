@@ -258,7 +258,7 @@ main :: proc() {
 
 			// scale = [2]f32 { 1, 1 }
 			// offset = [2]f32 { 0, 0 }
-			scale = [2]f32 { 5, 5 }
+			scale = [2]f32 { 10, 10 }
 			offset = [2]f32 { app.mouse.x, app.mouse.y }
 			renderer_process(&app.renderer, scale, offset)
 
