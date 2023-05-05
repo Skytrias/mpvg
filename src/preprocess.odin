@@ -3,16 +3,6 @@ package src
 import "core:fmt"
 import "core:slice"
 
-illustration_to_image :: proc(using curve: Curve, scale, offset: [2]f32) -> (res: Curve) {
-	res.count = curve.count
-
-	for i in 0..=curve.count + 1 {
-		res.B[i] = B[i] * scale + offset
-	}
-
-	return
-}
-
 c1_preprocess1 :: proc(curve: Curve, roots: ^Roots, ctx: ^Implicizitation_Context) {
 	roots[0] = 1
 	roots[1] = max(f32)
@@ -30,52 +20,53 @@ c3_preprocess1 :: proc(
 	roots: ^Roots, 
 	ctx: ^Implicizitation_Context,
 ) {
-	// fmt.eprintln("1 TYPE", curve)
-	res := c3_classify_with_ctx(curve, ctx)
-	ctx.cubic_type = type
+	res := c3_classify(curve)
 
-	if 
+	c := [4][2]f32 {
+		B[0],
+		3.0*(B[1] - B[0]),
+		3.0*(B[0] + B[2] - 2*B[1]),
+		3.0*(B[1] - B[2]) + B[3] - B[0],
+	}
 
-	#partial switch ctx.cubic_type {
-	case .DEGENERATE_QUADRATIC, .DEGENERATE_LINE: 
-		// temp: Curve
-		fmt.eprintln("called")
-		// c1_init(&temp, B[0], B[3])
+	if res.type == .DEGENERATE_LINE {
 		c1_preprocess1({}, roots, ctx)
 		return
-
-	// case .POINT:
-	// 	roots[0] = max(f32)
-	// 	return
+	} else if res.type == .DEGENERATE_QUADRATIC {
+		fmt.eprintln("DO QUAD")
+		return
 	}
 
-	nroots := c3_calc_roots(curve, roots)
+	//NOTE: get the roots of B'(s) = 3.c3.s^2 + 2.c2.s + c1
+	rootCount := quadratic_roots(3*c[3].x, 2*c[2].x, c[1].x, roots[:])
+	rootCount += quadratic_roots(3*c[3].y, 2*c[2].y, c[1].y, roots[rootCount:])
 
-	{
-		r := ts[0].x / ts[0].y
-		if 0 < r && r < 1 {
-			roots[nroots] = r
-			nroots += 1
-		}
-
-		r = ts[1].x / ts[1].y
-		if 0 < r && r < 1 {
-			roots[nroots] = r
-			nroots += 1
+	// NOTE: add double points and inflection points to roots if finite
+	for i in 0..<2 {
+		if res.ts[i].y > 0 {
+			roots[rootCount] = res.ts[i].x / res.ts[i].y
+			rootCount += 1
 		}
 	}
 
-	// if nroots > 1 {
-		// fmt.eprintln("BEFORE", roots[:nroots])
-		slice.stable_sort(roots[:nroots])
-		// fmt.eprintln("AFTER", roots[:nroots])
-	// }
+	//NOTE: sort roots
+	for i in 1..<rootCount {
+		tmp := roots[i]
+		j := i-1
+		
+		for j >= 0 && roots[j] > tmp {
+			roots[j+1] = roots[j]
+			j -= 1
+		}
 
-	roots[nroots] = 1
-	nroots += 1
+		roots[j+1] = tmp
+	}
 
-	if nroots < MAX_ROOTS {
-		roots[nroots] = max(f32)
+	roots[rootCount] = 1
+	rootCount += 1
+
+	if rootCount < MAX_ROOTS {
+		roots[rootCount] = max(f32)
 	}
 }
 
@@ -128,11 +119,9 @@ c1_preprocess2 :: proc(
 	output_index: ^int,
 	curve: Curve,
 	roots: ^Roots,
-	scale: [2]f32,
-	offset: [2]f32,
 	ctx: ^Implicizitation_Context,
 ) {
-	c1_split(output, output_index, illustration_to_image(curve, scale, offset))
+	c1_split(output, output_index, curve)
 }
 
 c2_preprocess2 :: proc(
@@ -140,11 +129,9 @@ c2_preprocess2 :: proc(
 	output_index: ^int,
 	curve: Curve,
 	roots: ^Roots,
-	scale: [2]f32,
-	offset: [2]f32,
 	ctx: ^Implicizitation_Context,
 ) {
-	c2_split(output, output_index, illustration_to_image(curve, scale, offset), roots)
+	c2_split(output, output_index, curve, roots)
 }
 
 c3_preprocess2 :: proc(
@@ -152,18 +139,14 @@ c3_preprocess2 :: proc(
 	output_index: ^int,
 	curve: Curve,
 	roots: ^Roots,
-	scale: [2]f32,
-	offset: [2]f32,
 	ctx: ^Implicizitation_Context,
 ) {
 	// fmt.eprintln("2", ctx.cubic_type, curve)
 	if ctx.cubic_type == .DEGENERATE_QUADRATIC || ctx.cubic_type == .DEGENERATE_LINE {
 		c := c1_make(curve.B[0], curve.B[3])
-		temp := illustration_to_image(c, scale, offset)
-		c1_split(output, output_index, temp)
+		c1_split(output, output_index, c)
 	} else {
-		temp := illustration_to_image(curve, scale, offset)
-		c3_split(output, output_index, temp, roots, ctx)
+		c3_split(output, output_index, curve, roots, ctx)
 	}	
 }
 
@@ -175,7 +158,7 @@ preprocess1 := [3]Preprocess1_Call {
 	c3_preprocess1,
 }
 
-Preprocess2_Call :: #type proc([]Implicit_Curve, ^int, Curve, ^Roots, [2]f32, [2]f32, ^Implicizitation_Context)
+Preprocess2_Call :: #type proc([]Implicit_Curve, ^int, Curve, ^Roots, ^Implicizitation_Context)
 
 // // LUT for process calls
 preprocess2 := [3]Preprocess2_Call {

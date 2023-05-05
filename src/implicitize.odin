@@ -390,7 +390,7 @@ c3_classify :: proc(using curve: Curve) -> (res: Cubic_Info) #no_bounds_check {
 		fmt.eprintln("cust or serpentine")
 
 		tmtl: [4]f32
-		n := quadratic_solve(1, -2*d2, (4. / 3.)*d1*d3, (1. / 3.)*discr_factor2, &tmtl)
+		n := quadratic_roots_with_det(1, -2*d2, (4. / 3.)*d1*d3, (1. / 3.)*discr_factor2, tmtl[:])
 
 		tm := tmtl[0]
 		sm := 2*d1
@@ -422,7 +422,7 @@ c3_classify :: proc(using curve: Curve) -> (res: Cubic_Info) #no_bounds_check {
 		res.type = .CUBIC_LOOP
 
 		tmtl: [4]f32
-		n := quadratic_solve(1, -2*d2, 4*(square(d2)-d1*d3), -discr_factor2, &tmtl)
+		n := quadratic_roots_with_det(1, -2*d2, 4*(square(d2)-d1*d3), -discr_factor2, tmtl[:])
 
 		td := tmtl[1]
 		sd := 2*d1
@@ -564,20 +564,6 @@ find_klm_matrix_and_transpose :: proc(cm: glm.mat4, klm_matrix: ^glm.mat4, i, j,
 	for l:=0; l<3; l += 1 {
 		klm_matrix[l][2] = cm[k][l]
 	}
-}
-
-c3_classify_with_ctx :: proc(
-	using curve: Curve, 
-	ctx: ^Implicizitation_Context,
-) {
-	c := [4][2]f32 {
-		B[0],
-		3.0*(B[1] - B[0]),
-		3.0*(B[0] + B[2] - 2*B[1]),
-		3.0*(B[1] - B[2]) + B[3] - B[0],
-	}
-
-	return
 }
 
 // c3_classify_with_ctx :: proc(

@@ -2,11 +2,15 @@ package src
 
 import "core:mem"
 import "core:fmt"
+import "core:math"
 import "core:slice"
 import "core:runtime"
 import "core:math/rand"
-import gl "vendor:OpenGL"
 import glm "core:math/linalg/glsl"
+import sa "core:container/small_array"
+import gl "vendor:OpenGL"
+
+MAX_STATES :: 32
 
 shader_vert := #load("vertex.glsl")
 shader_frag := #load("fragment.glsl")
@@ -24,176 +28,28 @@ Vertex :: struct {
 
 KAPPA90 :: 0.5522847493 * 2
 
-///////////////////////////////////////////////////////////
-// GENERIC PATH
-///////////////////////////////////////////////////////////
-
-Path :: struct {
-	curves: []Curve,
-	offset: int,
-	last: [2]f32,
+Paint :: struct {
+	xform: glm.mat4, // paint affine transformation
+	radius: f32,
+	feather: f32,
+	inner_color: [4]f32,
+	outer_color: [4]f32,
+	extent: [2]f32,
+	image: u32,
 }
 
-path_init :: proc(path: ^Path, curves: []Curve) {
-	path.curves = curves
+Renderer_State :: struct {
+	paint: Paint,
+	xform: glm.mat4, // state affine transformation
 }
-
-path_make :: proc(curves: []Curve) -> (res: Path) {
-	path_init(&res, curves)
-	return
-}
-
-path_move_to :: proc(path: ^Path, x, y: f32) {
-	path.last = { x, y }
-}
-
-path_move_to_rel :: proc(path: ^Path, x, y: f32) {
-	path.last = path.last + { x, y }
-}
-
-path_line_to :: proc(path: ^Path, x, y: f32) {
-	path.curves[path.offset] = c1_make(path.last, { x, y })
-	path.offset += 1
-	path.last = { x, y }
-}
-
-path_line_to_rel :: proc(path: ^Path, x, y: f32) {
-	path.curves[path.offset] = c1_make(path.last, path.last + { x, y })
-	path.offset += 1
-	path.last = path.last + { x, y }
-}
-
-path_quadratic_to :: proc(path: ^Path, x, y, cx, cy: f32) {
-	path.curves[path.offset] = c2_make(path.last, { cx, cy }, { x, y })
-	path.offset += 1
-	path.last = { x, y }
-}
-
-path_quadratic_to_rel :: proc(path: ^Path, x, y, cx, cy: f32) {
-	path.curves[path.offset] = c2_make(path.last, path.last + { cx, cy }, path.last + { x, y })
-	path.offset += 1
-	path.last = path.last + { x, y }
-}
-
-path_cubic_to :: proc(path: ^Path, x, y, c1x, c1y, c2x, c2y: f32) {
-	path.curves[path.offset] = c3_make(path.last, { c1x, c1y }, { c2x, c2y }, { x, y })
-	path.offset += 1
-	path.last = { x, y }
-}
-
-path_cubic_to_rel :: proc(path: ^Path, x, y, c1x, c1y, c2x, c2y: f32) {
-	path.curves[path.offset] = c3_make(path.last, path.last + { c1x, c1y }, path.last + { c2x, c2y }, path.last + { x, y })
-	path.offset += 1
-	path.last = path.last + { x, y }
-}
-
-path_close :: proc(path: ^Path) {
-	if path.offset > 0 {
-		start := path.curves[0].B[0]
-		path_line_to(path, start.x, start.y)
-	}
-}
-
-path_finish_curves :: proc(path: ^Path, curves: ^[]Curve) {
-	curves^ = curves[path.offset:]
-}
-
-path_triangle :: proc(path: ^Path, x, y, r: f32) {
-	path_move_to(path, x, y - r/2)
-	path_line_to(path, x - r/2, y + r/2)
-	path_line_to(path, x + r/2, y + r/2)
-	path_close(path)	
-}
-
-path_rect :: proc(path: ^Path, x, y, w, h: f32) {
-	path_move_to(path, x, y)
-	path_line_to(path, x, y + h)
-	path_line_to(path, x + w, y + h)
-	path_line_to(path, x + w, y)
-	path_close(path)
-}
-
-path_print :: proc(path: ^Path) {
-	fmt.eprintln("~~~")
-	for i in 0..<path.offset {
-		curve := path.curves[i]
-		fmt.eprintln(curve.B[0], curve.B[1])
-	}
-}
-
-path_ellipse :: proc(path: ^Path, cx, cy, rx, ry: f32) {
-	path_move_to(path, cx-rx, cy)
-	path_cubic_to(path, cx, cy+ry, cx-rx, cy+ry*KAPPA90, cx-rx*KAPPA90, cy+ry)
-	path_cubic_to(path, cx+rx, cy, cx+rx*KAPPA90, cy+ry, cx+rx, cy+ry*KAPPA90)
-	path_cubic_to(path, cx, cy-ry, cx+rx, cy-ry*KAPPA90, cx+rx*KAPPA90, cy-ry)
-	path_cubic_to(path, cx-rx, cy, cx-rx*KAPPA90, cy-ry, cx-rx, cy-ry*KAPPA90)
-	// path_close(path)
-}
-
-path_circle :: proc(path: ^Path, cx, cy, r: f32) {
-	path_ellipse(path, cx, cy, r, r)
-}
-
-path_quadratic_test :: proc(path: ^Path, x, y: f32) {
-	path_move_to(path, x, y)
-	path_line_to(path, x + 50, y + 50)
-	path_line_to(path, x + 60, y + 100)
-	path_quadratic_to(path, x + 100, y + 150, x + 90, y)
-	// path_close(path)
-}
-
-path_cubic_test :: proc(path: ^Path, x, y, r: f32, count: f32) {
-	path_move_to(path, x, y)
-	xx := x - r/2
-	yy := y + r/2
-	// off := (count * 0.05)
-	off := f32(0)
-	path_cubic_to(path, xx, yy, xx - off * 0.5, yy - 10, xx + 10 + off, yy - 15)
-	// path_close(path)
-}
-
-path_mpvg_test :: proc(path: ^Path, x, y: f32) {
-	path_move_to(path, x, y)
-	
-	// red
-	// path_quadratic_to_rel(path, 0, 0, -20, -40)
-	path_line_to_rel(path, -10, -40)
-	path_quadratic_to_rel(path, 40, 50, 10, 20)
-	// path_line_to_rel(path, 40, -50)
-	path_line_to_rel(path, 10, 0)
-	path_line_to_rel(path, 20, 20)
-	
-	// black
-	path_line_to_rel(path, 40, 30)
-	path_line_to_rel(path, 35, -20)
-	path_line_to_rel(path, 40, -20)
-	path_line_to_rel(path, 20, 0)
-	path_line_to_rel(path, 10, 10)
-	
-	// orange
-	path_line_to_rel(path, 5, 10)
-	path_line_to_rel(path, -10, 20)
-	path_line_to_rel(path, -10, 25)
-	path_line_to_rel(path, 5, 10)
-	
-	// blue
-	path_line_to_rel(path, 5, 10)
-	path_line_to_rel(path, -70, 20)
-	
-	// green
-	// path_line_to_rel(path, -70, 20)
-	
-	path_close(path)
-}
-
-///////////////////////////////////////////////////////////
-// TEST RENDERER SETUP
-///////////////////////////////////////////////////////////
 
 Renderer :: struct {
 	// raw curves that were inserted by the user
 	curves: []Curve,
 	curve_index: int,
+
+	// curve temp
+	curve_last: [2]f32,
 
 	// tag along data processing curves
 	contexts: []Implicizitation_Context,
@@ -224,6 +80,9 @@ Renderer :: struct {
 
 	// platform dependent implementation
 	gpu: Renderer_GL,
+
+	// small states
+	states: sa.Small_Array(MAX_STATES, Renderer_State),
 }
 
 Renderer_GL :: struct {
@@ -269,6 +128,9 @@ renderer_init :: proc(renderer: ^Renderer) {
 	pool_clear(&renderer.font_pool)
 
 	renderer_gpu_gl_init(&renderer.gpu)
+
+	renderer_state_save(renderer)
+	renderer_state_reset(renderer)
 }
 
 renderer_make :: proc() -> (res: Renderer) {
@@ -317,33 +179,20 @@ renderer_start :: proc(
 	renderer.tile_index = tile_count
 
 	renderer_gpu_gl_start(renderer)
+
+	renderer.states.len = 0
+	renderer_state_save(renderer)
+	renderer_state_reset(renderer)
 }
 
 renderer_end :: proc(renderer: ^Renderer, width, height: int) {
+	renderer_process(renderer)
 	renderer_process_tiles(renderer, f32(width), f32(height))
 	renderer_gpu_gl_end(renderer, width, height)
 }
 
-renderer_path_make :: proc(renderer: ^Renderer) -> (res: Path) {
-	path_init(&res, renderer.curves[renderer.curve_index:])
-	return
-}
-
-renderer_path_finish :: proc(renderer: ^Renderer, path: ^Path) {
-	renderer.curve_index += path.offset
-}
-
-renderer_curves_push :: proc(renderer: ^Renderer, curves: []Curve) {
-	if len(curves) > 0 {
-		copy(renderer.curves[renderer.curve_index:], curves)
-		renderer.curve_index += len(curves)
-	}
-}
-
-renderer_process :: proc(using renderer: ^Renderer, scale, offset: [2]f32) {
+renderer_process :: proc(using renderer: ^Renderer) {
 	results := curves[:curve_index]
-	// mem.zero_slice(roots[:])
-	// mem.zero_slice(contexts[:])
 
 	for c, i in results {
 		preprocess1[c.count](c, &roots[i], &contexts[i])
@@ -352,7 +201,7 @@ renderer_process :: proc(using renderer: ^Renderer, scale, offset: [2]f32) {
 	for c, i in results {
 		root := &roots[i]
 		ctx := &contexts[i]
-		preprocess2[c.count](output, &renderer.output_index, c, root, scale, offset, ctx)
+		preprocess2[c.count](output, &renderer.output_index, c, root, ctx)
 	}
 }
 
@@ -366,11 +215,12 @@ renderer_glyph_push :: proc(
 	font := pool_at(&font_pool, 1)
 	glyph := font_get_glyph(font, glyph)
 	
-	for c in glyph.curves {
-		temp := illustration_to_image(c, scale, { x, y })
-		renderer.curves[renderer.curve_index] = temp
-		renderer.curve_index += 1
-	}
+	// // TODO
+	// for c in glyph.curves {
+	// 	temp := illustration_to_image(c, scale, { x, y })
+	// 	renderer.curves[renderer.curve_index] = c
+	// 	renderer.curve_index += 1
+	// }
 
 	return glyph.advance * scale
 }
@@ -484,13 +334,6 @@ renderer_process_tiles :: proc(renderer: ^Renderer, width, height: f32) {
 	slice.sort_by(renderer.commands[:renderer.command_index], proc(a, b: Renderer_Command) -> bool {
 		return a.tile_index < b.tile_index 
 	})
-
-	// fmt.eprintln()
-	// for i in 0..<renderer.command_index {
-	// 	cmd := renderer.commands[i]
-	// 	fmt.eprintf("%d/%d ", cmd.curve_index, cmd.tile_index)
-	// }
-	// fmt.eprintln()
 
 	// TODO optimize to not use a for loop on all commands
 	// assign proper min offset to tile
@@ -661,6 +504,326 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 		gl.DrawArrays(gl.TRIANGLES, 0, 6)
 	}
 }
+
+///////////////////////////////////////////////////////////
+// STATE
+///////////////////////////////////////////////////////////
+
+renderer_state_save :: proc(using renderer: ^Renderer) {
+	length := states.len
+
+	if length >= len(states.data) {
+		return
+	}
+
+	if length > 0 {
+		states.data[length] = states.data[length - 1]
+	}
+
+	states.len += 1
+}
+
+renderer_state_restore :: proc(using renderer: ^Renderer) {
+	if states.len <= 1 {
+		return
+	}
+
+	states.len -= 1
+}
+
+paint_set_color :: proc(renderer: ^Renderer, paint: ^Paint, color: [4]f32) {
+	paint^ = {}
+	paint.xform = glm.identity(glm.mat4)
+	paint.feather = 1
+	paint.inner_color = color
+	paint.outer_color = color
+}
+
+renderer_state_reset :: proc(using renderer: ^Renderer) {
+	state := renderer_state_get(renderer)
+	state^ = {}
+	paint_set_color(renderer, &state.paint, { 1, 0, 0, 1 })
+	state.xform = glm.identity(glm.mat4)
+}
+
+renderer_state_get :: #force_inline proc(using renderer: ^Renderer) -> ^Renderer_State #no_bounds_check {
+	return &states.data[states.len - 1]
+}
+
+renderer_state_fill_color :: proc(using renderer: ^Renderer, color: [4]f32) {
+	state := renderer_state_get(renderer)
+	paint_set_color(renderer, &state.paint, color)
+}
+
+renderer_state_fill_paint :: proc(using renderer: ^Renderer, paint: Paint) {
+	state := renderer_state_get(renderer)
+	state.paint = paint
+	state.paint.xform *= state.xform
+}
+
+renderer_state_reset_transform :: proc(using renderer: ^Renderer) {
+	state := renderer_state_get(renderer)
+	state.xform = glm.identity(glm.mat4)
+}
+
+renderer_state_translate :: proc(using renderer: ^Renderer, x, y: f32) {
+	state := renderer_state_get(renderer)
+	temp := glm.mat4Translate({ x, y, 0 })
+	mat4_premultiply(&state.xform, temp)
+}
+
+renderer_state_rotate :: proc(using renderer: ^Renderer, angle: f32) {
+	state := renderer_state_get(renderer)
+	temp := glm.mat4Rotate({ 0, 0, 1 }, angle)
+	mat4_premultiply(&state.xform, temp)
+}
+
+renderer_state_skewx :: proc(using renderer: ^Renderer, angle: f32) {
+	state := renderer_state_get(renderer)
+	temp := mat4_skew_x(angle)
+	mat4_premultiply(&state.xform, temp)
+}
+
+renderer_state_skewy :: proc(using renderer: ^Renderer, angle: f32) {
+	state := renderer_state_get(renderer)
+	temp := mat4_skew_y(angle)
+	mat4_premultiply(&state.xform, temp)
+}
+
+renderer_state_scale :: proc(using renderer: ^Renderer, x, y: f32) {
+	state := renderer_state_get(renderer)
+	temp := glm.mat4Scale({ x, y, 0 })
+	mat4_premultiply(&state.xform, temp)
+}
+
+v2_transform :: proc(input: [2]f32, xform: glm.mat4) -> [2]f32 {
+	return {
+		input.x * xform[0, 0] + input.y * xform[1, 0] + xform[0, 3],
+		input.x * xform[0, 1] + input.y * xform[1, 1] + xform[1, 3],
+	}
+}
+
+mat4_skew_x :: proc(a: f32) -> (t: glm.mat4) {
+	t = glm.identity(glm.mat4)
+	t[1, 0] = math.tan(a) 
+	return
+}
+
+mat4_skew_y :: proc(a: f32) -> (t: glm.mat4) {
+	t = glm.identity(glm.mat4)
+	t[0, 1] = math.tan(a) 
+	return
+}
+
+// multiply temp with a and set temp to a
+mat4_premultiply :: proc(a: ^glm.mat4, b: glm.mat4) {
+	temp := b
+	temp *= a^
+	a^ = temp
+}
+
+///////////////////////////////////////////////////////////
+// PATH
+///////////////////////////////////////////////////////////
+
+renderer_move_to :: proc(renderer: ^Renderer, x, y: f32) {
+	state := renderer_state_get(renderer)
+	renderer.curve_last = { x, y }
+}
+
+renderer_move_to_rel :: proc(renderer: ^Renderer, x, y: f32) {
+	state := renderer_state_get(renderer)
+	renderer.curve_last = renderer.curve_last + { x, y }
+}
+
+renderer_line_to :: proc(using renderer: ^Renderer, x, y: f32) {
+	state := renderer_state_get(renderer)
+	curves[curve_index] = c1_make(
+		v2_transform(curve_last, state.xform), 
+		v2_transform({ x, y }, state.xform),
+	)
+	curve_index += 1
+	curve_last = { x, y }
+}
+
+renderer_line_to_rel :: proc(using renderer: ^Renderer, x, y: f32) {
+	state := renderer_state_get(renderer)
+	curves[curve_index] = c1_make(
+		v2_transform(curve_last, state.xform), 
+		v2_transform(curve_last + { x, y }, state.xform),
+	)
+	curve_index += 1
+	curve_last = curve_last + { x, y }
+}
+
+renderer_vertical_line_to :: proc(using renderer: ^Renderer, y: f32) {
+	state := renderer_state_get(renderer)
+	curves[curve_index] = c1_make(
+		v2_transform(curve_last, state.xform), 
+		v2_transform({ curve_last.x, y }, state.xform),
+	)
+	curve_index += 1
+	curve_last = { curve_last.x, y }
+}
+
+renderer_horizontal_line_to :: proc(using renderer: ^Renderer, x: f32) {
+	state := renderer_state_get(renderer)
+	curves[curve_index] = c1_make(
+		v2_transform(curve_last, state.xform), 
+		v2_transform({ x, curve_last.y }, state.xform),
+	)
+	curve_index += 1
+	curve_last = { x, curve_last.y }
+}
+
+renderer_quadratic_to :: proc(using renderer: ^Renderer, x, y, cx, cy: f32) {
+	state := renderer_state_get(renderer)
+	curves[curve_index] = c2_make(
+		v2_transform(curve_last, state.xform), 
+		v2_transform({ cx, cy }, state.xform), 
+		v2_transform({ x, y }, state.xform),
+	)
+	curve_index += 1
+	curve_last = { x, y }
+}
+
+renderer_quadratic_to_rel :: proc(using renderer: ^Renderer, x, y, cx, cy: f32) {
+	state := renderer_state_get(renderer)
+	curves[curve_index] = c2_make(
+		v2_transform(curve_last, state.xform), 
+		v2_transform(curve_last + { cx, cy }, state.xform),
+		v2_transform(curve_last + { x, y }, state.xform),
+	)
+	curve_index += 1
+	curve_last = curve_last + { x, y }
+}
+
+renderer_cubic_to :: proc(using renderer: ^Renderer, x, y, c1x, c1y, c2x, c2y: f32) {
+	state := renderer_state_get(renderer)
+	curves[curve_index] = c3_make(
+		v2_transform(curve_last, state.xform),
+		v2_transform({ c1x, c1y }, state.xform),
+		v2_transform({ c2x, c2y }, state.xform),
+		v2_transform({ x, y }, state.xform),
+	)
+	curve_index += 1
+	curve_last = { x, y }
+}
+
+renderer_cubic_to_rel :: proc(using renderer: ^Renderer, x, y, c1x, c1y, c2x, c2y: f32) {
+	state := renderer_state_get(renderer)
+	curves[curve_index] = c3_make(
+		v2_transform(curve_last, state.xform),
+		v2_transform(curve_last + { c1x, c1y }, state.xform),
+		v2_transform(curve_last + { c2x, c2y }, state.xform),
+		v2_transform(curve_last + { x, y },state.xform),
+	)
+	curve_index += 1
+	curve_last = curve_last + { x, y }
+}
+
+renderer_close :: proc(using renderer: ^Renderer) {
+	if curve_index > 0 {
+		state := renderer_state_get(renderer)
+		start := curves[0].B[0]
+
+		curves[curve_index] = c1_make(
+			v2_transform(curve_last, state.xform), 
+			{ start.x, start.y },
+		)
+		
+		curve_index += 1
+		curve_last = { start.x, start.y }
+	}
+}
+
+renderer_triangle :: proc(renderer: ^Renderer, x, y, r: f32) {
+	renderer_move_to(renderer, x, y - r/2)
+	renderer_line_to(renderer, x - r/2, y + r/2)
+	renderer_line_to(renderer, x + r/2, y + r/2)
+	renderer_close(renderer)	
+}
+
+renderer_rect :: proc(renderer: ^Renderer, x, y, w, h: f32) {
+	renderer_move_to(renderer, x, y)
+	renderer_line_to(renderer, x, y + h)
+	renderer_line_to(renderer, x + w, y + h)
+	renderer_line_to(renderer, x + w, y)
+	renderer_close(renderer)
+}
+
+// renderer_print :: proc(renderer: ^Renderer) {
+// 	fmt.eprintln("~~~")
+// 	for i in 0..<renderer.offset {
+// 		curve := renderer.curves[i]
+// 		fmt.eprintln(curve.B[0], curve.B[1])
+// 	}
+// }
+
+// renderer_ellipse :: proc(renderer: ^Renderer, cx, cy, rx, ry: f32) {
+// 	renderer_move_to(renderer, cx-rx, cy)
+// 	renderer_cubic_to(renderer, cx, cy+ry, cx-rx, cy+ry*KAPPA90, cx-rx*KAPPA90, cy+ry)
+// 	renderer_cubic_to(renderer, cx+rx, cy, cx+rx*KAPPA90, cy+ry, cx+rx, cy+ry*KAPPA90)
+// 	renderer_cubic_to(renderer, cx, cy-ry, cx+rx, cy-ry*KAPPA90, cx+rx*KAPPA90, cy-ry)
+// 	renderer_cubic_to(renderer, cx-rx, cy, cx-rx*KAPPA90, cy-ry, cx-rx, cy-ry*KAPPA90)
+// 	// renderer_close(renderer)
+// }
+
+// renderer_circle :: proc(renderer: ^Renderer, cx, cy, r: f32) {
+// 	renderer_ellipse(renderer, cx, cy, r, r)
+// }
+
+// renderer_quadratic_test :: proc(renderer: ^Renderer, x, y: f32) {
+// 	renderer_move_to(renderer, x, y)
+// 	renderer_line_to(renderer, x + 50, y + 50)
+// 	renderer_line_to(renderer, x + 60, y + 100)
+// 	renderer_quadratic_to(renderer, x + 100, y + 150, x + 90, y)
+// 	// renderer_close(renderer)
+// }
+
+// renderer_cubic_test :: proc(renderer: ^Renderer, x, y, r: f32, count: f32) {
+// 	renderer_move_to(renderer, x, y)
+// 	xx := x - r/2
+// 	yy := y + r/2
+// 	// off := (count * 0.05)
+// 	off := f32(0)
+// 	renderer_cubic_to(renderer, xx, yy, xx - off * 0.5, yy - 10, xx + 10 + off, yy - 15)
+// 	// renderer_close(renderer)
+// }
+
+// renderer_mpvg_test :: proc(renderer: ^Renderer, x, y: f32) {
+// 	renderer_move_to(renderer, x, y)
+	
+// 	// red
+// 	// renderer_quadratic_to_rel(renderer, 0, 0, -20, -40)
+// 	renderer_line_to_rel(renderer, -10, -40)
+// 	renderer_quadratic_to_rel(renderer, 40, 50, 10, 20)
+// 	// renderer_line_to_rel(renderer, 40, -50)
+// 	renderer_line_to_rel(renderer, 10, 0)
+// 	renderer_line_to_rel(renderer, 20, 20)
+	
+// 	// black
+// 	renderer_line_to_rel(renderer, 40, 30)
+// 	renderer_line_to_rel(renderer, 35, -20)
+// 	renderer_line_to_rel(renderer, 40, -20)
+// 	renderer_line_to_rel(renderer, 20, 0)
+// 	renderer_line_to_rel(renderer, 10, 10)
+	
+// 	// orange
+// 	renderer_line_to_rel(renderer, 5, 10)
+// 	renderer_line_to_rel(renderer, -10, 20)
+// 	renderer_line_to_rel(renderer, -10, 25)
+// 	renderer_line_to_rel(renderer, 5, 10)
+	
+// 	// blue
+// 	renderer_line_to_rel(renderer, 5, 10)
+// 	renderer_line_to_rel(renderer, -70, 20)
+	
+// 	// green
+// 	// renderer_line_to_rel(renderer, -70, 20)
+	
+// 	renderer_close(renderer)
+// }
 
 ///////////////////////////////////////////////////////////
 // POOL

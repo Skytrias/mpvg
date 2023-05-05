@@ -309,3 +309,50 @@ cubic_solve :: proc(a, b, c, d: f32, r: ^[4]f32) -> int {
 		return 3
 	}
 }
+
+quadratic_roots_with_det :: proc(a, b, c, det: f32, r: []f32) -> (count: int) {
+	if a == 0 {
+		if b > 0 {
+			count = 1
+			r[0] = -c/b
+		}
+	} else {
+		b := b
+		b /= 2.0
+
+		if det >= 0 {
+			count = det == 0 ? 1 : 2
+
+			if b > 0 {
+				q := b + math.sqrt(det)
+				r[0] = -c/q
+				r[1] = -q/a
+			} else if b < 0 {
+				q := -b + math.sqrt(det)
+				r[0] = q/a
+				r[1] = c/q
+			} else {
+				q := math.sqrt(-a*c)
+
+				if abs(a) >= abs(c) {
+					r[0] = q/a
+					r[1] = -q/a
+				} else {
+					r[0] = -c/q
+					r[1] = c/q
+				}
+			}
+		}
+	}
+	
+	if count > 1 && r[0] > r[1] {
+		r[0], r[1] = r[1], r[0]
+	}
+
+	return
+}
+
+quadratic_roots :: proc(a, b, c: f32, r: []f32) -> int {
+	det := square(b)/4. - a*c;
+	return quadratic_roots_with_det(a, b, c, det, r)
+}

@@ -117,33 +117,6 @@ points_write :: proc(p1, p2, p3: ^[2]f32) {
 	os.write_entire_file(POINTS_PATH, blob_result(blob))
 }
 
-// World :: struct {
-// 	resources: map[typeid]rawptr,
-// }
-
-// get_resource :: proc(world: ^World, $T: typeid) -> Maybe(^T) {
-// 	if !(T in world.resources) {
-// 		return nil
-// 	}
-
-// 	return cast(^T) &world.resources[T]
-// }
-
-// main :: proc() {
-// 	world: World
-// 	world.resources = make(map[typeid]rawptr, 32)
-
-// 	Test :: struct {
-// 		value: int,
-// 	}
-
-// 	world.resources[Test] = nil
-// 	res := get_resource(&world, Test)
-// 	fmt.eprintln(res.?)
-
-// 	// path_svg(nil, svg_shield_path)
-// }
-
 main :: proc() {
 	glfw.Init()
 	defer glfw.Terminate()
@@ -181,7 +154,7 @@ main :: proc() {
 	scale: [2]f32
 	offset: [2]f32
 
-	svg_curves := path_svg_make(svg_shield_path)
+	svg_curves := svg_gen_temp(svg_shield_path)
 	defer delete(svg_curves)
 
 	count: f32
@@ -215,13 +188,6 @@ main :: proc() {
 		{
 			renderer_start(&app.renderer, tiles_x * tiles_y, tiles_x, tiles_y)
 			defer renderer_end(&app.renderer, width, height)
-			
-			path := renderer_path_make(&app.renderer)
-			// path_move_to(&path, p1.x, p1.y)
-			// path_line_to(&path, p2.x, p2.y)
-			// path_line_to(&path, p3.x, p3.y)
-			// path_close(&path)
-			// renderer_path_finish(&app.renderer, &path)
 
 			// if app.mouse.left {
 			// 	p := app.ctrl ? &p1 : &p2
@@ -237,9 +203,6 @@ main :: proc() {
 			// path_quadratic_test(&path, app.mouse.x, app.mouse.y)
 			// path_cubic_test(&path, app.mouse.x, app.mouse.y, 100, count)
 
-			// path_rect_test(&path, app.mouse.x, app.mouse.y, 200, 100)
-			// path_triangle(&path, app.mouse.x, app.mouse.y, 200)
-			// path_circle(&path, app.mouse.x, app.mouse.y, 100)
 
 			// renderer_text_push(&app.renderer, "e", 400, app.mouse.x, app.mouse.y)
 
@@ -247,28 +210,16 @@ main :: proc() {
 			// path_mpvg_test(&path, app.mouse.x, app.mouse.y)
 			// renderer_path_finish(&app.renderer, &path)
 
-			renderer_curves_push(&app.renderer, svg_curves)
+			// renderer_curves_push(&app.renderer, svg_curves)
 
-			// path_move_to(&path, 0, 0)
-			// path_line_to(&path, 100, 100)
-			// // path_line_to(&path, 75, 150)
-			// path_line_to(&path, 150, 75)
-			// path_line_to(&path, 200, 50)
-			// path_close(&path)
+			// NOTE: NEW
+			// renderer_state_rotate(&app.renderer, count * 0.01)
+			// renderer_state_translate(&app.renderer, app.mouse.x, app.mouse.y)
+			// renderer_rect(&app.renderer, 0, 0, 200, 100)
 
-			// scale = [2]f32 { 1, 1 }
-			// offset = [2]f32 { 0, 0 }
-			scale = [2]f32 { 10, 10 }
-			offset = [2]f32 { app.mouse.x, app.mouse.y }
-			renderer_process(&app.renderer, scale, offset)
-
-			// fmt.eprintln("len:", renderer.curve_index, renderer.output_index)
-
-			// fmt.eprint(renderer.output_index, ' ')
-			// for i in 0..<renderer.output_index {
-			// 	c := renderer.output[i]
-			// 	fmt.eprint(c.orientation, ' ')
-			// }
+			renderer_state_scale(&app.renderer, 10, 10)
+			renderer_state_translate(&app.renderer, app.mouse.x, app.mouse.y)
+			renderer_svg(&app.renderer, svg_curves)
 		}
 
 		glfw.SwapBuffers(window)
