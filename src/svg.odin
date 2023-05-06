@@ -63,69 +63,6 @@ value_till :: proc(input: string) -> (res: string, last: u8) {
 	return
 }
 
-// path_svg :: proc(path: ^Path, svg: string) {
-// 	points: [10]f32
-// 	svg_index: int
-
-// 	for svg_index < len(svg) {
-// 		command := path_command_table[svg[svg_index]]
-// 		svg_index += 1
-// 		point_index: int
-		
-// 		for svg_index < len(svg) {
-// 			res, last := value_till(svg[svg_index:])
-
-// 			if len(res) == 0 {
-// 				break
-// 			}
-
-// 			svg_index += len(res)
-// 			points[point_index] = f32(strconv.atof(res))
-// 			point_index += 1
-
-// 			// allow space or comma
-// 			if last == ' ' || last == ',' {
-// 				svg_index	+= 1
-// 			} else {
-// 				break
-// 			}
-// 		}
-
-// 		#partial switch command {
-// 		case .Move_To_Absolute: path_move_to(path, points[0], points[1])
-// 		case .Move_To_Relative: path_move_to_rel(path, points[0], points[1])
-
-// 		case .Line_To_Absolute: path_line_to(path, points[0], points[1])
-// 		case .Line_To_Relative: path_line_to_rel(path, points[0], points[1])
-
-// 		case .Vertical_Line_To_Absolute: path_line_to(path, path.last.x, points[0])
-// 		case .Vertical_Line_To_Relative: path_line_to_rel(path, 0, points[0])
-
-// 		case .Horizontal_Line_To_Absolute: path_line_to(path, points[0], path.last.y)
-// 		case .Horizontal_Line_To_Relative: path_line_to_rel(path, points[0], 0)
-
-// 		// TODO check where the control points should be
-// 		case .Curve_To_Absolute: 
-// 			fmt.eprintln("C", points[:point_index])
-// 			path_cubic_to(path, points[4], points[5], points[0], points[1], points[2], points[3])
-// 		// case .Curve_To_Absolute: path_line_to(path, points[4], points[5])
-// 		case .Curve_To_Relative: path_cubic_to_rel(path, points[4], points[5], points[0], points[1], points[2], points[3])
-
-// 		case .Close_Path: path_close(path)
-// 		}
-
-// 		// fmt.eprintln("CMD", command, points[:point_index])
-// 	}
-// }
-
-// path_svg_make :: proc(svg: string, allocator := context.allocator) -> (res: []Curve) {
-// 	curves: [512]Curve
-// 	path := path_make(curves[:])
-// 	path_svg(&path, svg)
-// 	res = slice.clone(curves[:path.offset], allocator)
-// 	return
-// }
-
 svg_gen :: proc(commands: []SVG_Path_Command, svg: string) -> []SVG_Path_Command {
 	points: [10]f32
 	svg_index: int

@@ -10,7 +10,7 @@ import "core:runtime"
 import "core:strconv"
 import "core:math/linalg"
 import glm "core:math/linalg/glsl"
-import glfw "vendor:GLFW"
+import glfw "vendor:glfw"
 import gl "vendor:OpenGL"
 
 length :: linalg.vector_length
@@ -189,37 +189,33 @@ main :: proc() {
 			renderer_start(&app.renderer, tiles_x * tiles_y, tiles_x, tiles_y)
 			defer renderer_end(&app.renderer, width, height)
 
-			// if app.mouse.left {
-			// 	p := app.ctrl ? &p1 : &p2
-			// 	p.x = app.mouse.x - offset.x
-			// 	p.y = app.mouse.y - offset.y
-			// }
+			if app.mouse.left {
+				p := app.ctrl ? &p1 : &p2
+				p.x = app.mouse.x - offset.x
+				p.y = app.mouse.y - offset.y
+			}
 
-			// if app.mouse.right {
-			// 	p3.x = app.mouse.x - offset.x
-			// 	p3.y = app.mouse.y - offset.y
-			// }
+			if app.mouse.right {
+				p3.x = app.mouse.x - offset.x
+				p3.y = app.mouse.y - offset.y
+			}
 
-			// path_quadratic_test(&path, app.mouse.x, app.mouse.y)
-			// path_cubic_test(&path, app.mouse.x, app.mouse.y, 100, count)
-
-
-			// renderer_text_push(&app.renderer, "e", 400, app.mouse.x, app.mouse.y)
-
-			// path_svg(&path, svg_shield_path)
-			// path_mpvg_test(&path, app.mouse.x, app.mouse.y)
-			// renderer_path_finish(&app.renderer, &path)
-
-			// renderer_curves_push(&app.renderer, svg_curves)
+			// renderer_circle_test(&app.renderer, 200, 200, 200)
+			
+			renderer_move_to(&app.renderer, 300, 300)
+			// renderer_line_to(&app.renderer, app.mouse.x, app.mouse.y)
+			// renderer_cubic_to(&app.renderer, app.mouse.x, app.mouse.y, app.mouse.x + 10, app.mouse.y + 10, app.mouse.x - 20, app.mouse.y - 20)
+			renderer_quadratic_to(&app.renderer, p2.x, p2.y, p3.x, p3.y)
 
 			// NOTE: NEW
 			// renderer_state_rotate(&app.renderer, count * 0.01)
 			// renderer_state_translate(&app.renderer, app.mouse.x, app.mouse.y)
 			// renderer_rect(&app.renderer, 0, 0, 200, 100)
 
-			renderer_state_scale(&app.renderer, 10, 10)
-			renderer_state_translate(&app.renderer, app.mouse.x, app.mouse.y)
-			renderer_svg(&app.renderer, svg_curves)
+			// renderer_state_scale(&app.renderer, 10, 10)
+			// renderer_state_translate(&app.renderer, app.mouse.x, app.mouse.y)
+			// // renderer_state_translate(&app.renderer, 100, 100)
+			// renderer_svg(&app.renderer, svg_curves)
 		}
 
 		glfw.SwapBuffers(window)

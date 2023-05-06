@@ -5,7 +5,6 @@ layout(rgba8, binding = 0) uniform image2D img_output;
 
 uniform int color_mode;
 uniform int fill_rule;
-uniform int ignore_temp;
 
 // kind of curve
 #define C_LINE 0
@@ -185,7 +184,6 @@ vec4 colors_negative[3] = vec4[](
 );
 
 void main() {
-	// vec2 px = gl_GlobalInvocationID.xy * gl_LocalInvocationID.xy;
 	ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
 	vec2 px = gl_GlobalInvocationID.xy;
 
@@ -216,10 +214,6 @@ void main() {
 	vec4 color = vec4(1, 1, 1, 1);
 
 	if (intersects(fill_rule, winding_number)) {
-	// if (intersects(RULE_ODD, winding_number)) {
-	// if (intersects(RULE_EVEN, winding_number)) {
-	// if (intersects(RULE_NONZERO, winding_number)) {
-	// if (intersects(RULE_ZERO, winding_number)) {
 		color = vec4(0, 0, 0, 1);
 
 		if (abs(winding_number) <= 3) {

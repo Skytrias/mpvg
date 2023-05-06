@@ -15,7 +15,9 @@ MAX_STATES :: 32
 shader_vert := #load("vertex.glsl")
 shader_frag := #load("fragment.glsl")
 
-when true {
+USE_TILING :: false
+
+when USE_TILING {
 	shader_compute := #load("mpvg.comp")
 } else {
 	shader_compute := #load("mpvg_non_tiling.comp")
@@ -47,13 +49,7 @@ Renderer :: struct {
 	// raw curves that were inserted by the user
 	curves: []Curve,
 	curve_index: int,
-
-	// curve temp
-	curve_last: [2]f32,
-
-	// tag along data processing curves
-	contexts: []Implicizitation_Context,
-	roots: []Roots,
+	curve_last: [2]f32, // temp last point in path creation
 
 	// result of monotization & implicitization
 	output: []Implicit_Curve,
@@ -120,8 +116,8 @@ Renderer_Command :: struct #packed {
 
 renderer_init :: proc(renderer: ^Renderer) {
 	renderer.output = make([]Implicit_Curve, 256)
-	renderer.roots = make([]Roots, 256)
-	renderer.contexts = make([]Implicizitation_Context, 256)
+	// renderer.roots = make([]Roots, 256)
+	// renderer.contexts = make([]Implicizitation_Context, 256)
 	renderer.curves = make([]Curve, 256)
 	renderer.tiles = make([]Renderer_Tile, 1028)
 	renderer.commands = make([]Renderer_Command, 1028)
@@ -141,8 +137,6 @@ renderer_make :: proc() -> (res: Renderer) {
 renderer_destroy :: proc(renderer: ^Renderer) {
 	delete(renderer.output)
 	delete(renderer.curves)
-	delete(renderer.roots)
-	delete(renderer.contexts)
 	delete(renderer.tiles)
 	delete(renderer.commands)
 
@@ -185,24 +179,14 @@ renderer_start :: proc(
 	renderer_state_reset(renderer)
 }
 
-renderer_end :: proc(renderer: ^Renderer, width, height: int) {
-	renderer_process(renderer)
-	renderer_process_tiles(renderer, f32(width), f32(height))
+renderer_end :: proc(using renderer: ^Renderer, width, height: int) {
+	icurves_push(curves[:curve_index], output, &output_index)
+	
+	when USE_TILING {
+		renderer_process_tiles(renderer, f32(width), f32(height))
+	}
+
 	renderer_gpu_gl_end(renderer, width, height)
-}
-
-renderer_process :: proc(using renderer: ^Renderer) {
-	results := curves[:curve_index]
-
-	for c, i in results {
-		preprocess1[c.count](c, &roots[i], &contexts[i])
-	}
-
-	for c, i in results {
-		root := &roots[i]
-		ctx := &contexts[i]
-		preprocess2[c.count](output, &renderer.output_index, c, root, ctx)
-	}
 }
 
 renderer_glyph_push :: proc(
@@ -319,7 +303,6 @@ renderer_process_tiles :: proc(renderer: ^Renderer, width, height: f32) {
 
 					if crossB {
 						tile.winding_number += curve.winding_increment
-						// tile.winding_number += start.x < x1 ? -1 : end.x > x2 ? 1 : 0
 					}
 
 					renderer.commands[renderer.command_index] = cmd
@@ -350,17 +333,17 @@ renderer_process_tiles :: proc(renderer: ^Renderer, width, height: f32) {
 		tile.command_offset = min(tile.command_offset, i32(i))
 	}
 
-	for i in 0..<renderer.tile_count {
-		tile := &renderer.tiles[i]
+	// for i in 0..<renderer.tile_count {
+	// 	tile := &renderer.tiles[i]
 		
-		if tile.command_offset != 100_000 {
-			// fmt.eprintln(tile.command_offset, tile.command_count)
-			slice.sort_by(renderer.commands[tile.command_offset:tile.command_offset + tile.command_count], proc(a, b: Renderer_Command) -> bool {
-				// return a.x < b.x
-				return a.curve_index < b.curve_index
-			})
-		}
-	}
+	// 	if tile.command_offset != 100_000 {
+	// 		// fmt.eprintln(tile.command_offset, tile.command_count)
+	// 		slice.sort_by(renderer.commands[tile.command_offset:tile.command_offset + tile.command_count], proc(a, b: Renderer_Command) -> bool {
+	// 			return a.x < b.x
+	// 			// return a.curve_index < b.curve_index
+	// 		})
+	// 	}
+	// }
 
 	// prefix sum backpropogation
 	if true {
@@ -394,10 +377,7 @@ renderer_gpu_gl_init :: proc(using gpu: ^Renderer_GL) {
 		gl.EnableVertexAttribArray(1)
 
 		ok: bool
-		fill_program, ok = gl.shader_load_sources({ 
-			{ shader_vert, .VERTEX }, 
-			{ shader_frag, .FRAGMENT },
-		})
+		fill_program, ok = gl.load_shaders_source(shader_vert, shader_frag)
 		if !ok {
 			panic("failed loading frag/vert shader")
 		}
@@ -407,7 +387,7 @@ renderer_gpu_gl_init :: proc(using gpu: ^Renderer_GL) {
 	
 	{
 		ok: bool
-		compute_program, ok = gl.shader_load_sources({{ shader_compute, .COMPUTE }})
+		compute_program, ok = gl.load_compute_source(shader_compute)
 		if !ok {
 			panic("failed loading compute shader")
 		}
@@ -471,7 +451,12 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, compute_commands_ssbo)
 	gl.BufferData(gl.SHADER_STORAGE_BUFFER, renderer.command_index * size_of(Renderer_Command), raw_data(renderer.commands), gl.STREAM_DRAW)
 
-	gl.DispatchCompute(u32(renderer.tiles_x), u32(renderer.tiles_y), 1)
+	when USE_TILING {
+		gl.DispatchCompute(u32(renderer.tiles_x), u32(renderer.tiles_y), 1)
+	} else {
+		gl.DispatchCompute(u32(width), u32(height), 1)
+	}
+
 	gl.MemoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT)
 
 	// fill texture
@@ -750,6 +735,31 @@ renderer_rect :: proc(renderer: ^Renderer, x, y, w, h: f32) {
 	renderer_line_to(renderer, x + w, y + h)
 	renderer_line_to(renderer, x + w, y)
 	renderer_close(renderer)
+}
+
+renderer_circle_test :: proc(renderer: ^Renderer, x, y, radius: f32) {
+	r2 := radius / 2
+	renderer_move_to(renderer, x, y - r2)
+	// top to left
+	renderer_quadratic_to(
+		renderer, 
+		x - r2, y, 
+		x - r2 * 3 / 4, y - r2 * 3 / 4,
+	)
+	// left to bottom
+	renderer_quadratic_to(
+		renderer, 
+		x, y + r2, 
+		x - r2 * 3 / 4, y + r2 * 3 / 4,
+	)
+	// // bottom to right
+	// renderer_quadratic_to(
+	// 	renderer, 
+	// 	x + r2, y, 
+	// 	x + r2 - 20, y + r2 - 80,
+	// )
+	renderer_close(renderer)
+	// renderer_quadratic_to(renderer, x - r2, y, x - r2, y - r2)
 }
 
 // renderer_print :: proc(renderer: ^Renderer) {

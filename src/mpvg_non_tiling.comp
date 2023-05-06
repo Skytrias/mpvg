@@ -1,6 +1,6 @@
 #version 450 core
 
-layout(local_size_x = 32, local_size_y = 32) in;
+layout(local_size_x = 1, local_size_y = 1) in;
 layout(rgba8, binding = 0) uniform image2D img_output;
 
 uniform int color_mode;
@@ -28,12 +28,7 @@ struct Implicit_Curve {
 	int kind;
 	int orientation;
 	bool negative;
-	bool going_up;
-
 	int winding_increment;
-	int pad1;
-	int pad2;
-	int pad3;
 };
 
 layout(std140, binding = 0) buffer Curves {
@@ -184,12 +179,8 @@ vec4 colors_negative[3] = vec4[](
 );
 
 void main() {
-	// vec2 px = gl_GlobalInvocationID.xy * gl_LocalInvocationID.xy;
 	ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
 	vec2 px = gl_GlobalInvocationID.xy;
-
-	uint tile_index = gl_WorkGroupID.x + gl_WorkGroupID.y * 25;
-	Tile tile = tiles.data[tile_index];
 
 	int winding_number = 0;
 	for (int i = 0; i < curves.data.length(); i += 1) {
@@ -197,11 +188,6 @@ void main() {
 
 		int side = curve_side(curve, px);
 		if (px.y > curve.box.y && px.y <= curve.box.w) {
-			// NOTE fixes left/right crossings
-			// if (curve.orientation != C_BR) {
-			// 	winding_number += cmd.crossed_right;
-			// }
-
 			if (side < 0) {
 				winding_number += curve.winding_increment;
 			}
@@ -224,7 +210,7 @@ void main() {
 		if (color_mode == 0) {
 			color = vec4(1, 0, 0, 1);
 		} else if (color_mode == 1) {
-			color = tile.color;
+			// color = vec4(0.5);
 		} else if (color_mode == 2) {
 			color.a = abs(winding_number) / 1.8;
 		} else if (color_mode == 3) {
