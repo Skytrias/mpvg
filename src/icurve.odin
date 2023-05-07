@@ -23,12 +23,12 @@ Implicit_Curve :: struct {
 
 	implicit_matrix: glm.mat4,
 
-	base: [2]f32,
 	hull_vertex: [2]f32,
+	padding: [2]f32,
 	
 	kind: Implicit_Curve_Kind, 
 	orientation: Implicit_Curve_Orientation,
-	negative: i32,
+	sign: i32,
 	winding_increment: i32,
 }
 
@@ -92,12 +92,15 @@ curve_eval :: proc(curve: Implicit_Curve, pt: [2]f32) -> (side: int) {
 			case .CUBIC:
 				ph := [4]f32 { pt.x, pt.y, 1, 1 }
 				klm := curve.implicit_matrix * ph
-				sign := f32(curve.negative)
+				sign := f32(curve.sign)
 				side = (sign * (klm.x*klm.x*klm.x - klm.y*klm.z) < 0)? -1 : 1
 			}
 		}
 	}
 
+	if true {
+		panic("yo")
+	}
 	return
 }
 
@@ -137,9 +140,12 @@ quadratic_monotonize :: proc(using curve: Curve, splits: ^[4]f32) -> (split_coun
 quadratic_setup :: proc(using curve: Curve, icurves: []Implicit_Curve, curve_index: ^int) {
 	splits: [4]f32
 	split_count := quadratic_monotonize(curve, &splits)
+	fmt.eprintln("splits", split_count, splits[:split_count])
+	fmt.eprintln("curve in", curve)
 
 	for i in 0..<split_count - 1 {
 		sp := c2_slice(curve, splits[i], splits[i + 1])
+		fmt.eprintln("\t", i, sp)
 		quadratic_emit(sp, icurves, curve_index)
 	}
 }
@@ -165,15 +171,27 @@ quadratic_emit :: proc(
 	flip := (icurve.orientation == .TL || icurve.orientation == .BL) ? -1 : 1
 	g := f32(flip) * (p[2].x*(p[0].y - p[1].y) + p[0].x*(p[1].y - p[2].y) + p[1].x*(p[2].y - p[0].y))
 
-	mat := glm.mat4 {
-		a, d, 0, 0,
-		b, e, 0, 0,
-		c, f, g, 0,
-		0, 0, 0, 1,
+	// mat := glm.mat4 {
+	// 	a, d, 0, 0,
+	// 	b, e, 0, 0,
+	// 	c, f, g, 0,
+	// 	0, 0, 0, 0,
+	// }
+
+	val := 1.0 / det
+	icurve.implicit_matrix = {
+		val * a, val * d, 0, 0,
+		val * b, val * e, 0, 0,
+		val * c, val * f, val * g, 0,
+		0, 0, 0, 0,
 	}
 
-	icurve.implicit_matrix = linalg.matrix_mul(mat, 1/det)
+
+	// icurve.implicit_matrix = linalg.matrix_mul(mat, 1.0/det)
+	// icurve.implicit_matrix = linalg.matrix_mul(mat, det)
+	// icurve.implicit_matrix = mat
 	icurve.hull_vertex = p[1]
+	fmt.eprintln(icurve)
 
 	icurves[curve_index^] = icurve
 	curve_index^ += 1
@@ -304,10 +322,10 @@ cubic_emit :: proc(
 	bary := barycentric_matrix(v0, v1, v2)
 	icurve.implicit_matrix = K * bary
 	icurve.hull_vertex = select_hull_vertex(sp[0], sp[1], sp[2], sp[3])
-	icurve.negative = 1
+	icurve.sign = 1
 
 	if info.type == .SERPENTINE || info.type == .CUSP {
-		icurve.negative = info.d1 < 0 ? -1 : 1
+		icurve.sign = info.d1 < 0 ? -1 : 1
 	} else if info.type == .CUBIC_LOOP {
 		d1 := info.d1
 		d2 := info.d2
@@ -316,11 +334,11 @@ cubic_emit :: proc(
 		H0 := d3*d1-square(d2) + d1*d2*s0 - square(d1)*square(s0)
 		H1 := d3*d1-square(d2) + d1*d2*s1 - square(d1)*square(s1)
 		H := (abs(H0) > abs(H1)) ? H0 : H1
-		icurve.negative = H*d1 > 0 ? -1 : 1
+		icurve.sign = H*d1 > 0 ? -1 : 1
 	}
 
 	if sp[3].y > sp[0].y {
-		icurve.negative *= -1
+		icurve.sign *= -1
 	}
 
 	icurves[curve_index^] = icurve
@@ -564,6 +582,7 @@ icurve_make :: proc(using curve: Curve) -> (res: Implicit_Curve) {
 		}
 	}
 
+	// fmt.eprintln("IMP OUT", res)
 	return
 }
 

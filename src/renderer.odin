@@ -377,7 +377,7 @@ renderer_gpu_gl_init :: proc(using gpu: ^Renderer_GL) {
 		gl.EnableVertexAttribArray(1)
 
 		ok: bool
-		fill_program, ok = gl.load_shaders_source(shader_vert, shader_frag)
+		fill_program, ok = gl.load_shaders_source(string(shader_vert), string(shader_frag))
 		if !ok {
 			panic("failed loading frag/vert shader")
 		}
@@ -387,7 +387,7 @@ renderer_gpu_gl_init :: proc(using gpu: ^Renderer_GL) {
 	
 	{
 		ok: bool
-		compute_program, ok = gl.load_compute_source(shader_compute)
+		compute_program, ok = gl.load_compute_source(string(shader_compute))
 		if !ok {
 			panic("failed loading compute shader")
 		}

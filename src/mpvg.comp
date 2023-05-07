@@ -20,20 +20,15 @@ uniform int fill_rule;
 struct Implicit_Curve {
 	vec4 box;
 	
-	mat4 M;
+	mat4 implicit_matrix;
 
-	vec2 base;
-	vec2 E;
+	vec2 hull_vertex;
+	vec2 padding;
 
 	int kind;
 	int orientation;
-	bool negative;
-	bool going_up;
-
+	int sign;
 	int winding_increment;
-	int pad1;
-	int pad2;
-	int pad3;
 };
 
 layout(std140, binding = 0) buffer Curves {

@@ -20,14 +20,14 @@ uniform int fill_rule;
 struct Implicit_Curve {
 	vec4 box;
 	
-	mat4 M;
+	mat4 implicit_matrix;
 
-	vec2 base;
-	vec2 E;
+	vec2 hull_vertex;
+	vec2 padding;
 
 	int kind;
 	int orientation;
-	bool negative;
+	int sign;
 	int winding_increment;
 };
 
@@ -112,7 +112,7 @@ int curve_side(Implicit_Curve curve, vec2 pt) {
 			}
 		}
 
-		vec2 c = curve.E;
+		vec2 c = curve.hull_vertex;
 
 		if (ccw(a, b, pt) < 0) {
 			// other side of the diagonal
@@ -129,14 +129,14 @@ int curve_side(Implicit_Curve curve, vec2 pt) {
 
 				case C_QUADRATIC: {
 					vec4 ph = vec4(pt.x, pt.y, 1, 1);
-					vec4 klm = curve.M * ph;
+					vec4 klm = curve.implicit_matrix * ph;
 					side = ((klm.x*klm.x - klm.y)*klm.z < 0) ? -1 : 1;
 				} break;
 
 				case C_CUBIC: {
 					vec4 ph = vec4(pt.x, pt.y, 1, 1);
-					vec4 klm = curve.M * ph;
-					int sign = int(curve.negative);
+					vec4 klm = curve.implicit_matrix * ph;
+					int sign = curve.sign;
 					side = (sign * (klm.x*klm.x*klm.x - klm.y*klm.z) < 0)? -1 : 1;
 				} break;
 			}

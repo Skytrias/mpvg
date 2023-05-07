@@ -206,6 +206,9 @@ main :: proc() {
 			// renderer_line_to(&app.renderer, app.mouse.x, app.mouse.y)
 			// renderer_cubic_to(&app.renderer, app.mouse.x, app.mouse.y, app.mouse.x + 10, app.mouse.y + 10, app.mouse.x - 20, app.mouse.y - 20)
 			renderer_quadratic_to(&app.renderer, p2.x, p2.y, p3.x, p3.y)
+			renderer_line_to(&app.renderer, p2.x + 200, p2.y)
+			renderer_close(&app.renderer)
+			fmt.eprintln("~~~")
 
 			// NOTE: NEW
 			// renderer_state_rotate(&app.renderer, count * 0.01)

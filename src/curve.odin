@@ -57,9 +57,11 @@ c2_blossom :: proc(using curve: Curve, u, v: f32) -> [2]f32 {
 }
 
 c2_slice :: proc(using curve: Curve, s0, s1: f32) -> (sp: Curve_Quadratic) {
-	sp[0] = s0 == 0 ? B[0] : c2_blossom(curve, s0, s0)
-	sp[1] = c2_blossom(curve, s0, s1)
-	sp[2] = s1 == 1 ? B[2] : c2_blossom(curve, s1, s1)
+	sp = {
+		s0 == 0 ? B[0] : c2_blossom(curve, s0, s0),
+		c2_blossom(curve, s0, s1),
+		s1 == 1 ? B[2] : c2_blossom(curve, s1, s1),
+	}
 	return
 }
 
