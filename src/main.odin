@@ -157,6 +157,12 @@ main :: proc() {
 	svg_curves := svg_gen_temp(svg_shield_path)
 	defer delete(svg_curves)
 
+	// fmt.eprintln("size", size_of(glm.mat3), size_of(glm.mat3x4), size_of(glm.mat4x3), size_of([12]f32))
+
+	// if true {
+	// 	return
+	// }
+
 	count: f32
 	duration: time.Duration
 	for !glfw.WindowShouldClose(window) {
@@ -204,9 +210,9 @@ main :: proc() {
 			
 			renderer_move_to(&app.renderer, 300, 300)
 			// renderer_line_to(&app.renderer, app.mouse.x, app.mouse.y)
-			// renderer_cubic_to(&app.renderer, app.mouse.x, app.mouse.y, app.mouse.x + 10, app.mouse.y + 10, app.mouse.x - 20, app.mouse.y - 20)
-			renderer_quadratic_to(&app.renderer, p2.x, p2.y, p3.x, p3.y)
-			renderer_line_to(&app.renderer, p2.x + 200, p2.y)
+			renderer_cubic_to(&app.renderer, p2.x, p2.y, p1.x, p1.y, p3.x, p3.y)
+			// renderer_quadratic_to(&app.renderer, p2.x, p2.y, p3.x, p3.y)
+			// renderer_line_to(&app.renderer, p2.x + 200, p2.y)
 			renderer_close(&app.renderer)
 			fmt.eprintln("~~~")
 

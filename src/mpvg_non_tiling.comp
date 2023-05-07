@@ -20,15 +20,15 @@ uniform int fill_rule;
 struct Implicit_Curve {
 	vec4 box;
 	
-	mat4 implicit_matrix;
-
 	vec2 hull_vertex;
-	vec2 padding;
+	vec2 hull_padding;
 
 	int kind;
 	int orientation;
 	int sign;
 	int winding_increment;
+
+	mat3 implicit_matrix;
 };
 
 layout(std140, binding = 0) buffer Curves {
@@ -128,16 +128,15 @@ int curve_side(Implicit_Curve curve, vec2 pt) {
 					break;
 
 				case C_QUADRATIC: {
-					vec4 ph = vec4(pt.x, pt.y, 1, 1);
-					vec4 klm = curve.implicit_matrix * ph;
+					vec3 ph = vec3(pt.x, pt.y, 1);
+					vec3 klm = curve.implicit_matrix * ph;
 					side = ((klm.x*klm.x - klm.y)*klm.z < 0) ? -1 : 1;
 				} break;
 
 				case C_CUBIC: {
-					vec4 ph = vec4(pt.x, pt.y, 1, 1);
-					vec4 klm = curve.implicit_matrix * ph;
-					int sign = curve.sign;
-					side = (sign * (klm.x*klm.x*klm.x - klm.y*klm.z) < 0)? -1 : 1;
+					vec3 ph = vec3(pt.x, pt.y, 1);
+					vec3 klm = curve.implicit_matrix * ph;
+					side = (curve.sign * (klm.x*klm.x*klm.x - klm.y*klm.z) < 0)? -1 : 1;
 				} break;
 			}
 		}

@@ -18,18 +18,19 @@ Implicit_Curve_Orientation :: enum i32 {
 	TR,
 }
 
+// Implicit_Curve :: struct {
 Implicit_Curve :: struct {
 	box: [4]f32, // bounding box
 
-	implicit_matrix: glm.mat4,
-
 	hull_vertex: [2]f32,
-	padding: [2]f32,
+	hull_padding: [2]f32,
 	
 	kind: Implicit_Curve_Kind, 
 	orientation: Implicit_Curve_Orientation,
 	sign: i32,
 	winding_increment: i32,
+
+	implicit_matrix: [12]f32,
 }
 
 curve_eval :: proc(curve: Implicit_Curve, pt: [2]f32) -> (side: int) {
@@ -85,15 +86,17 @@ curve_eval :: proc(curve: Implicit_Curve, pt: [2]f32) -> (side: int) {
 				side = 1
 
 			case .QUADRATIC:
-				ph := [4]f32 { pt.x, pt.y, 1, 1 }
-				klm := curve.implicit_matrix * ph
-				side = ((klm.x*klm.x - klm.y)*klm.z < 0) ? -1 : 1
+				// TODO
+				// ph := [3]f32 { pt.x, pt.y, 1 }
+				// klm := curve.implicit_matrix * ph
+				// side = ((klm.x*klm.x - klm.y)*klm.z < 0) ? -1 : 1
 
 			case .CUBIC:
-				ph := [4]f32 { pt.x, pt.y, 1, 1 }
-				klm := curve.implicit_matrix * ph
-				sign := f32(curve.sign)
-				side = (sign * (klm.x*klm.x*klm.x - klm.y*klm.z) < 0)? -1 : 1
+				// TODO
+				// ph := [3]f32 { pt.x, pt.y, 1 }
+				// klm := curve.implicit_matrix * ph
+				// sign := f32(curve.sign)
+				// side = (sign * (klm.x*klm.x*klm.x - klm.y*klm.z) < 0)? -1 : 1
 			}
 		}
 	}
@@ -101,6 +104,7 @@ curve_eval :: proc(curve: Implicit_Curve, pt: [2]f32) -> (side: int) {
 	if true {
 		panic("yo")
 	}
+
 	return
 }
 
@@ -140,12 +144,9 @@ quadratic_monotonize :: proc(using curve: Curve, splits: ^[4]f32) -> (split_coun
 quadratic_setup :: proc(using curve: Curve, icurves: []Implicit_Curve, curve_index: ^int) {
 	splits: [4]f32
 	split_count := quadratic_monotonize(curve, &splits)
-	fmt.eprintln("splits", split_count, splits[:split_count])
-	fmt.eprintln("curve in", curve)
 
 	for i in 0..<split_count - 1 {
 		sp := c2_slice(curve, splits[i], splits[i + 1])
-		fmt.eprintln("\t", i, sp)
 		quadratic_emit(sp, icurves, curve_index)
 	}
 }
@@ -171,27 +172,15 @@ quadratic_emit :: proc(
 	flip := (icurve.orientation == .TL || icurve.orientation == .BL) ? -1 : 1
 	g := f32(flip) * (p[2].x*(p[0].y - p[1].y) + p[0].x*(p[1].y - p[2].y) + p[1].x*(p[2].y - p[0].y))
 
-	// mat := glm.mat4 {
-	// 	a, d, 0, 0,
-	// 	b, e, 0, 0,
-	// 	c, f, g, 0,
-	// 	0, 0, 0, 0,
-	// }
-
-	val := 1.0 / det
+	// TODO do these better on gpu
+	val := f32(1.0) / f32(det)
 	icurve.implicit_matrix = {
 		val * a, val * d, 0, 0,
 		val * b, val * e, 0, 0,
 		val * c, val * f, val * g, 0,
-		0, 0, 0, 0,
 	}
 
-
-	// icurve.implicit_matrix = linalg.matrix_mul(mat, 1.0/det)
-	// icurve.implicit_matrix = linalg.matrix_mul(mat, det)
-	// icurve.implicit_matrix = mat
 	icurve.hull_vertex = p[1]
-	fmt.eprintln(icurve)
 
 	icurves[curve_index^] = icurve
 	curve_index^ += 1
@@ -285,7 +274,7 @@ cubic_emit :: proc(
 	v0 := B[0]
 	v1 := B[3]
 	v2: [2]f32
-	K: glm.mat4
+	K: glm.mat3
 
 	sqr_norm0 := linalg.vector_length(B[1] - B[0])
 	sqr_norm1 := linalg.vector_length(B[2] - B[3])
@@ -294,33 +283,41 @@ cubic_emit :: proc(
 		if sqr_norm0 >= sqr_norm1 {
 			v2 = B[1]
 			K = { 
-				info.K[0].x, info.K[0].y, info.K[0].z, 0,
-				info.K[3].x, info.K[3].y, info.K[3].z, 0,
-				info.K[1].x, info.K[1].y, info.K[1].z, 0,
-				0, 0, 0, 1,
+				info.K[0].x, info.K[0].y, info.K[0].z,
+				info.K[3].x, info.K[3].y, info.K[3].z,
+				info.K[1].x, info.K[1].y, info.K[1].z,
 			}
 		} else {
 			v2 = B[2]
 			K = { 
-				info.K[0].x, info.K[0].y, info.K[0].z, 0,
-				info.K[3].x, info.K[3].y, info.K[3].z, 0,
-				info.K[2].x, info.K[2].y, info.K[2].z, 0,
-				0, 0, 0, 1,
+				info.K[0].x, info.K[0].y, info.K[0].z,
+				info.K[3].x, info.K[3].y, info.K[3].z,
+				info.K[2].x, info.K[2].y, info.K[2].z,
 			}
 		}
 	} else {
 		v1 = B[1]
 		v2 = B[2]
 		K = {
-			info.K[0].x, info.K[0].y, info.K[0].z, 0,
-			info.K[1].x, info.K[1].y, info.K[1].z, 0,
-			info.K[2].x, info.K[2].y, info.K[2].z, 0,			
-			0, 0, 0, 1,
+			info.K[0].x, info.K[0].y, info.K[0].z,
+			info.K[1].x, info.K[1].y, info.K[1].z,
+			info.K[2].x, info.K[2].y, info.K[2].z,
 		}
 	}
 
 	bary := barycentric_matrix(v0, v1, v2)
-	icurve.implicit_matrix = K * bary
+	m := K * bary
+	// icurve.implicit_matrix = {
+	// 	m[0, 0], m[1, 0], m[2, 0], 0,
+	// 	m[0, 1], m[1, 1], m[2, 1], 0,
+	// 	m[0, 2], m[1, 2], m[2, 2], 0,
+	// }
+	icurve.implicit_matrix = {
+		m[0, 0], m[0, 1], m[0, 2], 0,
+		m[1, 0], m[1, 1], m[1, 2], 0,
+		m[2, 0], m[2, 1], m[2, 2], 0,
+	}
+
 	icurve.hull_vertex = select_hull_vertex(sp[0], sp[1], sp[2], sp[3])
 	icurve.sign = 1
 
@@ -373,13 +370,13 @@ select_hull_vertex :: proc(p0, p1, p2, p3: [2]f32) -> (pm: [2]f32) {
 	return
 }
 
-barycentric_matrix :: proc(v0, v1, v2: [2]f32) -> (B: glm.mat4) {
+barycentric_matrix :: proc(v0, v1, v2: [2]f32) -> (B: glm.mat3) {
 	det := v0.x*(v1.y-v2.y) + v1.x*(v2.y-v0.y) + v2.x*(v0.y - v1.y)
+	// TODO do these better on gpu
  	B = {
- 		v1.y - v2.y, v2.y-v0.y, v0.y-v1.y, 0,
-		v2.x - v1.x, v0.x-v2.x, v1.x-v0.x, 0,
-		v1.x*v2.y-v2.x*v1.y, v2.x*v0.y-v0.x*v2.y, v0.x*v1.y-v1.x*v0.y, 0,
-		0, 0, 0, 1,
+ 		v1.y - v2.y, v2.y-v0.y, v0.y-v1.y,
+		v2.x - v1.x, v0.x-v2.x, v1.x-v0.x,
+		v1.x*v2.y-v2.x*v1.y, v2.x*v0.y-v0.x*v2.y, v0.x*v1.y-v1.x*v0.y,
 	}
  	B = linalg.matrix_mul(B, 1 / det)
  	return
@@ -514,7 +511,7 @@ c3_classify :: proc(using curve: Curve) -> (res: Cubic_Info) #no_bounds_check {
 	};
 
 	// TODO double check transpose?
-	res.K = inv_M3 * F
+	res.K = glm.transpose(inv_M3 * F)
 	return
 }
 
