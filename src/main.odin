@@ -117,6 +117,18 @@ points_write :: proc(p1, p2, p3: ^[2]f32) {
 	os.write_entire_file(POINTS_PATH, blob_result(blob))
 }
 
+// main :: proc() {
+// 	m := glm.mat4 {
+// 		1, 0, 1, 2,
+// 		3, 1, 4, 5,
+// 		6, 7, 1, 8,
+// 		0, 0, 0, 1,
+// 	}
+// 	fmt.eprintln(m)
+// 	fmt.eprintln(linalg.transpose(m))
+// 	fmt.eprintln(m[0])
+// }
+
 main :: proc() {
 	glfw.Init()
 	defer glfw.Terminate()
@@ -128,7 +140,7 @@ main :: proc() {
 	glfw.SetErrorCallback(error_callback)
 
 	glfw.WindowHint(glfw.CONTEXT_VERSION_MAJOR, 4)
-	glfw.WindowHint(glfw.CONTEXT_VERSION_MINOR, 3)
+	glfw.WindowHint(glfw.CONTEXT_VERSION_MINOR, 5)
 
 	window := glfw.CreateWindow(800, 800, "mpvg", nil, nil)
 	defer glfw.DestroyWindow(window)
@@ -141,7 +153,7 @@ main :: proc() {
 	glfw.SetKeyCallback(window, window_key_callback)
 
 	glfw.MakeContextCurrent(window)
-	gl.load_up_to(4, 3, glfw.gl_set_proc_address)
+	gl.load_up_to(4, 5, glfw.gl_set_proc_address)
 
 	renderer_init(&app.renderer)
 	defer renderer_destroy(&app.renderer)
@@ -210,15 +222,16 @@ main :: proc() {
 			
 			renderer_move_to(&app.renderer, 300, 300)
 			// renderer_line_to(&app.renderer, app.mouse.x, app.mouse.y)
-			renderer_cubic_to(&app.renderer, p2.x, p2.y, p1.x, p1.y, p3.x, p3.y)
-			// renderer_quadratic_to(&app.renderer, p2.x, p2.y, p3.x, p3.y)
+			// renderer_cubic_to(&app.renderer, p2.x, p2.y, p1.x, p1.y, p3.x, p3.y)
+			renderer_quadratic_to(&app.renderer, p2.x, p2.y, p3.x, p3.y)
 			// renderer_line_to(&app.renderer, p2.x + 200, p2.y)
 			renderer_close(&app.renderer)
 			fmt.eprintln("~~~")
 
-			// NOTE: NEW
+			// // NOTE: NEW
 			// renderer_state_rotate(&app.renderer, count * 0.01)
-			// renderer_state_translate(&app.renderer, app.mouse.x, app.mouse.y)
+			// // renderer_state_translate(&app.renderer, app.mouse.x, app.mouse.y)
+			// renderer_state_translate(&app.renderer, 200, 200)
 			// renderer_rect(&app.renderer, 0, 0, 200, 100)
 
 			// renderer_state_scale(&app.renderer, 10, 10)

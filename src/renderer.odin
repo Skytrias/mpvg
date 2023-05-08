@@ -14,13 +14,14 @@ MAX_STATES :: 32
 
 shader_vert := #load("vertex.glsl")
 shader_frag := #load("fragment.glsl")
+shader_compute_implicitize := #load("mpvg_implicitize.comp")
 
 USE_TILING :: false
 
 when USE_TILING {
-	shader_compute := #load("mpvg.comp")
+	shader_compute_raster := #load("mpvg_raster.comp")
 } else {
-	shader_compute := #load("mpvg_non_tiling.comp")
+	shader_compute_raster := #load("mpvg_raster_non_tiling.comp")
 }
 
 Vertex :: struct {
@@ -45,6 +46,15 @@ Renderer_State :: struct {
 	xform: glm.mat4, // state affine transformation
 }
 
+// glsl std140 layout
+// indices that will get advanced in compute shaders!
+Renderer_Indices :: struct #packed {
+	implicit_curves: i32,
+	pad1: i32,
+	pad2: i32,
+	pad3: i32,
+}
+
 Renderer :: struct {
 	// raw curves that were inserted by the user
 	curves: []Curve,
@@ -52,8 +62,9 @@ Renderer :: struct {
 	curve_last: [2]f32, // temp last point in path creation
 
 	// result of monotization & implicitization
-	output: []Implicit_Curve,
-	output_index: int,
+	implicit_curves: []Implicit_Curve,
+	
+	indices: Renderer_Indices,
 
 	// result of monotization & implicitization
 	commands: []Renderer_Command,
@@ -82,20 +93,30 @@ Renderer :: struct {
 }
 
 Renderer_GL :: struct {
-	fill_vao: u32,
-	fill_vbo: u32,
-	fill_program: u32,
-	fill_loc_projection: i32,
+	fill: struct {
+		vao: u32,
+		vbo: u32,
+		program: u32,
+		loc_projection: i32,
+	},
 
-	compute_program: u32,
-	compute_loc_color_mode: i32,
-	compute_loc_fill_rule: i32,
-	compute_loc_ignore_temp: i32,
-	compute_texture_id: u32,
+	implicitize: struct {
+		program: u32,
+	}
 
-	compute_curves_ssbo: u32,
-	compute_tiles_ssbo: u32,
-	compute_commands_ssbo: u32,
+	raster: struct {
+		program: u32,
+		loc_color_mode: i32,
+		loc_fill_rule: i32,
+		loc_ignore_temp: i32,
+		texture_id: u32,
+	},
+
+	indices_ssbo: u32,
+	curves_ssbo: u32,
+	implicit_curves_ssbo: u32,
+	tiles_ssbo: u32,
+	commands_ssbo: u32,
 }
 
 Renderer_Tile :: struct #packed {
@@ -114,13 +135,16 @@ Renderer_Command :: struct #packed {
 	x: f32,
 }
 
+MAX_CURVES :: 256
+MAX_IMPLICIT_CURVES :: 256
+MAX_TILES :: 1028
+MAX_COMMANDS :: 1028
+
 renderer_init :: proc(renderer: ^Renderer) {
-	renderer.output = make([]Implicit_Curve, 256)
-	// renderer.roots = make([]Roots, 256)
-	// renderer.contexts = make([]Implicizitation_Context, 256)
-	renderer.curves = make([]Curve, 256)
-	renderer.tiles = make([]Renderer_Tile, 1028)
-	renderer.commands = make([]Renderer_Command, 1028)
+	renderer.curves = make([]Curve, MAX_CURVES)
+	renderer.implicit_curves = make([]Implicit_Curve, MAX_IMPLICIT_CURVES)
+	renderer.tiles = make([]Renderer_Tile, MAX_TILES)
+	renderer.commands = make([]Renderer_Command, MAX_COMMANDS)
 	pool_clear(&renderer.font_pool)
 
 	renderer_gpu_gl_init(&renderer.gpu)
@@ -135,7 +159,7 @@ renderer_make :: proc() -> (res: Renderer) {
 }
 
 renderer_destroy :: proc(renderer: ^Renderer) {
-	delete(renderer.output)
+	delete(renderer.implicit_curves)
 	delete(renderer.curves)
 	delete(renderer.tiles)
 	delete(renderer.commands)
@@ -151,7 +175,7 @@ renderer_start :: proc(
 	tiles_y: int,
 ) {
 	renderer.curve_index = 0
-	renderer.output_index = 0
+	renderer.indices.implicit_curves = 0
 	renderer.command_index = 1
 
 	if renderer.tile_count != tile_count {
@@ -180,7 +204,7 @@ renderer_start :: proc(
 }
 
 renderer_end :: proc(using renderer: ^Renderer, width, height: int) {
-	icurves_push(curves[:curve_index], output, &output_index)
+	// icurves_push(curves[:curve_index], implicit_curves, &implicit_curve_index)
 	
 	when USE_TILING {
 		renderer_process_tiles(renderer, f32(width), f32(height))
@@ -228,147 +252,147 @@ renderer_font_push :: proc(renderer: ^Renderer, path: string) -> u32 {
 	return index
 }
 
-renderer_process_tiles :: proc(renderer: ^Renderer, width, height: f32) {
-	for i in 0..<renderer.tile_count {
-		tile := &renderer.tiles[i]
-		tile.winding_number = 0
-		tile.command_offset = 100_000
-		tile.command_count = 0
-	}
+// renderer_process_tiles :: proc(renderer: ^Renderer, width, height: f32) {
+// 	for i in 0..<renderer.tile_count {
+// 		tile := &renderer.tiles[i]
+// 		tile.winding_number = 0
+// 		tile.command_offset = 100_000
+// 		tile.command_count = 0
+// 	}
 
-	start: [2]f32
-	end: [2]f32
+// 	start: [2]f32
+// 	end: [2]f32
 
-	path_area := [4]f32 {
-		0, 0,
-		width, height,
-	}
+// 	path_area := [4]f32 {
+// 		0, 0,
+// 		width, height,
+// 	}
 
-	// loop through all implicit curves
-	curve_loop: for j in 0..<renderer.output_index {
-		curve := renderer.output[j]
+// 	// loop through all implicit curves
+// 	curve_loop: for j in 0..<renderer.output_index {
+// 		curve := renderer.output[j]
 
-		// swap
-		if curve.orientation == .TL || curve.orientation == .BR {
-			start = curve.box.xy
-			end = curve.box.zw
-		} else {
-			start = curve.box.xw
-			end = curve.box.zy
-		}
+// 		// swap
+// 		if curve.orientation == .TL || curve.orientation == .BR {
+// 			start = curve.box.xy
+// 			end = curve.box.zw
+// 		} else {
+// 			start = curve.box.xw
+// 			end = curve.box.zy
+// 		}
 
-		// TODO minimize iteration
-		// covered_tiles := curve.box / 32
-		// xmin := int(max(0, covered_tiles.x - path_area.x))
-		// ymin := int(max(0, covered_tiles.y - path_area.y))
-		// xmax := int(min(covered_tiles.z - path_area.x, path_area.z - 1))
-		// ymax := int(min(covered_tiles.w - path_area.y, path_area.w - 1))
-		// fmt.eprintln(xmin, ymin, xmax, ymax)
-		// for x in xmin..<xmax {
-		// 	for y in ymin..<ymax {
+// 		// TODO minimize iteration
+// 		// covered_tiles := curve.box / 32
+// 		// xmin := int(max(0, covered_tiles.x - path_area.x))
+// 		// ymin := int(max(0, covered_tiles.y - path_area.y))
+// 		// xmax := int(min(covered_tiles.z - path_area.x, path_area.z - 1))
+// 		// ymax := int(min(covered_tiles.w - path_area.y, path_area.w - 1))
+// 		// fmt.eprintln(xmin, ymin, xmax, ymax)
+// 		// for x in xmin..<xmax {
+// 		// 	for y in ymin..<ymax {
 
-		// loop through all tiles
-		for x in 0..<renderer.tiles_x {
-			for y in 0..<renderer.tiles_y {
-				index := x + y * renderer.tiles_x
-				tile := &renderer.tiles[index]
+// 		// loop through all tiles
+// 		for x in 0..<renderer.tiles_x {
+// 			for y in 0..<renderer.tiles_y {
+// 				index := x + y * renderer.tiles_x
+// 				tile := &renderer.tiles[index]
 
-				// tile in real coordinates
-				x1 := f32(x) / f32(renderer.tiles_x) * width
-				y1 := f32(y) / f32(renderer.tiles_x) * height
-				x2 := f32(x + 1) / f32(renderer.tiles_x) * width
-				y2 := f32(y + 1) / f32(renderer.tiles_x) * height
+// 				// tile in real coordinates
+// 				x1 := f32(x) / f32(renderer.tiles_x) * width
+// 				y1 := f32(y) / f32(renderer.tiles_x) * height
+// 				x2 := f32(x + 1) / f32(renderer.tiles_x) * width
+// 				y2 := f32(y + 1) / f32(renderer.tiles_x) * height
 
-				sbl := curve_eval(curve, { x1, y1 })
-				sbr := curve_eval(curve, { x2, y1 })
-				str := curve_eval(curve, { x2, y2 })
-				stl := curve_eval(curve, { x1, y2 })
+// 				sbl := curve_eval(curve, { x1, y1 })
+// 				sbr := curve_eval(curve, { x2, y1 })
+// 				str := curve_eval(curve, { x2, y2 })
+// 				stl := curve_eval(curve, { x1, y2 })
 
-				crossL := (stl * sbl) < 0
-				crossR := (str * sbr) < 0
-				crossT := (stl * str) < 0
-				crossB := (sbl * sbr) < 0
+// 				crossL := (stl * sbl) < 0
+// 				crossR := (str * sbr) < 0
+// 				crossT := (stl * str) < 0
+// 				crossB := (sbl * sbr) < 0
 
-				start_inside := start.x >= x1 && start.x < x2 && start.y >= y1 && start.y < y2
-				end_inside := end.x >= x1 && end.x < x2 && end.y >= y1 && end.y < y2
+// 				start_inside := start.x >= x1 && start.x < x2 && start.y >= y1 && start.y < y2
+// 				end_inside := end.x >= x1 && end.x < x2 && end.y >= y1 && end.y < y2
 
-				if end_inside || start_inside || crossL || crossR || crossT || crossB {
-					cmd := Renderer_Command { curve_index = i32(j) }
-					cmd.tile_index = i32(index)
-					cmd.x = min(curve.box.x, curve.box.z)
+// 				if end_inside || start_inside || crossL || crossR || crossT || crossB {
+// 					cmd := Renderer_Command { curve_index = i32(j) }
+// 					cmd.tile_index = i32(index)
+// 					cmd.x = min(curve.box.x, curve.box.z)
 
-					if crossR {
-						cmd.crossed_right = true
-					}
+// 					if crossR {
+// 						cmd.crossed_right = true
+// 					}
 
-					if crossB {
-						tile.winding_number += curve.winding_increment
-					}
+// 					if crossB {
+// 						tile.winding_number += curve.winding_increment
+// 					}
 
-					renderer.commands[renderer.command_index] = cmd
-					renderer.command_index += 1
-					tile.command_count += 1
-				}
-			}
-		}
-	}	
+// 					renderer.commands[renderer.command_index] = cmd
+// 					renderer.command_index += 1
+// 					tile.command_count += 1
+// 				}
+// 			}
+// 		}
+// 	}	
 
-	// sort by tile index on each command
-	slice.sort_by(renderer.commands[:renderer.command_index], proc(a, b: Renderer_Command) -> bool {
-		return a.tile_index < b.tile_index 
-	})
+// 	// sort by tile index on each command
+// 	slice.sort_by(renderer.commands[:renderer.command_index], proc(a, b: Renderer_Command) -> bool {
+// 		return a.tile_index < b.tile_index 
+// 	})
 
-	// TODO optimize to not use a for loop on all commands
-	// assign proper min offset to tile
-	last := i32(100_000)
-	for i in 0..<renderer.command_index {
-		cmd := renderer.commands[i]
-		defer last = cmd.tile_index
+// 	// TODO optimize to not use a for loop on all commands
+// 	// assign proper min offset to tile
+// 	last := i32(100_000)
+// 	for i in 0..<renderer.command_index {
+// 		cmd := renderer.commands[i]
+// 		defer last = cmd.tile_index
 
-		if last == cmd.tile_index {
-			continue
-		}
+// 		if last == cmd.tile_index {
+// 			continue
+// 		}
 
-		tile := &renderer.tiles[cmd.tile_index]
-		tile.command_offset = min(tile.command_offset, i32(i))
-	}
+// 		tile := &renderer.tiles[cmd.tile_index]
+// 		tile.command_offset = min(tile.command_offset, i32(i))
+// 	}
 
-	// for i in 0..<renderer.tile_count {
-	// 	tile := &renderer.tiles[i]
+// 	// for i in 0..<renderer.tile_count {
+// 	// 	tile := &renderer.tiles[i]
 		
-	// 	if tile.command_offset != 100_000 {
-	// 		// fmt.eprintln(tile.command_offset, tile.command_count)
-	// 		slice.sort_by(renderer.commands[tile.command_offset:tile.command_offset + tile.command_count], proc(a, b: Renderer_Command) -> bool {
-	// 			return a.x < b.x
-	// 			// return a.curve_index < b.curve_index
-	// 		})
-	// 	}
-	// }
+// 	// 	if tile.command_offset != 100_000 {
+// 	// 		// fmt.eprintln(tile.command_offset, tile.command_count)
+// 	// 		slice.sort_by(renderer.commands[tile.command_offset:tile.command_offset + tile.command_count], proc(a, b: Renderer_Command) -> bool {
+// 	// 			return a.x < b.x
+// 	// 			// return a.curve_index < b.curve_index
+// 	// 		})
+// 	// 	}
+// 	// }
 
-	// prefix sum backpropogation
-	if true {
-		for y in 0..<renderer.tiles_y {
-			sum: i32
+// 	// prefix sum backpropogation
+// 	if true {
+// 		for y in 0..<renderer.tiles_y {
+// 			sum: i32
 
-			for x := renderer.tiles_x - 1; x >= 0; x -= 1 {
-				index := x + y * renderer.tiles_x
-				tile := &renderer.tiles[index]
-				temp := tile.winding_number
-				tile.winding_number = sum
-				sum += temp
-			}
-		}
-	}
-}
+// 			for x := renderer.tiles_x - 1; x >= 0; x -= 1 {
+// 				index := x + y * renderer.tiles_x
+// 				tile := &renderer.tiles[index]
+// 				temp := tile.winding_number
+// 				tile.winding_number = sum
+// 				sum += temp
+// 			}
+// 		}
+// 	}
+// }
 
 renderer_gpu_gl_init :: proc(using gpu: ^Renderer_GL) {
 	{
-		gl.GenVertexArrays(1, &fill_vao)
-		gl.BindVertexArray(fill_vao)
+		gl.GenVertexArrays(1, &fill.vao)
+		gl.BindVertexArray(fill.vao)
 		defer gl.BindVertexArray(0)
 
-		gl.GenBuffers(1, &fill_vbo)
-		gl.BindBuffer(gl.ARRAY_BUFFER, fill_vbo)
+		gl.GenBuffers(1, &fill.vbo)
+		gl.BindBuffer(gl.ARRAY_BUFFER, fill.vbo)
 
 		size := i32(size_of(Vertex))
 		gl.VertexAttribPointer(0, 2, gl.FLOAT, gl.FALSE, size, 0)
@@ -377,31 +401,31 @@ renderer_gpu_gl_init :: proc(using gpu: ^Renderer_GL) {
 		gl.EnableVertexAttribArray(1)
 
 		ok: bool
-		fill_program, ok = gl.load_shaders_source(string(shader_vert), string(shader_frag))
+		fill.program, ok = gl.load_shaders_source(string(shader_vert), string(shader_frag))
 		if !ok {
 			panic("failed loading frag/vert shader")
 		}
 
-		fill_loc_projection = gl.GetUniformLocation(fill_program, "projection")
+		fill.loc_projection = gl.GetUniformLocation(fill.program, "projection")
 	}
 	
 	{
 		ok: bool
-		compute_program, ok = gl.load_compute_source(string(shader_compute))
+		raster.program, ok = gl.load_compute_source(string(shader_compute_raster))
 		if !ok {
 			panic("failed loading compute shader")
 		}
-		compute_loc_color_mode = gl.GetUniformLocation(compute_program, "color_mode")
-		compute_loc_fill_rule = gl.GetUniformLocation(compute_program, "fill_rule")
-		compute_loc_ignore_temp = gl.GetUniformLocation(compute_program, "ignore_temp")
+		raster.loc_color_mode = gl.GetUniformLocation(raster.program, "color_mode")
+		raster.loc_fill_rule = gl.GetUniformLocation(raster.program, "fill_rule")
+		raster.loc_ignore_temp = gl.GetUniformLocation(raster.program, "ignore_temp")
 
-		gl.GenTextures(1, &compute_texture_id)
-		gl.BindTexture(gl.TEXTURE_2D, compute_texture_id)
+		gl.GenTextures(1, &raster.texture_id)
+		gl.BindTexture(gl.TEXTURE_2D, raster.texture_id)
 		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
 		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
 		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
 		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-		gl.BindImageTexture(0, compute_texture_id, 0, gl.FALSE, 0, gl.WRITE_ONLY, gl.RGBA8)
+		gl.BindImageTexture(0, raster.texture_id, 0, gl.FALSE, 0, gl.WRITE_ONLY, gl.RGBA8)
 
 		{
 			// TODO dynamic width/height or finite big one
@@ -410,16 +434,40 @@ renderer_gpu_gl_init :: proc(using gpu: ^Renderer_GL) {
 			gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, i32(w), i32(h), 0, gl.RGBA, gl.UNSIGNED_BYTE, nil)
 		}
 		gl.BindTexture(gl.TEXTURE_2D, 0)
-
-		gl.GenBuffers(1, &compute_curves_ssbo)
-		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, compute_curves_ssbo)
-
-		gl.GenBuffers(1, &compute_tiles_ssbo)
-		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, compute_tiles_ssbo)
-
-		gl.GenBuffers(1, &compute_commands_ssbo)
-		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, compute_commands_ssbo)
 	}
+
+	{
+		ok: bool
+		implicitize.program, ok = gl.load_compute_source(string(shader_compute_implicitize))
+		if !ok {
+			panic("failed loading compute shader")
+		}
+	}
+
+	gl.CreateBuffers(1, &indices_ssbo)
+	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, indices_ssbo)
+	gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, indices_ssbo)
+	gl.NamedBufferData(indices_ssbo, 1 * size_of(Renderer_Indices), nil, gl.STREAM_DRAW)
+
+	gl.CreateBuffers(1, &curves_ssbo)
+	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, curves_ssbo)
+	gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, 1, curves_ssbo)
+	gl.NamedBufferData(curves_ssbo, MAX_CURVES * size_of(Curve), nil, gl.STREAM_DRAW)
+
+	gl.CreateBuffers(1, &implicit_curves_ssbo)
+	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, implicit_curves_ssbo)
+	gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, 2, implicit_curves_ssbo)
+	gl.NamedBufferData(implicit_curves_ssbo, MAX_IMPLICIT_CURVES * size_of(Implicit_Curve), nil, gl.STREAM_DRAW)
+
+	gl.CreateBuffers(1, &tiles_ssbo)
+	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, tiles_ssbo)
+	gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, 3, tiles_ssbo)
+	gl.NamedBufferData(tiles_ssbo, MAX_TILES * size_of(Renderer_Tile), nil, gl.STREAM_DRAW)
+
+	gl.CreateBuffers(1, &commands_ssbo)
+	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, commands_ssbo)
+	gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, 4, commands_ssbo)
+	gl.NamedBufferData(tiles_ssbo, MAX_COMMANDS * size_of(Renderer_Command), nil, gl.STREAM_DRAW)
 }
 
 renderer_gpu_gl_destroy :: proc(using gpu: ^Renderer_GL) {
@@ -434,45 +482,78 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 	gpu := &renderer.gpu
 	using gpu
 
-	gl.UseProgram(compute_program)
-	gl.Uniform1i(compute_loc_color_mode, i32(renderer.color_mode))
-	gl.Uniform1i(compute_loc_fill_rule, i32(renderer.fill_rule))
-	gl.Uniform1i(compute_loc_ignore_temp, i32(renderer.ignore_temp))
+	// implicitize stage
+	{
+		gl.UseProgram(implicitize.program)
 
-	gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, compute_curves_ssbo)
-	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, compute_curves_ssbo)
-	gl.BufferData(gl.SHADER_STORAGE_BUFFER, renderer.output_index * size_of(Implicit_Curve), raw_data(renderer.output), gl.STREAM_DRAW)
+		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, indices_ssbo)
+		gl.NamedBufferSubData(indices_ssbo, 0, 1 * size_of(Renderer_Indices), &renderer.indices)
 
-	gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, 1, compute_tiles_ssbo)
-	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, compute_tiles_ssbo)
-	gl.BufferData(gl.SHADER_STORAGE_BUFFER, renderer.tile_index * size_of(Renderer_Tile), raw_data(renderer.tiles), gl.STREAM_DRAW)
+		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, curves_ssbo)
+		gl.NamedBufferSubData(curves_ssbo, 0, renderer.curve_index * size_of(Curve), raw_data(renderer.curves))
 
-	gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, 2, compute_commands_ssbo)
-	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, compute_commands_ssbo)
-	gl.BufferData(gl.SHADER_STORAGE_BUFFER, renderer.command_index * size_of(Renderer_Command), raw_data(renderer.commands), gl.STREAM_DRAW)
+		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, implicit_curves_ssbo)
 
-	when USE_TILING {
-		gl.DispatchCompute(u32(renderer.tiles_x), u32(renderer.tiles_y), 1)
-	} else {
-		gl.DispatchCompute(u32(width), u32(height), 1)
+		gl.DispatchCompute(u32(renderer.curve_index), 1, 1)
+		// gl.MemoryBarrier(gl.SHADER_STORAGE_BARRIER_BIT)
+		// gl.MemoryBarrier(gl.ATOMIC_COUNTER_BARRIER_BIT)
+		// gl.MemoryBarrier(gl.ALL_BARRIER_BITS)
+		
+		// gl.GetNamedBufferSubData(indices_ssbo, 0, 1 * size_of(Renderer_Indices), &renderer.indices)
+		// gl.GetNamedBufferSubData(
+		// 	implicit_curves_ssbo, 
+		// 	0, int(renderer.indices.implicit_curves) * size_of(Implicit_Curve), 
+		// 	raw_data(renderer.implicit_curves),
+		// )
+		
+		// fmt.eprintln("curves", renderer.curve_index, renderer.indices.implicit_curves)
+		// for i in 0..<renderer.indices.implicit_curves {
+		// 	fmt.eprintln("\t", renderer.implicit_curves[i].box)
+		// }
 	}
 
-	gl.MemoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT)
+	// raster stage
+	{
+		gl.UseProgram(raster.program)
+
+		gl.Uniform1i(raster.loc_color_mode, i32(renderer.color_mode))
+		gl.Uniform1i(raster.loc_fill_rule, i32(renderer.fill_rule))
+		gl.Uniform1i(raster.loc_ignore_temp, i32(renderer.ignore_temp))
+
+		// fmt.eprintln("sup", renderer.indices.implicit_curves)
+		// gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, implicit_curves_ssbo)
+		// gl.NamedBufferSubData(implicit_curves_ssbo, 0, int(renderer.indices.implicit_curves) * size_of(Implicit_Curve), raw_data(renderer.implicit_curves))
+
+		// gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, 1, tiles_ssbo)
+		// gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, tiles_ssbo)
+		// gl.BufferData(gl.SHADER_STORAGE_BUFFER, renderer.tile_index * size_of(Renderer_Tile), raw_data(renderer.tiles), gl.STREAM_DRAW)
+
+		// gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, 2, commands_ssbo)
+		// gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, commands_ssbo)
+		// gl.BufferData(gl.SHADER_STORAGE_BUFFER, renderer.command_index * size_of(Renderer_Command), raw_data(renderer.commands), gl.STREAM_DRAW)
+
+		when USE_TILING {
+			gl.DispatchCompute(u32(renderer.tiles_x), u32(renderer.tiles_y), 1)
+		} else {
+			gl.DispatchCompute(u32(width), u32(height), 1)
+		}
+
+		gl.MemoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT)
+	}
 
 	// fill texture
-
 	gl.Enable(gl.BLEND)
 	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 	gl.Disable(gl.CULL_FACE)
 	gl.Disable(gl.DEPTH_TEST)
-	gl.BindVertexArray(fill_vao)
-	gl.UseProgram(fill_program)
+	gl.BindVertexArray(fill.vao)
+	gl.UseProgram(fill.program)
 
 	projection := glm.mat4Ortho3d(0, f32(width), f32(height), 0, 0, 1)
-	gl.UniformMatrix4fv(fill_loc_projection, 1, gl.FALSE, &projection[0][0])
+	gl.UniformMatrix4fv(fill.loc_projection, 1, gl.FALSE, &projection[0][0])
 
-	gl.BindTexture(gl.TEXTURE_2D, compute_texture_id)
-	gl.BindBuffer(gl.ARRAY_BUFFER, fill_vbo)
+	gl.BindTexture(gl.TEXTURE_2D, raster.texture_id)
+	gl.BindBuffer(gl.ARRAY_BUFFER, fill.vbo)
 
 	{
 		w := f32(width)

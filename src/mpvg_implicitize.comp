@@ -1,0 +1,234 @@
+#version 450 core
+
+layout(local_size_x = 1, local_size_y = 1) in;
+
+// kind of curve
+#define C_LINE 0
+#define C_QUADRATIC 1
+#define C_CUBIC 2
+
+// orientation of curve
+#define C_BL 0
+#define C_BR 1
+#define C_TL 2
+#define C_TR 3
+
+struct Curve {
+	vec2 p0;
+	vec2 p1;
+	vec2 p2;
+	vec2 p3;
+	int count;
+	int pad1;
+	int pad2;
+	int pad3;
+};
+
+struct Implicit_Curve {
+	vec4 box;
+	
+	vec2 hull_vertex;
+	vec2 hull_padding;
+
+	int kind;
+	int orientation;
+	int sign;
+	int winding_increment;
+
+	mat3 implicit_matrix;
+};
+
+layout(std140, binding = 0) volatile buffer Input_Indices {
+	int implicit_curves;
+	int pad1;
+	int pad2;
+	int pad3;
+} indices;
+
+layout(std140, binding = 1) readonly buffer Input_Curves {
+	Curve data[];
+} curves;
+
+layout(std140, binding = 2) writeonly buffer Output_Implicit_Curves {
+	Implicit_Curve data[];
+} implicit_curves;
+
+Implicit_Curve icurve_make(vec2 p0, vec2 p1, vec2 p2, int kind) {
+	vec2 s, e, c;
+
+	switch (kind) {
+		case C_LINE: {
+			s = p0;
+			c = p0;
+			e = p1;
+			break;
+		}
+
+		case C_QUADRATIC: {
+			s = p0;
+			c = p1;
+			e = p2;
+			break;
+		}
+
+		case C_CUBIC: {
+			// s = curve.p[0];
+			// e = curve.p[3];
+
+			// float sqr_norm0 = linalg.vector_length(B[1] - B[0]);
+			// float sqr_norm1 = linalg.vector_length(B[3] - B[2]);
+			// if (sqr_norm0 < sqr_norm1) {
+			// 	c = B[2]
+			// } else {
+			// 	c = B[1]
+			// }
+			break;
+		}
+	}	
+
+	bool going_up = e.y >= s.y;
+	bool going_right = e.x >= s.x;
+
+	Implicit_Curve res; 
+	res.kind = kind;
+	res.winding_increment = going_up ? 1 : -1;
+	res.sign = 0;
+	res.box = vec4(
+		min(s.x, e.x),
+		min(s.y, e.y),
+		max(s.x, e.x),
+		max(s.y, e.y)
+	);
+
+	float dx = c.x - res.box.x;
+	float dy = c.y - res.box.y;
+	float alpha = (res.box.w - res.box.y) / (res.box.z - res.box.x);
+	float ofs = res.box.w - res.box.y;
+
+	if (going_up == going_right) {
+		if (kind == C_LINE) {
+			res.orientation = C_BR;
+		} else if (dy > alpha * dx) {
+			res.orientation = C_TL;
+		} else {
+			res.orientation = C_BR;
+		}
+	} else {
+		if (kind == C_LINE) {
+			res.orientation = C_TR;
+		} else if (dy < ofs - alpha * dx) {
+			res.orientation = C_BL;
+		} else {
+			res.orientation = C_TR;
+		}
+	}
+
+	return res;
+}
+
+void line_setup(Curve curve) {
+	Implicit_Curve icurve = icurve_make(curve.p0, curve.p1, curve.p2, curve.count);
+	icurve.hull_vertex = curve.p0;
+
+	int old_index = atomicAdd(indices.implicit_curves, 1);
+	implicit_curves.data[old_index] = icurve;
+}
+
+struct Quadratic_Mono {
+	float splits[4];
+	int count;
+};
+
+Quadratic_Mono quadratic_monotonize(vec2 p0, vec2 p1, vec2 p2) {
+	Quadratic_Mono result;
+	result.splits[0] = 0;
+	result.count = 1;
+
+	vec2 r = (p0 - p1)/(p2 - 2*p1 + p0);
+	if (r.x > r.y) {
+		float tmp = r.x;
+		r.x = r.y;
+		r.y = tmp;
+	}
+
+	if (r.x > 0 && r.x < 1) {
+		result.splits[result.count] = r.x;
+		result.count += 1;
+	}
+	if (r.y > 0 && r.y < 1) {
+		result.splits[result.count] = r.y;
+		result.count += 1;
+	}
+	
+	result.splits[result.count] = 1;
+	result.count += 1;
+
+	return result;
+}
+
+struct Quadratic_Slice {
+	vec2 p0;
+	vec2 p1;
+	vec2 p2;
+};
+
+vec2 quadratic_blossom(vec2 p0, vec2 p1, vec2 p2, float u, float v) {
+	vec2 b10 = u*p1 + (1-u)*p0;
+	vec2 b11 = u*p2 + (1-u)*p1;
+	vec2 b20 = v*b11 + (1-v)*b10;
+	return(b20);
+}
+
+Quadratic_Slice quadratic_slice(vec2 p0, vec2 p1, vec2 p2, float s0, float s1) {
+	Quadratic_Slice result;
+	result.p0 = (s0 == 0) ? p0 : quadratic_blossom(p0, p1, p2, s0, s0);
+	result.p1 = quadratic_blossom(p0, p1, p2, s0, s1);
+	result.p2 = (s1 == 1) ? p2 : quadratic_blossom(p0, p1, p2, s1, s1);
+	return result;
+}
+
+void quadratic_emit(Quadratic_Slice s) {
+	Implicit_Curve icurve = icurve_make(s.p0, s.p1, s.p2, C_QUADRATIC);
+
+	//NOTE: compute implicit equation matrix
+	float det = s.p0.x*(s.p1.y-s.p2.y) + s.p1.x*(s.p2.y-s.p0.y) + s.p2.x*(s.p0.y - s.p1.y);
+
+	float a = s.p0.y - s.p1.y + 0.5*(s.p2.y - s.p0.y);
+	float b = s.p1.x - s.p0.x + 0.5*(s.p0.x - s.p2.x);
+	float c = s.p0.x*s.p1.y - s.p1.x*s.p0.y + 0.5*(s.p2.x*s.p0.y - s.p0.x*s.p2.y);
+	float d = s.p0.y - s.p1.y;
+	float e = s.p1.x - s.p0.x;
+	float f = s.p0.x*s.p1.y - s.p1.x*s.p0.y;
+
+	float flip = (icurve.orientation == C_TL || icurve.orientation == C_BL) ? -1 : 1;
+	float g = flip*(s.p2.x*(s.p0.y - s.p1.y) + s.p0.x*(s.p1.y - s.p2.y) + s.p1.x*(s.p2.y - s.p0.y));
+
+	mat3 matrix = mat3(a, d, 0, b, e, 0, c, f, g);
+	icurve.implicit_matrix = (1/det)*matrix;
+	icurve.hull_vertex = s.p1;
+
+	int old_index = atomicAdd(indices.implicit_curves, 1);
+	implicit_curves.data[old_index] = icurve;	
+}
+
+void quadratic_setup(Curve curve) {
+	Quadratic_Mono result = quadratic_monotonize(curve.p0, curve.p1, curve.p2);
+
+	for (int i = 0; i < result.count - 1; i += 1) {
+		float s0 = result.splits[i];
+		float s1 = result.splits[i + 1];
+		Quadratic_Slice slice = quadratic_slice(curve.p0, curve.p1, curve.p2, s0, s1);
+		quadratic_emit(slice);
+	}
+}
+
+void main() {
+	int curve_index = int(gl_GlobalInvocationID.x);
+	Curve curve = curves.data[curve_index];
+
+	switch (curve.count) {
+	case C_LINE: line_setup(curve); break; 
+	case C_QUADRATIC: quadratic_setup(curve); break; 
+	// case C_CUBIC: line_setup(); break; 
+	}
+}

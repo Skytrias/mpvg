@@ -17,6 +17,7 @@ uniform int fill_rule;
 #define C_TL 2
 #define C_TR 3
 
+
 struct Implicit_Curve {
 	vec4 box;
 	
@@ -31,33 +32,16 @@ struct Implicit_Curve {
 	mat3 implicit_matrix;
 };
 
-layout(std140, binding = 0) buffer Curves {
-	Implicit_Curve data[];
-} curves;
-
-struct Tile {
-	int winding_number;
-	int command_offset;
-	int command_count;
-	bool had_cross_right;
-
-	vec4 color;
-};
-
-layout(std140, binding = 1) buffer Tiles {
-	Tile data[];
-} tiles;
-
-struct Command {
-	int curve_index;
-	int crossed_right;
-	int tile_index;
+layout(std140, binding = 0) volatile buffer Input_Indices {
+	int implicit_curves;
+	int pad1;
 	int pad2;
-};
+	int pad3;
+} indices;
 
-layout(std140, binding = 2) buffer Commands {
-	Command data[];
-} commands;
+layout(std140, binding = 2) readonly buffer Input_Implicit_Curves {
+	Implicit_Curve data[];
+} implicit_curves;
 
 float ccw(vec2 a, vec2 b, vec2 c) {
 	return((b.x-a.x)*(c.y-a.y) - (b.y-a.y)*(c.x-a.x));
@@ -182,8 +166,8 @@ void main() {
 	vec2 px = gl_GlobalInvocationID.xy;
 
 	int winding_number = 0;
-	for (int i = 0; i < curves.data.length(); i += 1) {
-		Implicit_Curve curve = curves.data[i];
+	for (int i = 0; i < indices.implicit_curves; i += 1) {
+		Implicit_Curve curve = implicit_curves.data[i];
 
 		int side = curve_side(curve, px);
 		if (px.y > curve.box.y && px.y <= curve.box.w) {
@@ -222,6 +206,5 @@ void main() {
 		}
 	}
 
-	// imageStore(img_output, ivec2(int(px.x), int(px.y)), color);
 	imageStore(img_output, pixel_coords, color);
 }

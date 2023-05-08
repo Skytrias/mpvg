@@ -8,7 +8,10 @@ import "core:math"
 
 Curve :: struct {
 	B: [4][2]f32,
-	count: int, // 0-2 + 1
+	count: i32, // 0-2 + 1
+	pad1: i32,
+	pad2: i32,
+	pad3: i32,
 }
 
 Curve_Linear :: [2][2]f32
