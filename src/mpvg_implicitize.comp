@@ -53,7 +53,15 @@ layout(std140, binding = 2) writeonly buffer Output_Implicit_Curves {
 	Implicit_Curve data[];
 } implicit_curves;
 
-Implicit_Curve icurve_make(vec2 p0, vec2 p1, vec2 p2, int kind) {
+float length_squared(vec2 v) {
+	return sqrt(dot(v, v));
+}
+
+// float length_squared(vec2 v) {
+// 	return dot(v, v);
+// }
+
+Implicit_Curve icurve_make(vec2 p0, vec2 p1, vec2 p2, vec2 p3, int kind) {
 	vec2 s, e, c;
 
 	switch (kind) {
@@ -72,16 +80,16 @@ Implicit_Curve icurve_make(vec2 p0, vec2 p1, vec2 p2, int kind) {
 		}
 
 		case C_CUBIC: {
-			// s = curve.p[0];
-			// e = curve.p[3];
+			s = p0;
+			e = p3;
 
-			// float sqr_norm0 = linalg.vector_length(B[1] - B[0]);
-			// float sqr_norm1 = linalg.vector_length(B[3] - B[2]);
-			// if (sqr_norm0 < sqr_norm1) {
-			// 	c = B[2]
-			// } else {
-			// 	c = B[1]
-			// }
+			float sqr_norm0 = length_squared(p1 - p0);
+			float sqr_norm1 = length_squared(p3 - p2);
+			if (sqr_norm0 < sqr_norm1) {
+				c = p2;
+			} else {
+				c = p1;
+			}
 			break;
 		}
 	}	
@@ -93,6 +101,7 @@ Implicit_Curve icurve_make(vec2 p0, vec2 p1, vec2 p2, int kind) {
 	res.kind = kind;
 	res.winding_increment = going_up ? 1 : -1;
 	res.sign = 0;
+	res.hull_padding = vec2(0);
 	res.box = vec4(
 		min(s.x, e.x),
 		min(s.y, e.y),
@@ -126,9 +135,9 @@ Implicit_Curve icurve_make(vec2 p0, vec2 p1, vec2 p2, int kind) {
 	return res;
 }
 
-void line_setup(Curve curve) {
-	Implicit_Curve icurve = icurve_make(curve.p0, curve.p1, curve.p2, curve.count);
-	icurve.hull_vertex = curve.p0;
+void line_setup(vec2 p0, vec2 p1) {
+	Implicit_Curve icurve = icurve_make(p0, p1, vec2(0), vec2(0), C_LINE);
+	icurve.hull_vertex = p0;
 
 	int old_index = atomicAdd(indices.implicit_curves, 1);
 	implicit_curves.data[old_index] = icurve;
@@ -188,7 +197,7 @@ Quadratic_Slice quadratic_slice(vec2 p0, vec2 p1, vec2 p2, float s0, float s1) {
 }
 
 void quadratic_emit(Quadratic_Slice s) {
-	Implicit_Curve icurve = icurve_make(s.p0, s.p1, s.p2, C_QUADRATIC);
+	Implicit_Curve icurve = icurve_make(s.p0, s.p1, s.p2, vec2(0), C_QUADRATIC);
 
 	//NOTE: compute implicit equation matrix
 	float det = s.p0.x*(s.p1.y-s.p2.y) + s.p1.x*(s.p2.y-s.p0.y) + s.p2.x*(s.p0.y - s.p1.y);
@@ -211,14 +220,455 @@ void quadratic_emit(Quadratic_Slice s) {
 	implicit_curves.data[old_index] = icurve;	
 }
 
-void quadratic_setup(Curve curve) {
-	Quadratic_Mono result = quadratic_monotonize(curve.p0, curve.p1, curve.p2);
+void quadratic_setup(vec2 p0, vec2 p1, vec2 p2) {
+	Quadratic_Mono result = quadratic_monotonize(p0, p1, p2);
 
 	for (int i = 0; i < result.count - 1; i += 1) {
 		float s0 = result.splits[i];
 		float s1 = result.splits[i + 1];
-		Quadratic_Slice slice = quadratic_slice(curve.p0, curve.p1, curve.p2, s0, s1);
+		Quadratic_Slice slice = quadratic_slice(p0, p1, p2, s0, s1);
 		quadratic_emit(slice);
+	}
+}
+
+// CUBIC TYPES
+#define T_ERROR 0
+#define T_SERPENTINE 1
+#define T_CUSP 2
+#define T_CUSP_INFINITY 3
+#define T_LOOP 4
+#define T_DEGENERATE_QUADRATIC 5
+#define T_DEGENERATE_LINE 6
+
+struct Cubic_Info {
+	int type;
+	mat4 K;
+	vec2 ts[2];
+	float d1;
+	float d2;
+	float d3;
+};
+
+#define square(x) ((x)*(x))
+#define cube(x) ((x)*(x)*(x))
+
+struct Quadratic_Roots {
+	float values[4];
+	int count;
+};
+
+Quadratic_Roots quadratic_roots_with_det(float a, float b, float c, float det) {
+	Quadratic_Roots result;
+	result.count = 0;
+	result.values = float[4](0, 0, 0, 0);
+
+	if (a == 0) {
+		if (b > 0) {
+			result.count = 1;
+			result.values[0] = -c/b;
+		}
+	} else {
+		b /= 2.0;
+
+		if (det >= 0) {
+			result.count = (det == 0) ? 1 : 2;
+
+			if (b > 0) {
+				float q = b + sqrt(det);
+				result.values[0] = -c/q;
+				result.values[1] = -q/a;
+			} else if(b < 0) {
+				float q = -b + sqrt(det);
+				result.values[0] = q/a;
+				result.values[1] = c/q;
+			} else {
+				float q = sqrt(-a*c);
+				
+				if (abs(a) >= abs(c)) {
+					result.values[0] = q/a;
+					result.values[1] = -q/a;
+				} else {
+					result.values[0] = -c/q;
+					result.values[1] = c/q;
+				}
+			}
+		}
+	}
+	
+	if (result.count > 1 && result.values[0] > result.values[1]) {
+		float tmp = result.values[0];
+		result.values[0] = result.values[1];
+		result.values[1] = tmp;
+	}
+	
+	return result;
+}
+
+Quadratic_Roots quadratic_roots(float a, float b, float c) {
+	float det = square(b) / 4.0 - a*c;
+	return quadratic_roots_with_det(a, b, c, det);
+}
+
+Cubic_Info cubic_classify(vec2 c[4]) {
+	Cubic_Info result;
+	result.type = T_ERROR;
+	mat4 F;
+
+	float d1 = -(c[3].y*c[2].x - c[3].x*c[2].y);
+	float d2 = -(c[3].x*c[1].y - c[3].y*c[1].x);
+	float d3 = -(c[2].y*c[1].x - c[2].x*c[1].y);
+	result.d1 = d1;
+	result.d2 = d2;
+	result.d3 = d3;
+
+	//NOTE(martin): compute the second factor of the discriminant discr(I) = d1^2*(3*d2^2 - 4*d3*d1)
+	float discr_factor2 = 3.0*square(d2) - 4.0*d3*d1;
+
+	//NOTE(martin): each following case gives the number of roots, hence the category of the parametric curve
+	if (abs(d1) <= 1e-6 && abs(d2) <= 1e-6 && abs(d3) > 1e-6) {
+		//NOTE(martin): quadratic degenerate case
+		//NOTE(martin): compute quadratic curve control point, which is at p0 + 1.5*(p1-p0) = 1.5*p1 - 0.5*p0
+		result.type = T_DEGENERATE_QUADRATIC;
+	}	else if ((discr_factor2 > 0 && abs(d1) > 1e-6) || (discr_factor2 == 0 && abs(d1) > 1e-6)) {
+		//NOTE(martin): serpentine curve or cusp with inflection at infinity
+		//              (these two cases are handled the same way).
+		//NOTE(martin): compute the solutions (tl, sl), (tm, sm), and (tn, sn) of the inflection point equation
+		Quadratic_Roots roots = quadratic_roots_with_det(1, -2*d2, (4./3.*d1*d3), (1./3.)*discr_factor2);
+
+		float tm = roots.values[0];
+		float sm = 2*d1;
+		float tl = roots.values[1];
+		float sl = 2*d1;
+
+		float invNorm = 1/sqrt(square(tm) + square(sm));
+		tm *= invNorm;
+		sm *= invNorm;
+
+		invNorm = 1/sqrt(square(tl) + square(sl));
+		tl *= invNorm;
+		sl *= invNorm;
+
+		/*NOTE(martin):
+			the power basis coefficients of points k,l,m,n are collected into the rows of the 4x4 matrix F:
+
+				| tl*tm            tl^3        tm^3        1 |
+				| -sm*tl - sl*tm   -3sl*tl^2   -3*sm*tm^2  0 |
+				| sl*sm            3*sl^2*tl   3*sm^2*tm   0 |
+				| 0                -sl^3       -sm^3       0 |
+		*/
+		result.type = (discr_factor2 > 0 && d1 != 0) ? T_SERPENTINE : T_CUSP;
+
+		F = mat4(
+			tl*tm, -sm*tl-sl*tm, sl*sm, 0,
+			cube(tl), -3*sl*square(tl), 3*square(sl)*tl, -cube(sl),
+			cube(tm), -3*sm*square(tm), 3*square(sm)*tm, -cube(sm),
+			1, 0, 0, 0
+		);
+
+		result.ts[0] = vec2(tm, sm);
+		result.ts[1] = vec2(tl, sl);
+	} else if(discr_factor2 < 0 && abs(d1) > 1e-6) {
+		//NOTE(martin): loop curve
+		result.type = T_LOOP;
+
+		Quadratic_Roots roots = quadratic_roots_with_det(1, -2*d2, 4*(square(d2)-d1*d3), -discr_factor2);
+
+		float td = roots.values[1];
+		float sd = 2*d1;
+		float te = roots.values[0];
+		float se = 2*d1;
+
+		float invNorm = 1/sqrt(square(td) + square(sd));
+		td *= invNorm;
+		sd *= invNorm;
+
+		invNorm = 1/sqrt(square(te) + square(se));
+		te *= invNorm;
+		se *= invNorm;
+
+		//NOTE(martin): if one of the parameters (td/sd) or (te/se) is in the interval [0,1], the double point
+		//              is inside the control points convex hull and would cause a shading anomaly. If this is
+		//              the case, subdivide the curve at that point
+
+		/*NOTE(martin):
+			the power basis coefficients of points k,l,m,n are collected into the rows of the 4x4 matrix F:
+
+				| td*te            td^2*te                 td*te^2                1 |
+				| -se*td - sd*te   -se*td^2 - 2sd*te*td    -sd*te^2 - 2*se*td*te  0 |
+				| sd*se            te*sd^2 + 2*se*td*sd    td*se^2 + 2*sd*te*se   0 |
+				| 0                -sd^2*se                -sd*se^2               0 |
+		*/
+		F = mat4(
+			td*te, -se*td-sd*te, sd*se, 0,
+			square(td)*te, -se*square(td)-2*sd*te*td, te*square(sd)+2*se*td*sd, -square(sd)*se,
+			td*square(te), -sd*square(te)-2*se*td*te, td*square(se)+2*sd*te*se, -sd*square(se),
+			1, 0, 0, 0
+		);
+
+		result.ts[0] = vec2(td, sd);
+		result.ts[1] = vec2(te, se);
+	} else if(d2 != 0) {
+		//NOTE(martin): cusp with cusp at infinity
+		float tl = d3;
+		float sl = 3*d2;
+
+		float invNorm = 1/sqrt(square(tl)+square(sl));
+		tl *= invNorm;
+		sl *= invNorm;
+
+		/*NOTE(martin):
+			the power basis coefficients of points k,l,m,n are collected into the rows of the 4x4 matrix F:
+
+				| tl    tl^3        1  1 |
+				| -sl   -3sl*tl^2   0  0 |
+				| 0     3*sl^2*tl   0  0 |
+				| 0     -sl^3       0  0 |
+		*/
+		result.type = T_CUSP_INFINITY;
+
+		F = mat4(
+			tl, -sl, 0, 0,
+			cube(tl), -3*sl*square(tl), 3*square(sl)*tl, -cube(sl),
+			1, 0, 0, 0,
+			1, 0, 0, 0
+		);
+
+		result.ts[0] = vec2(tl, sl);
+		result.ts[1] = vec2(0, 0);
+	} else {
+		//NOTE(martin): line or point degenerate case
+		result.type = T_DEGENERATE_LINE;
+	}
+
+	/*
+			F is then multiplied by M3^(-1) on the left which yelds the bezier coefficients k, l, m, n
+			at the control points.
+
+			               | 1  0   0   0 |
+				M3^(-1) =  | 1  1/3 0   0 |
+				           | 1  2/3 1/3 0 |
+					       | 1  1   1   1 |
+	*/
+	mat4 invM3 = mat4(
+		1, 1, 1, 1,
+		0, 1./3., 2./3., 1,
+		0, 0, 1./3., 1,
+		0, 0, 0, 1
+	);
+	result.K = transpose(invM3*F);
+
+	return result;
+}
+
+struct Cubic_Slice {
+	vec2 p0;
+	vec2 p1;
+	vec2 p2;
+	vec2 p3;
+};
+
+vec2 cubic_blossom(Curve curve, float u, float v, float w) {
+	vec2 b10 = u*curve.p1 + (1-u)*curve.p0;
+	vec2 b11 = u*curve.p2 + (1-u)*curve.p1;
+	vec2 b12 = u*curve.p3 + (1-u)*curve.p2;
+	vec2 b20 = v*b11 + (1-v)*b10;
+	vec2 b21 = v*b12 + (1-v)*b11;
+	vec2 b30 = w*b21 + (1-w)*b20;
+	return b30;
+}
+
+Cubic_Slice cubic_slice(Curve curve, float s0, float s1) {
+	Cubic_Slice result;
+	/*NOTE: using blossoms to compute sub-curve control points ensure that the fourth point
+	        of sub-curve (s0, s1) and the first point of sub-curve (s1, s3) match.
+	        However, due to numerical errors, the evaluation of B(s=0) might not be equal to
+	        p[0] (and likewise, B(s=1) might not equal p[3]).
+	        We handle that case explicitly to ensure that we don't create gaps in the paths.
+	*/
+	result.p0 = (s0 == 0) ? curve.p0 : cubic_blossom(curve, s0, s0, s0);
+	result.p1 = cubic_blossom(curve, s0, s0, s1);
+	result.p2 = cubic_blossom(curve, s0, s1, s1);
+	result.p3 = (s1 == 1) ? curve.p3 : cubic_blossom(curve, s1, s1, s1);
+	return result;
+}
+
+mat3 barycentric_matrix(vec2 v0, vec2 v1, vec2 v2) {
+	float det = v0.x*(v1.y-v2.y) + v1.x*(v2.y-v0.y) + v2.x*(v0.y - v1.y);
+	mat3 B = mat3(
+		v1.y - v2.y, v2.y-v0.y, v0.y-v1.y,
+		v2.x - v1.x, v0.x-v2.x, v1.x-v0.x,
+		v1.x*v2.y-v2.x*v1.y, v2.x*v0.y-v0.x*v2.y, v0.x*v1.y-v1.x*v0.y
+	);
+	B *= (1/det);
+	return B;
+}
+
+vec2 select_hull_vertex(Cubic_Slice s) {
+	/*NOTE: check intersection of lines (p1-p0) and (p3-p2)
+		P = p0 + u(p1-p0)
+		P = p2 + w(p3-p2)
+
+		control points are inside a right triangle so we should always find an intersection
+	*/
+	vec2 pm;
+	float det = (s.p1.x - s.p0.x)*(s.p3.y - s.p2.y) - (s.p1.y - s.p0.y)*(s.p3.x - s.p2.x);
+	float sqr_norm0 = length_squared(s.p1 - s.p0);
+	float sqr_norm1 = length_squared(s.p2 - s.p3);
+
+	if (abs(det) < 1e-3 || sqr_norm0 < 0.1 || sqr_norm1 < 0.1) {
+		sqr_norm0 = length_squared(s.p1 - s.p0);
+		sqr_norm1 = length_squared(s.p2 - s.p3);
+
+		if (sqr_norm0 < sqr_norm1) {
+			pm = s.p2;
+		} else {
+			pm = s.p1;
+		}
+	} else {
+		float u = ((s.p0.x - s.p2.x)*(s.p2.y - s.p3.y) - (s.p0.y - s.p2.y)*(s.p2.x - s.p3.x))/det;
+		pm = s.p0 + u*(s.p1 - s.p0);
+	}
+
+	return pm;
+}
+
+void cubic_emit(Curve curve, Cubic_Info info, float s0, float s1, Cubic_Slice slice) {
+	Implicit_Curve icurve = icurve_make(slice.p0, slice.p1, slice.p2, slice.p3, C_CUBIC);
+	icurve.hull_padding = vec2(float(info.type), 0);
+
+	vec2 v0 = curve.p0;
+	vec2 v1 = curve.p3;
+	vec2 v2;
+	mat3 K;
+
+	float sqr_norm0 = length_squared(curve.p1 - curve.p0);
+	float sqr_norm1 = length_squared(curve.p2 - curve.p3);
+
+	//TODO: should not be the local sub-curve, but the global curve!!!
+	if (length_squared(curve.p0 - curve.p3) > 1e-5) {
+		if (sqr_norm0 >= sqr_norm1) {
+ 			v2 = curve.p1;
+			K = mat3(info.K[0].xyz, info.K[3].xyz, info.K[1].xyz);
+ 		} else {
+			v2 = curve.p2;
+			K = mat3(info.K[0].xyz, info.K[3].xyz, info.K[2].xyz);
+		}
+	} else {
+		v1 = curve.p1;
+		v2 = curve.p2;
+		K = mat3(info.K[0].xyz, info.K[1].xyz, info.K[2].xyz);
+	}
+	//NOTE: set matrices
+
+	//TODO: should we compute matrix relative to a base point to avoid loss of precision
+	//      when computing barycentric matrix?
+	mat3 B = barycentric_matrix(v0, v1, v2);
+	icurve.implicit_matrix = K*B;
+	icurve.hull_vertex = select_hull_vertex(slice);
+
+	//NOTE: compute sign flip
+	icurve.sign = 1;
+
+	if (info.type == T_SERPENTINE || info.type == T_CUSP) {
+		icurve.sign = (info.d1 < 0)? -1 : 1;
+	} else if(info.type == T_LOOP) {
+		float d1 = info.d1;
+		float d2 = info.d2;
+		float d3 = info.d3;
+
+		float H0 = d3*d1-square(d2) + d1*d2*s0 - square(d1)*square(s0);
+		float H1 = d3*d1-square(d2) + d1*d2*s1 - square(d1)*square(s1);
+		float H = (abs(H0) > abs(H1)) ? H0 : H1;
+		icurve.sign = (H*d1 > 0) ? -1 : 1;
+	}
+
+	if (slice.p3.y > slice.p0.y) {
+		icurve.sign *= -1;
+	}
+
+	int old_index = atomicAdd(indices.implicit_curves, 1);
+	implicit_curves.data[old_index] = icurve;	
+}
+
+void cubic_setup(Curve curve) {
+	vec2 c[4] = {
+		curve.p0,
+		3.0*(curve.p1 - curve.p0),
+		3.0*(curve.p0 + curve.p2 - 2*curve.p1),
+		3.0*(curve.p1 - curve.p2) + curve.p3 - curve.p0
+	};
+
+	Cubic_Info result = cubic_classify(c);
+
+	if (result.type == T_DEGENERATE_LINE) {
+		line_setup(curve.p0, curve.p3);
+		return;
+	} else if(result.type == T_DEGENERATE_QUADRATIC) {
+		vec2 quad_point = vec2(1.5*curve.p1.x - 0.5*curve.p0.x, 1.5*curve.p1.y - 0.5*curve.p0.y);
+		quadratic_setup(curve.p0, quad_point, curve.p3);
+		return;
+	}
+
+	//NOTE: get the roots of B'(s) = 3.c3.s^2 + 2.c2.s + c1
+	// do separate because glsl restrictions
+	Quadratic_Roots roots_a = quadratic_roots(3*c[3].x, 2*c[2].x, c[1].x);
+	Quadratic_Roots roots_b = quadratic_roots(3*c[3].y, 2*c[2].y, c[1].y);
+	// combine results
+	float roots[20];
+	int root_count;
+	// add a
+	for (int i = 0; i < roots_a.count; i += 1) {
+		roots[root_count] = roots_a.values[i];
+		root_count += 1;
+	}
+	// add b
+	for (int i = 0; i < roots_b.count; i += 1) {
+		roots[root_count] = roots_b.values[i];
+		root_count += 1;
+	}
+
+	//NOTE: add double points and inflection points to roots if finite
+	for (int i = 0; i < 2; i += 1) {
+		if (result.ts[i].y > 0) {
+			roots[root_count] = result.ts[i].x / result.ts[i].y;
+			root_count += 1;
+		}
+	}
+
+	//NOTE: sort roots
+	for (int i = 1; i < root_count; i += 1) {
+		float tmp = roots[i];
+		int j = i - 1;
+		
+		while (j >= 0 && roots[j] > tmp) {
+			roots[j + 1] = roots[j];
+			j -= 1;
+		}
+		
+		roots[j + 1] = tmp;
+	}
+
+	//NOTE: compute split points
+	float splits[8];
+	int split_count = 0;
+	splits[0] = 0;
+	split_count += 1;
+	
+	for (int i = 0; i < root_count; i += 1) {
+		if (roots[i] > 0 && roots[i] < 1) {
+			splits[split_count] = roots[i];
+			split_count += 1;
+		}
+	}
+	
+	splits[split_count] = 1;
+	split_count += 1;
+	
+	for (int i = 0; i < split_count - 1; i += 1) {
+		float s0 = splits[i];
+		float s1 = splits[i + 1];
+		Cubic_Slice slice = cubic_slice(curve, s0, s1);
+		cubic_emit(curve, result, s0, s1, slice);
 	}
 }
 
@@ -227,8 +677,8 @@ void main() {
 	Curve curve = curves.data[curve_index];
 
 	switch (curve.count) {
-	case C_LINE: line_setup(curve); break; 
-	case C_QUADRATIC: quadratic_setup(curve); break; 
-	// case C_CUBIC: line_setup(); break; 
+	case C_LINE: line_setup(curve.p0, curve.p1); break; 
+	case C_QUADRATIC: quadratic_setup(curve.p0, curve.p1, curve.p2); break; 
+	case C_CUBIC: cubic_setup(curve); break; 
 	}
 }

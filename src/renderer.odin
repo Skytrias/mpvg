@@ -24,6 +24,8 @@ when USE_TILING {
 	shader_compute_raster := #load("mpvg_raster_non_tiling.comp")
 }
 
+Xform :: [6]f32
+
 Vertex :: struct {
 	pos: [2]f32,
 	uv: [2]f32,
@@ -32,7 +34,7 @@ Vertex :: struct {
 KAPPA90 :: 0.5522847493 * 2
 
 Paint :: struct {
-	xform: glm.mat4, // paint affine transformation
+	xform: Xform, // paint affine transformation
 	radius: f32,
 	feather: f32,
 	inner_color: [4]f32,
@@ -43,7 +45,7 @@ Paint :: struct {
 
 Renderer_State :: struct {
 	paint: Paint,
-	xform: glm.mat4, // state affine transformation
+	xform: Xform, // state affine transformation
 }
 
 // glsl std140 layout
@@ -599,7 +601,7 @@ renderer_state_restore :: proc(using renderer: ^Renderer) {
 
 paint_set_color :: proc(renderer: ^Renderer, paint: ^Paint, color: [4]f32) {
 	paint^ = {}
-	paint.xform = glm.identity(glm.mat4)
+	xform_identity(&paint.xform)
 	paint.feather = 1
 	paint.inner_color = color
 	paint.outer_color = color
@@ -609,7 +611,7 @@ renderer_state_reset :: proc(using renderer: ^Renderer) {
 	state := renderer_state_get(renderer)
 	state^ = {}
 	paint_set_color(renderer, &state.paint, { 1, 0, 0, 1 })
-	state.xform = glm.identity(glm.mat4)
+	xform_identity(&state.xform)
 }
 
 renderer_state_get :: #force_inline proc(using renderer: ^Renderer) -> ^Renderer_State #no_bounds_check {
@@ -629,62 +631,97 @@ renderer_state_fill_paint :: proc(using renderer: ^Renderer, paint: Paint) {
 
 renderer_state_reset_transform :: proc(using renderer: ^Renderer) {
 	state := renderer_state_get(renderer)
-	state.xform = glm.identity(glm.mat4)
+	xform_identity(&state.xform)
 }
 
 renderer_state_translate :: proc(using renderer: ^Renderer, x, y: f32) {
 	state := renderer_state_get(renderer)
-	temp := glm.mat4Translate({ x, y, 0 })
-	mat4_premultiply(&state.xform, temp)
+	temp := xform_translate(x, y)
+	xform_premultiply(&state.xform, temp)
 }
 
 renderer_state_rotate :: proc(using renderer: ^Renderer, angle: f32) {
 	state := renderer_state_get(renderer)
-	temp := glm.mat4Rotate({ 0, 0, 1 }, angle)
-	mat4_premultiply(&state.xform, temp)
-}
-
-renderer_state_skewx :: proc(using renderer: ^Renderer, angle: f32) {
-	state := renderer_state_get(renderer)
-	temp := mat4_skew_x(angle)
-	mat4_premultiply(&state.xform, temp)
-}
-
-renderer_state_skewy :: proc(using renderer: ^Renderer, angle: f32) {
-	state := renderer_state_get(renderer)
-	temp := mat4_skew_y(angle)
-	mat4_premultiply(&state.xform, temp)
+	temp := xform_rotate(angle)
+	xform_premultiply(&state.xform, temp)
 }
 
 renderer_state_scale :: proc(using renderer: ^Renderer, x, y: f32) {
 	state := renderer_state_get(renderer)
-	temp := glm.mat4Scale({ x, y, 0 })
-	mat4_premultiply(&state.xform, temp)
+	temp := xform_scale(x, y)
+	xform_premultiply(&state.xform, temp)
 }
 
-v2_transform :: proc(input: [2]f32, xform: glm.mat4) -> [2]f32 {
+xform_point_v2 :: proc(xform: Xform, input: [2]f32) -> [2]f32 {
 	return {
-		input.x * xform[0, 0] + input.y * xform[1, 0] + xform[0, 3],
-		input.x * xform[0, 1] + input.y * xform[1, 1] + xform[1, 3],
+		input.x * xform[0] + input.y * xform[2] + xform[4],
+		input.x * xform[1] + input.y * xform[3] + xform[5],
 	}
 }
 
-mat4_skew_x :: proc(a: f32) -> (t: glm.mat4) {
-	t = glm.identity(glm.mat4)
-	t[1, 0] = math.tan(a) 
+xform_point_xy :: proc(xform: Xform, x, y: f32) -> (outx, outy: f32) {
+	outx = x * xform[0] + y * xform[2] + xform[4]
+	outy = x * xform[1] + y * xform[3] + xform[5]
 	return
 }
 
-mat4_skew_y :: proc(a: f32) -> (t: glm.mat4) {
-	t = glm.identity(glm.mat4)
-	t[0, 1] = math.tan(a) 
-	return
+// without offset
+xform_v2 :: proc(xform: Xform, input: [2]f32) -> [2]f32 {
+	return {
+		input.x * xform[0] + input.y * xform[2],
+		input.x * xform[1] + input.y * xform[3],
+	}
 }
 
-// multiply temp with a and set temp to a
-mat4_premultiply :: proc(a: ^glm.mat4, b: glm.mat4) {
+xform_identity :: proc(xform: ^Xform) {
+	xform^ = {
+		1, 0, 
+		0, 1,
+		0, 0,
+	}
+}
+
+xform_translate :: proc(tx, ty: f32) -> Xform {
+	return {
+		1, 0,
+		0, 1,
+		tx, ty,
+	}
+}
+
+xform_scale :: proc(sx, sy: f32) -> Xform {
+	return {
+		sx, 0,
+		0, sy,
+		0, 0,
+	}
+}
+
+xform_rotate :: proc(angle: f32) -> Xform {
+	cs := math.cos(angle)
+	sn := math.sin(angle)
+	return {
+		cs, sn,
+		-sn, cs,
+		0, 0,
+	}
+}
+
+xform_multiply :: proc(t: ^Xform, s: Xform) {
+	t0 := t[0] * s[0] + t[1] * s[2]
+	t2 := t[2] * s[0] + t[3] * s[2]
+	t4 := t[4] * s[0] + t[5] * s[2] + s[4]
+	t[1] = t[0] * s[1] + t[1] * s[3]
+	t[3] = t[2] * s[1] + t[3] * s[3]
+	t[5] = t[4] * s[1] + t[5] * s[3] + s[5]
+	t[0] = t0
+	t[2] = t2
+	t[4] = t4
+}
+
+xform_premultiply :: proc(a: ^Xform, b: Xform) {
 	temp := b
-	temp *= a^
+	xform_multiply(&temp, a^)
 	a^ = temp
 }
 
@@ -705,8 +742,8 @@ renderer_move_to_rel :: proc(renderer: ^Renderer, x, y: f32) {
 renderer_line_to :: proc(using renderer: ^Renderer, x, y: f32) {
 	state := renderer_state_get(renderer)
 	curves[curve_index] = c1_make(
-		v2_transform(curve_last, state.xform), 
-		v2_transform({ x, y }, state.xform),
+		xform_point_v2(state.xform, curve_last), 
+		xform_point_v2(state.xform, { x, y }),
 	)
 	curve_index += 1
 	curve_last = { x, y }
@@ -715,8 +752,8 @@ renderer_line_to :: proc(using renderer: ^Renderer, x, y: f32) {
 renderer_line_to_rel :: proc(using renderer: ^Renderer, x, y: f32) {
 	state := renderer_state_get(renderer)
 	curves[curve_index] = c1_make(
-		v2_transform(curve_last, state.xform), 
-		v2_transform(curve_last + { x, y }, state.xform),
+		xform_point_v2(state.xform, curve_last), 
+		xform_point_v2(state.xform, curve_last + { x, y }),
 	)
 	curve_index += 1
 	curve_last = curve_last + { x, y }
@@ -725,8 +762,8 @@ renderer_line_to_rel :: proc(using renderer: ^Renderer, x, y: f32) {
 renderer_vertical_line_to :: proc(using renderer: ^Renderer, y: f32) {
 	state := renderer_state_get(renderer)
 	curves[curve_index] = c1_make(
-		v2_transform(curve_last, state.xform), 
-		v2_transform({ curve_last.x, y }, state.xform),
+		xform_point_v2(state.xform, curve_last), 
+		xform_point_v2(state.xform, { curve_last.x, y }),
 	)
 	curve_index += 1
 	curve_last = { curve_last.x, y }
@@ -735,8 +772,8 @@ renderer_vertical_line_to :: proc(using renderer: ^Renderer, y: f32) {
 renderer_horizontal_line_to :: proc(using renderer: ^Renderer, x: f32) {
 	state := renderer_state_get(renderer)
 	curves[curve_index] = c1_make(
-		v2_transform(curve_last, state.xform), 
-		v2_transform({ x, curve_last.y }, state.xform),
+		xform_point_v2(state.xform, curve_last), 
+		xform_point_v2(state.xform, { x, curve_last.y }),
 	)
 	curve_index += 1
 	curve_last = { x, curve_last.y }
@@ -745,9 +782,9 @@ renderer_horizontal_line_to :: proc(using renderer: ^Renderer, x: f32) {
 renderer_quadratic_to :: proc(using renderer: ^Renderer, x, y, cx, cy: f32) {
 	state := renderer_state_get(renderer)
 	curves[curve_index] = c2_make(
-		v2_transform(curve_last, state.xform), 
-		v2_transform({ cx, cy }, state.xform), 
-		v2_transform({ x, y }, state.xform),
+		xform_point_v2(state.xform, curve_last), 
+		xform_point_v2(state.xform, { cx, cy }), 
+		xform_point_v2(state.xform, { x, y }),
 	)
 	curve_index += 1
 	curve_last = { x, y }
@@ -756,9 +793,9 @@ renderer_quadratic_to :: proc(using renderer: ^Renderer, x, y, cx, cy: f32) {
 renderer_quadratic_to_rel :: proc(using renderer: ^Renderer, x, y, cx, cy: f32) {
 	state := renderer_state_get(renderer)
 	curves[curve_index] = c2_make(
-		v2_transform(curve_last, state.xform), 
-		v2_transform(curve_last + { cx, cy }, state.xform),
-		v2_transform(curve_last + { x, y }, state.xform),
+		xform_point_v2(state.xform, curve_last), 
+		xform_point_v2(state.xform, curve_last + { cx, cy }),
+		xform_point_v2(state.xform, curve_last + { x, y }),
 	)
 	curve_index += 1
 	curve_last = curve_last + { x, y }
@@ -767,10 +804,10 @@ renderer_quadratic_to_rel :: proc(using renderer: ^Renderer, x, y, cx, cy: f32) 
 renderer_cubic_to :: proc(using renderer: ^Renderer, x, y, c1x, c1y, c2x, c2y: f32) {
 	state := renderer_state_get(renderer)
 	curves[curve_index] = c3_make(
-		v2_transform(curve_last, state.xform),
-		v2_transform({ c1x, c1y }, state.xform),
-		v2_transform({ c2x, c2y }, state.xform),
-		v2_transform({ x, y }, state.xform),
+		xform_point_v2(state.xform, curve_last),
+		xform_point_v2(state.xform, { c1x, c1y }),
+		xform_point_v2(state.xform, { c2x, c2y }),
+		xform_point_v2(state.xform, { x, y }),
 	)
 	curve_index += 1
 	curve_last = { x, y }
@@ -779,10 +816,10 @@ renderer_cubic_to :: proc(using renderer: ^Renderer, x, y, c1x, c1y, c2x, c2y: f
 renderer_cubic_to_rel :: proc(using renderer: ^Renderer, x, y, c1x, c1y, c2x, c2y: f32) {
 	state := renderer_state_get(renderer)
 	curves[curve_index] = c3_make(
-		v2_transform(curve_last, state.xform),
-		v2_transform(curve_last + { c1x, c1y }, state.xform),
-		v2_transform(curve_last + { c2x, c2y }, state.xform),
-		v2_transform(curve_last + { x, y },state.xform),
+		xform_point_v2(state.xform, curve_last),
+		xform_point_v2(state.xform, curve_last + { c1x, c1y }),
+		xform_point_v2(state.xform, curve_last + { c2x, c2y }),
+		xform_point_v2(state.xform, curve_last + { x, y }),
 	)
 	curve_index += 1
 	curve_last = curve_last + { x, y }
@@ -794,7 +831,7 @@ renderer_close :: proc(using renderer: ^Renderer) {
 		start := curves[0].B[0]
 
 		curves[curve_index] = c1_make(
-			v2_transform(curve_last, state.xform), 
+			xform_point_v2(state.xform, curve_last), 
 			{ start.x, start.y },
 		)
 		
@@ -851,70 +888,161 @@ renderer_circle_test :: proc(renderer: ^Renderer, x, y, radius: f32) {
 // 	}
 // }
 
-// renderer_ellipse :: proc(renderer: ^Renderer, cx, cy, rx, ry: f32) {
-// 	renderer_move_to(renderer, cx-rx, cy)
-// 	renderer_cubic_to(renderer, cx, cy+ry, cx-rx, cy+ry*KAPPA90, cx-rx*KAPPA90, cy+ry)
-// 	renderer_cubic_to(renderer, cx+rx, cy, cx+rx*KAPPA90, cy+ry, cx+rx, cy+ry*KAPPA90)
-// 	renderer_cubic_to(renderer, cx, cy-ry, cx+rx, cy-ry*KAPPA90, cx+rx*KAPPA90, cy-ry)
-// 	renderer_cubic_to(renderer, cx-rx, cy, cx-rx*KAPPA90, cy-ry, cx-rx, cy-ry*KAPPA90)
-// 	// renderer_close(renderer)
-// }
+renderer_ellipse :: proc(renderer: ^Renderer, cx, cy, rx, ry: f32) {
+	renderer_move_to(renderer, cx-rx, cy)
+	renderer_cubic_to(renderer, cx, cy+ry, cx-rx, cy+ry*KAPPA90, cx-rx*KAPPA90, cy+ry)
+	renderer_cubic_to(renderer, cx+rx, cy, cx+rx*KAPPA90, cy+ry, cx+rx, cy+ry*KAPPA90)
+	renderer_cubic_to(renderer, cx, cy-ry, cx+rx, cy-ry*KAPPA90, cx+rx*KAPPA90, cy-ry)
+	renderer_cubic_to(renderer, cx-rx, cy, cx-rx*KAPPA90, cy-ry, cx-rx, cy-ry*KAPPA90)
+	renderer_close(renderer)
+}
 
-// renderer_circle :: proc(renderer: ^Renderer, cx, cy, r: f32) {
-// 	renderer_ellipse(renderer, cx, cy, r, r)
-// }
+renderer_circle :: proc(renderer: ^Renderer, cx, cy, r: f32) {
+	renderer_ellipse(renderer, cx, cy, r, r)
+}
 
-// renderer_quadratic_test :: proc(renderer: ^Renderer, x, y: f32) {
-// 	renderer_move_to(renderer, x, y)
-// 	renderer_line_to(renderer, x + 50, y + 50)
-// 	renderer_line_to(renderer, x + 60, y + 100)
-// 	renderer_quadratic_to(renderer, x + 100, y + 150, x + 90, y)
-// 	// renderer_close(renderer)
-// }
+// arc to for svg
+renderer_arc_to :: proc(
+	renderer: ^Renderer,
+	rx, ry: f32,
+	rotation: f32,
+	large_arc: f32,
+	sweep_direction: f32,
+	x2, y2: f32,
+) {
+	square :: #force_inline proc(a: f32) -> f32 {
+		return a * a
+	}
 
-// renderer_cubic_test :: proc(renderer: ^Renderer, x, y, r: f32, count: f32) {
-// 	renderer_move_to(renderer, x, y)
-// 	xx := x - r/2
-// 	yy := y + r/2
-// 	// off := (count * 0.05)
-// 	off := f32(0)
-// 	renderer_cubic_to(renderer, xx, yy, xx - off * 0.5, yy - 10, xx + 10 + off, yy - 15)
-// 	// renderer_close(renderer)
-// }
+	vmag :: #force_inline proc(x, y: f32) -> f32 {
+		return math.sqrt(x*x + y*y)
+	}
 
-// renderer_mpvg_test :: proc(renderer: ^Renderer, x, y: f32) {
-// 	renderer_move_to(renderer, x, y)
-	
-// 	// red
-// 	// renderer_quadratic_to_rel(renderer, 0, 0, -20, -40)
-// 	renderer_line_to_rel(renderer, -10, -40)
-// 	renderer_quadratic_to_rel(renderer, 40, 50, 10, 20)
-// 	// renderer_line_to_rel(renderer, 40, -50)
-// 	renderer_line_to_rel(renderer, 10, 0)
-// 	renderer_line_to_rel(renderer, 20, 20)
-	
-// 	// black
-// 	renderer_line_to_rel(renderer, 40, 30)
-// 	renderer_line_to_rel(renderer, 35, -20)
-// 	renderer_line_to_rel(renderer, 40, -20)
-// 	renderer_line_to_rel(renderer, 20, 0)
-// 	renderer_line_to_rel(renderer, 10, 10)
-	
-// 	// orange
-// 	renderer_line_to_rel(renderer, 5, 10)
-// 	renderer_line_to_rel(renderer, -10, 20)
-// 	renderer_line_to_rel(renderer, -10, 25)
-// 	renderer_line_to_rel(renderer, 5, 10)
-	
-// 	// blue
-// 	renderer_line_to_rel(renderer, 5, 10)
-// 	renderer_line_to_rel(renderer, -70, 20)
-	
-// 	// green
-// 	// renderer_line_to_rel(renderer, -70, 20)
-	
-// 	renderer_close(renderer)
-// }
+	vecrat :: proc(ux, uy, vx, vy: f32) -> f32 {
+		return (ux*vx + uy*vy) / (vmag(ux,uy) * vmag(vx,vy))
+	}
+
+	vecang :: proc(ux, uy, vx, vy: f32) -> f32 {
+		r := vecrat(ux,uy, vx,vy)
+		
+		if r < -1 {
+			r = -1
+		}
+		
+		if r > 1 {
+			r = 1
+		}
+
+		return ((ux*vy < uy*vx) ? -1 : 1) * math.acos(r)
+	}
+
+	// Ported from canvg (https://code.google.com/p/canvg/)
+	rx := abs(rx)				// y radius
+	ry := abs(ry)				// x radius
+	rotx := rotation / 180 * math.PI		// x rotation angle
+	fa := abs(large_arc) > 1e-6 ? 1 : 0	// Large arc
+	fs := abs(sweep_direction) > 1e-6 ? 1 : 0	// Sweep direction
+	x1 := renderer.curve_last.x // start point
+	y1 := renderer.curve_last.y
+
+	dx := x1 - x2
+	dy := y1 - y2
+	d := math.sqrt(dx*dx + dy*dy)
+	if d < 1e-6 || rx < 1e-6 || ry < 1e-6 {
+		// The arc degenerates to a line
+		renderer_line_to(renderer, x2, y2)
+		return
+	}
+
+	sinrx := math.sin(rotx)
+	cosrx := math.cos(rotx)
+
+	// Convert to center point parameterization.
+	// http://www.w3.org/TR/SVG11/implnote.html#ArcImplementationNotes
+	// 1) Compute x1', y1'
+	x1p := cosrx * dx / 2 + sinrx * dy / 2
+	y1p := -sinrx * dx / 2 + cosrx * dy / 2
+	d = square(x1p)/square(rx) + square(y1p)/square(ry)
+	if d > 1 {
+		d = math.sqrt(d)
+		rx *= d
+		ry *= d
+	}
+	// 2) Compute cx', cy'
+	s := f32(0)
+	sa := square(rx)*square(ry) - square(rx)*square(y1p) - square(ry)*square(x1p)
+	sb := square(rx)*square(y1p) + square(ry)*square(x1p)
+	if sa < 0 {
+		sa = 0
+	}
+	if sb > 0 {
+		s = math.sqrt(sa / sb)
+	}
+	if fa == fs {
+		s = -s
+	}
+	cxp := s * rx * y1p / ry
+	cyp := s * -ry * x1p / rx
+
+	// 3) Compute cx,cy from cx',cy'
+	cx := (x1 + x2)/2 + cosrx*cxp - sinrx*cyp
+	cy := (y1 + y2)/2 + sinrx*cxp + cosrx*cyp
+
+	// 4) Calculate theta1, and delta theta.
+	ux := (x1p - cxp) / rx
+	uy := (y1p - cyp) / ry
+	vx := (-x1p - cxp) / rx
+	vy := (-y1p - cyp) / ry
+	a1 := vecang(1,0, ux,uy)	// Initial angle
+	da := vecang(ux,uy, vx,vy)		// Delta angle
+
+	if fs == 0 && da > 0 {
+		da -= 2 * math.PI
+	} else if fs == 1 && da < 0 {
+		da += 2 * math.PI
+	}
+
+	// Approximate the arc using cubic spline segments.
+	t := Xform {
+		cosrx, sinrx,
+		-sinrx, cosrx,
+		cx, cy,
+	}
+
+	// Split arc into max 90 degree segments.
+	// The loop assumes an iteration per end point (including start and end), this +1.
+	ndivs := (int)(abs(da) / (math.PI*0.5) + 1)
+	hda := (da / f32(ndivs)) / 2
+	// Fix for ticket #179: division by 0: avoid cotangens around 0 (infinite)
+	if hda < 1e-3 && hda > -1e-3 {
+		hda *= 0.5
+	} else {
+		hda = (1 - math.cos(hda)) / math.sin(hda)
+	}
+
+	kappa := abs(4 / 3 * hda)
+	if da < 0 {
+		kappa = -kappa
+	}
+
+	state := renderer_state_get(renderer)
+	p, ptan: [2]f32
+	for i in 0..<ndivs {
+		a := a1 + da * (f32(i)/f32(ndivs))
+		dx = math.cos(a)
+		dy = math.sin(a)
+		
+		curr := xform_point_v2(t, { dx * rx, dy * ry }) // position
+		tan := xform_v2(t, { -dy*rx * kappa, dx*ry * kappa }) // tangent
+
+		if i > 0 {
+			renderer_cubic_to(renderer, curr.x, curr.y, p.x+ptan.x, p.y+ptan.y, curr.x-tan.x, curr.y-tan.y)
+		}
+
+		p = curr
+		ptan = tan
+	}
+}
 
 ///////////////////////////////////////////////////////////
 // POOL

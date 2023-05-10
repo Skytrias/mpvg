@@ -6,26 +6,45 @@ import "core:slice"
 import "core:strconv"
 import "core:unicode"
 
-// svg_shield_path := "M12,1L3,5V11C3,16.55 6.84,21.74 12,23C17.16,21.74 21,16.55 21,11V5L12,1M12,5A3,3 0 0,1 15,8A3,3 0 0,1 12,11A3,3 0 0,1 9,8A3,3 0 0,1 12,5M17.13,17C15.92,18.85 14.11,20.24 12,20.92C9.89,20.24 8.08,18.85 6.87,17C6.53,16.5 6.24,16 6,15.47C6,13.82 8.71,12.47 12,12.47C15.29,12.47 18,13.79 18,15.47C17.76,16 17.47,16.5 17.13,17Z"
-svg_shield_path := "M12,1L3,5V11C3,16.55 6.84,21.74 12,23C17.16,21.74 21,16.55 21,11V5L12,1Z"
+svg_shield_path := "M12,1L3,5V11C3,16.55 6.84,21.74 12,23C17.16,21.74 21,16.55 21,11V5L12,1M12,5A3,3 0 0,1 15,8A3,3 0 0,1 12,11A3,3 0 0,1 9,8A3,3 0 0,1 12,5M17.13,17C15.92,18.85 14.11,20.24 12,20.92C9.89,20.24 8.08,18.85 6.87,17C6.53,16.5 6.24,16 6,15.47C6,13.82 8.71,12.47 12,12.47C15.29,12.47 18,13.79 18,15.47C17.76,16 17.47,16.5 17.13,17Z"
+
+// shield
+// svg_shield_path := "M12,1L3,5V11C3,16.55 6.84,21.74 12,23C17.16,21.74 21,16.55 21,11V5L12,1Z"
+
+// mid
+// svg_shield_path := "M12,5A3,3 0 0,1 15,8A3,3 0 0,1 12,11A3,3 0 0,1 9,8A3,3 0 0,1 12,5Z"
+
+// head
+// svg_shield_path := "M17.13,17C15.92,18.85 14.11,20.24 12,20.92C9.89,20.24 8.08,18.85 6.87,17C6.53,16.5 6.24,16 6,15.47C6,13.82 8.71,12.47 12,12.47C15.29,12.47 18,13.79 18,15.47C17.76,16 17.47,16.5 17.13,17Z"
 
 SVG_Path_Command_Type :: enum {
 	Move_To_Absolute,
 	Move_To_Relative,
+	
 	Line_To_Absolute,
 	Line_To_Relative,
+	
 	Horizontal_Line_To_Absolute,
 	Horizontal_Line_To_Relative,
+	
 	Vertical_Line_To_Absolute,
 	Vertical_Line_To_Relative,
+	
 	Curve_To_Absolute,
 	Curve_To_Relative,
+
+	Quadratic_To_Absolute,
+	Quadratic_To_Relative,
+
+	Elliptical_Absolute,
+	Elliptical_Relative,
+
 	Close_Path,
 }
 
 SVG_Path_Command :: struct {
 	type: SVG_Path_Command_Type,
-	points: [8e]f32,
+	points: [8]f32,
 }
 
 path_command_table := [256]SVG_Path_Command_Type {
@@ -43,6 +62,12 @@ path_command_table := [256]SVG_Path_Command_Type {
 
 	'c' = .Curve_To_Relative,
 	'C' = .Curve_To_Absolute,
+
+	'a' = .Elliptical_Relative,
+	'A' = .Elliptical_Absolute,
+
+	'q' = .Quadratic_To_Relative,
+	'Q' = .Quadratic_To_Absolute,
 
 	'z' = .Close_Path,
 	'Z' = .Close_Path,
@@ -120,6 +145,16 @@ renderer_svg :: proc(using renderer: ^Renderer, svg: []SVG_Path_Command) {
 
 		case .Vertical_Line_To_Absolute: renderer_vertical_line_to(renderer, cmd.points[0])
 		case .Horizontal_Line_To_Absolute: renderer_horizontal_line_to(renderer, cmd.points[0])
+
+		case .Elliptical_Absolute: 
+			// 0  1  2               3              4          5 6
+			// rx ry x-axis-rotation large-arc-flag sweep-flag x y
+			p := cmd.points
+			renderer_arc_to(renderer, p[0], p[1], p[2], p[3], p[4], p[5], p[6])
+		
+		case .Quadratic_To_Absolute: 
+			p := cmd.points
+			renderer_quadratic_to(renderer, p[2], p[3], p[0], p[1])
 
 		// TODO check where the control points should be
 		case .Curve_To_Absolute: 
