@@ -598,12 +598,12 @@ void cubic_setup(Curve curve) {
 		3.0*(curve.p1 - curve.p2) + curve.p3 - curve.p0
 	};
 
-	Cubic_Info result = cubic_classify(c);
+	Cubic_Info info = cubic_classify(c);
 
-	if (result.type == T_DEGENERATE_LINE) {
+	if (info.type == T_DEGENERATE_LINE) {
 		line_setup(curve.p0, curve.p3);
 		return;
-	} else if(result.type == T_DEGENERATE_QUADRATIC) {
+	} else if(info.type == T_DEGENERATE_QUADRATIC) {
 		vec2 quad_point = vec2(1.5*curve.p1.x - 0.5*curve.p0.x, 1.5*curve.p1.y - 0.5*curve.p0.y);
 		quadratic_setup(curve.p0, quad_point, curve.p3);
 		return;
@@ -614,7 +614,7 @@ void cubic_setup(Curve curve) {
 	Quadratic_Roots roots_a = quadratic_roots(3*c[3].x, 2*c[2].x, c[1].x);
 	Quadratic_Roots roots_b = quadratic_roots(3*c[3].y, 2*c[2].y, c[1].y);
 	// combine results
-	float roots[20];
+	float roots[6];
 	int root_count;
 	// add a
 	for (int i = 0; i < roots_a.count; i += 1) {
@@ -629,8 +629,8 @@ void cubic_setup(Curve curve) {
 
 	//NOTE: add double points and inflection points to roots if finite
 	for (int i = 0; i < 2; i += 1) {
-		if (result.ts[i].y > 0) {
-			roots[root_count] = result.ts[i].x / result.ts[i].y;
+		if (info.ts[i].y > 0) {
+			roots[root_count] = info.ts[i].x / info.ts[i].y;
 			root_count += 1;
 		}
 	}
@@ -668,7 +668,7 @@ void cubic_setup(Curve curve) {
 		float s0 = splits[i];
 		float s1 = splits[i + 1];
 		Cubic_Slice slice = cubic_slice(curve, s0, s1);
-		cubic_emit(curve, result, s0, s1, slice);
+		cubic_emit(curve, info, s0, s1, slice);
 	}
 }
 

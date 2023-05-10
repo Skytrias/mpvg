@@ -31,7 +31,7 @@ Vertex :: struct {
 	uv: [2]f32,
 }
 
-KAPPA90 :: 0.5522847493 * 2
+KAPPA90 :: 0.5522847493
 
 Paint :: struct {
 	xform: Xform, // paint affine transformation
@@ -541,6 +541,17 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 		}
 
 		gl.MemoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT)
+
+		gl.GetNamedBufferSubData(indices_ssbo, 0, 1 * size_of(Renderer_Indices), &renderer.indices)
+		gl.GetNamedBufferSubData(
+			implicit_curves_ssbo, 
+			0, int(renderer.indices.implicit_curves) * size_of(Implicit_Curve), 
+			raw_data(renderer.implicit_curves),
+		)
+		for i in 0..<renderer.indices.implicit_curves {
+			c := renderer.implicit_curves[i]
+			fmt.eprintln("\ti", i, c.kind, Implicit_Curve_Cubic_Type(c.hull_padding.x))
+		}
 	}
 
 	// fill texture
@@ -854,39 +865,6 @@ renderer_rect :: proc(renderer: ^Renderer, x, y, w, h: f32) {
 	renderer_line_to(renderer, x + w, y)
 	renderer_close(renderer)
 }
-
-renderer_circle_test :: proc(renderer: ^Renderer, x, y, radius: f32) {
-	r2 := radius / 2
-	renderer_move_to(renderer, x, y - r2)
-	// top to left
-	renderer_quadratic_to(
-		renderer, 
-		x - r2, y, 
-		x - r2 * 3 / 4, y - r2 * 3 / 4,
-	)
-	// left to bottom
-	renderer_quadratic_to(
-		renderer, 
-		x, y + r2, 
-		x - r2 * 3 / 4, y + r2 * 3 / 4,
-	)
-	// // bottom to right
-	// renderer_quadratic_to(
-	// 	renderer, 
-	// 	x + r2, y, 
-	// 	x + r2 - 20, y + r2 - 80,
-	// )
-	renderer_close(renderer)
-	// renderer_quadratic_to(renderer, x - r2, y, x - r2, y - r2)
-}
-
-// renderer_print :: proc(renderer: ^Renderer) {
-// 	fmt.eprintln("~~~")
-// 	for i in 0..<renderer.offset {
-// 		curve := renderer.curves[i]
-// 		fmt.eprintln(curve.B[0], curve.B[1])
-// 	}
-// }
 
 renderer_ellipse :: proc(renderer: ^Renderer, cx, cy, rx, ry: f32) {
 	renderer_move_to(renderer, cx-rx, cy)

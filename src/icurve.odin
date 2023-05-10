@@ -11,6 +11,16 @@ Implicit_Curve_Kind :: enum i32 {
 	CUBIC,
 }
 
+Implicit_Curve_Cubic_Type :: enum i32 {
+	ERROR,
+	SERPENTINE,
+	CUSP,
+	CUSP_INFINITY,
+	LOOP,
+	DEGENERATE_QUADRATIC,
+	DEGENERATE_LINE,
+}
+
 Implicit_Curve_Orientation :: enum i32 {
 	BL,
 	BR,
