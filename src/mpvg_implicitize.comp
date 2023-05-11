@@ -143,15 +143,9 @@ void line_setup(vec2 p0, vec2 p1) {
 	implicit_curves.data[old_index] = icurve;
 }
 
-struct Quadratic_Mono {
-	float splits[4];
-	int count;
-};
-
-Quadratic_Mono quadratic_monotonize(vec2 p0, vec2 p1, vec2 p2) {
-	Quadratic_Mono result;
-	result.splits[0] = 0;
-	result.count = 1;
+int quadratic_monotonize(vec2 p0, vec2 p1, vec2 p2, out float splits[4]) {
+	splits[0] = 0;
+	int count = 1;
 
 	vec2 r = (p0 - p1)/(p2 - 2*p1 + p0);
 	if (r.x > r.y) {
@@ -161,25 +155,19 @@ Quadratic_Mono quadratic_monotonize(vec2 p0, vec2 p1, vec2 p2) {
 	}
 
 	if (r.x > 0 && r.x < 1) {
-		result.splits[result.count] = r.x;
-		result.count += 1;
+		splits[count] = r.x;
+		count += 1;
 	}
 	if (r.y > 0 && r.y < 1) {
-		result.splits[result.count] = r.y;
-		result.count += 1;
+		splits[count] = r.y;
+		count += 1;
 	}
 	
-	result.splits[result.count] = 1;
-	result.count += 1;
+	splits[count] = 1;
+	count += 1;
 
-	return result;
+	return count;
 }
-
-struct Quadratic_Slice {
-	vec2 p0;
-	vec2 p1;
-	vec2 p2;
-};
 
 vec2 quadratic_blossom(vec2 p0, vec2 p1, vec2 p2, float u, float v) {
 	vec2 b10 = u*p1 + (1-u)*p0;
@@ -188,46 +176,47 @@ vec2 quadratic_blossom(vec2 p0, vec2 p1, vec2 p2, float u, float v) {
 	return(b20);
 }
 
-Quadratic_Slice quadratic_slice(vec2 p0, vec2 p1, vec2 p2, float s0, float s1) {
-	Quadratic_Slice result;
-	result.p0 = (s0 == 0) ? p0 : quadratic_blossom(p0, p1, p2, s0, s0);
-	result.p1 = quadratic_blossom(p0, p1, p2, s0, s1);
-	result.p2 = (s1 == 1) ? p2 : quadratic_blossom(p0, p1, p2, s1, s1);
-	return result;
+void quadratic_slice(vec2 p0, vec2 p1, vec2 p2, float s0, float s1, out vec2 sp[3]) {
+	sp[0] = (s0 == 0) ? p0 : quadratic_blossom(p0, p1, p2, s0, s0);
+	sp[1] = quadratic_blossom(p0, p1, p2, s0, s1);
+	sp[2] = (s1 == 1) ? p2 : quadratic_blossom(p0, p1, p2, s1, s1);
 }
 
-void quadratic_emit(Quadratic_Slice s) {
-	Implicit_Curve icurve = icurve_make(s.p0, s.p1, s.p2, vec2(0), C_QUADRATIC);
+void quadratic_emit(vec2 sp[3]) {
+	Implicit_Curve icurve = icurve_make(sp[0], sp[1], sp[2], vec2(0), C_QUADRATIC);
 
 	//NOTE: compute implicit equation matrix
-	float det = s.p0.x*(s.p1.y-s.p2.y) + s.p1.x*(s.p2.y-s.p0.y) + s.p2.x*(s.p0.y - s.p1.y);
+	float det = sp[0].x*(sp[1].y-sp[2].y) + sp[1].x*(sp[2].y-sp[0].y) + sp[2].x*(sp[0].y - sp[1].y);
 
-	float a = s.p0.y - s.p1.y + 0.5*(s.p2.y - s.p0.y);
-	float b = s.p1.x - s.p0.x + 0.5*(s.p0.x - s.p2.x);
-	float c = s.p0.x*s.p1.y - s.p1.x*s.p0.y + 0.5*(s.p2.x*s.p0.y - s.p0.x*s.p2.y);
-	float d = s.p0.y - s.p1.y;
-	float e = s.p1.x - s.p0.x;
-	float f = s.p0.x*s.p1.y - s.p1.x*s.p0.y;
+	float a = sp[0].y - sp[1].y + 0.5*(sp[2].y - sp[0].y);
+	float b = sp[1].x - sp[0].x + 0.5*(sp[0].x - sp[2].x);
+	float c = sp[0].x*sp[1].y - sp[1].x*sp[0].y + 0.5*(sp[2].x*sp[0].y - sp[0].x*sp[2].y);
+	float d = sp[0].y - sp[1].y;
+	float e = sp[1].x - sp[0].x;
+	float f = sp[0].x*sp[1].y - sp[1].x*sp[0].y;
 
 	float flip = (icurve.orientation == C_TL || icurve.orientation == C_BL) ? -1 : 1;
-	float g = flip*(s.p2.x*(s.p0.y - s.p1.y) + s.p0.x*(s.p1.y - s.p2.y) + s.p1.x*(s.p2.y - s.p0.y));
+	float g = flip*(sp[2].x*(sp[0].y - sp[1].y) + sp[0].x*(sp[1].y - sp[2].y) + sp[1].x*(sp[2].y - sp[0].y));
 
 	mat3 matrix = mat3(a, d, 0, b, e, 0, c, f, g);
 	icurve.implicit_matrix = (1/det)*matrix;
-	icurve.hull_vertex = s.p1;
+	icurve.hull_vertex = sp[1];
 
 	int old_index = atomicAdd(indices.implicit_curves, 1);
 	implicit_curves.data[old_index] = icurve;	
 }
 
 void quadratic_setup(vec2 p0, vec2 p1, vec2 p2) {
-	Quadratic_Mono result = quadratic_monotonize(p0, p1, p2);
+	float splits[4];
+	int split_count = quadratic_monotonize(p0, p1, p2, splits);
 
-	for (int i = 0; i < result.count - 1; i += 1) {
-		float s0 = result.splits[i];
-		float s1 = result.splits[i + 1];
-		Quadratic_Slice slice = quadratic_slice(p0, p1, p2, s0, s1);
-		quadratic_emit(slice);
+
+	for (int i = 0; i < split_count - 1; i += 1) {
+		float s0 = splits[i];
+		float s1 = splits[i + 1];
+		vec2 sp[3];
+		quadratic_slice(p0, p1, p2, s0, s1, sp);
+		quadratic_emit(sp);
 	}
 }
 
@@ -251,62 +240,56 @@ struct Cubic_Info {
 
 #define square(x) ((x)*(x))
 #define cube(x) ((x)*(x)*(x))
+#define ARRAY_SIZE 6
 
-struct Quadratic_Roots {
-	float values[4];
-	int count;
-};
-
-Quadratic_Roots quadratic_roots_with_det(float a, float b, float c, float det) {
-	Quadratic_Roots result;
-	result.count = 0;
-	result.values = float[4](0, 0, 0, 0);
+int quadratic_roots_with_det(float a, float b, float c, float det, out float r[ARRAY_SIZE], int offset) {
+	int count = 0;
 
 	if (a == 0) {
 		if (b > 0) {
-			result.count = 1;
-			result.values[0] = -c/b;
+			count = 1;
+			r[offset] = -c/b;
 		}
 	} else {
 		b /= 2.0;
 
 		if (det >= 0) {
-			result.count = (det == 0) ? 1 : 2;
+			count = (det == 0) ? 1 : 2;
 
 			if (b > 0) {
 				float q = b + sqrt(det);
-				result.values[0] = -c/q;
-				result.values[1] = -q/a;
+				r[offset] = -c/q;
+				r[offset + 1] = -q/a;
 			} else if(b < 0) {
 				float q = -b + sqrt(det);
-				result.values[0] = q/a;
-				result.values[1] = c/q;
+				r[offset] = q/a;
+				r[offset + 1] = c/q;
 			} else {
 				float q = sqrt(-a*c);
 				
 				if (abs(a) >= abs(c)) {
-					result.values[0] = q/a;
-					result.values[1] = -q/a;
+					r[offset] = q/a;
+					r[offset + 1] = -q/a;
 				} else {
-					result.values[0] = -c/q;
-					result.values[1] = c/q;
+					r[offset] = -c/q;
+					r[offset + 1] = c/q;
 				}
 			}
 		}
 	}
 	
-	if (result.count > 1 && result.values[0] > result.values[1]) {
-		float tmp = result.values[0];
-		result.values[0] = result.values[1];
-		result.values[1] = tmp;
+	if (count > 1 && r[offset] > r[offset + 1]) {
+		float tmp = r[offset];
+		r[offset] = r[offset + 1];
+		r[offset + 1] = tmp;
 	}
 	
-	return result;
+	return count;
 }
 
-Quadratic_Roots quadratic_roots(float a, float b, float c) {
+int quadratic_roots(float a, float b, float c, out float r[ARRAY_SIZE], int offset) {
 	float det = square(b) / 4.0 - a*c;
-	return quadratic_roots_with_det(a, b, c, det);
+	return quadratic_roots_with_det(a, b, c, det, r, offset);
 }
 
 Cubic_Info cubic_classify(vec2 c[4]) {
@@ -333,11 +316,12 @@ Cubic_Info cubic_classify(vec2 c[4]) {
 		//NOTE(martin): serpentine curve or cusp with inflection at infinity
 		//              (these two cases are handled the same way).
 		//NOTE(martin): compute the solutions (tl, sl), (tm, sm), and (tn, sn) of the inflection point equation
-		Quadratic_Roots roots = quadratic_roots_with_det(1, -2*d2, (4./3.*d1*d3), (1./3.)*discr_factor2);
+		float roots[ARRAY_SIZE];
+		quadratic_roots_with_det(1, -2*d2, (4./3.*d1*d3), (1./3.)*discr_factor2, roots, 0);
 
-		float tm = roots.values[0];
+		float tm = roots[0];
 		float sm = 2*d1;
-		float tl = roots.values[1];
+		float tl = roots[1];
 		float sl = 2*d1;
 
 		float invNorm = 1/sqrt(square(tm) + square(sm));
@@ -359,10 +343,10 @@ Cubic_Info cubic_classify(vec2 c[4]) {
 		result.type = (discr_factor2 > 0 && d1 != 0) ? T_SERPENTINE : T_CUSP;
 
 		F = mat4(
-			tl*tm, -sm*tl-sl*tm, sl*sm, 0,
-			cube(tl), -3*sl*square(tl), 3*square(sl)*tl, -cube(sl),
-			cube(tm), -3*sm*square(tm), 3*square(sm)*tm, -cube(sm),
-			1, 0, 0, 0
+			vec4(tl*tm, -sm*tl-sl*tm, sl*sm, 0),
+			vec4(cube(tl), -3*sl*square(tl), 3*square(sl)*tl, -cube(sl)),
+			vec4(cube(tm), -3*sm*square(tm), 3*square(sm)*tm, -cube(sm)),
+			vec4(1, 0, 0, 0)
 		);
 
 		result.ts[0] = vec2(tm, sm);
@@ -371,11 +355,12 @@ Cubic_Info cubic_classify(vec2 c[4]) {
 		//NOTE(martin): loop curve
 		result.type = T_LOOP;
 
-		Quadratic_Roots roots = quadratic_roots_with_det(1, -2*d2, 4*(square(d2)-d1*d3), -discr_factor2);
+		float roots[ARRAY_SIZE];
+		quadratic_roots_with_det(1, -2*d2, 4*(square(d2)-d1*d3), -discr_factor2, roots, 0);
 
-		float td = roots.values[1];
+		float td = roots[1];
 		float sd = 2*d1;
-		float te = roots.values[0];
+		float te = roots[0];
 		float se = 2*d1;
 
 		float invNorm = 1/sqrt(square(td) + square(sd));
@@ -399,10 +384,10 @@ Cubic_Info cubic_classify(vec2 c[4]) {
 				| 0                -sd^2*se                -sd*se^2               0 |
 		*/
 		F = mat4(
-			td*te, -se*td-sd*te, sd*se, 0,
-			square(td)*te, -se*square(td)-2*sd*te*td, te*square(sd)+2*se*td*sd, -square(sd)*se,
-			td*square(te), -sd*square(te)-2*se*td*te, td*square(se)+2*sd*te*se, -sd*square(se),
-			1, 0, 0, 0
+			vec4(td*te, -se*td-sd*te, sd*se, 0),
+			vec4(square(td)*te, -se*square(td)-2*sd*te*td, te*square(sd)+2*se*td*sd, -square(sd)*se),
+			vec4(td*square(te), -sd*square(te)-2*se*td*te, td*square(se)+2*sd*te*se, -sd*square(se)),
+			vec4(1, 0, 0, 0)
 		);
 
 		result.ts[0] = vec2(td, sd);
@@ -427,10 +412,10 @@ Cubic_Info cubic_classify(vec2 c[4]) {
 		result.type = T_CUSP_INFINITY;
 
 		F = mat4(
-			tl, -sl, 0, 0,
-			cube(tl), -3*sl*square(tl), 3*square(sl)*tl, -cube(sl),
-			1, 0, 0, 0,
-			1, 0, 0, 0
+			vec4(tl, -sl, 0, 0),
+			vec4(cube(tl), -3*sl*square(tl), 3*square(sl)*tl, -cube(sl)),
+			vec4(1, 0, 0, 0),
+			vec4(1, 0, 0, 0)
 		);
 
 		result.ts[0] = vec2(tl, sl);
@@ -460,13 +445,6 @@ Cubic_Info cubic_classify(vec2 c[4]) {
 	return result;
 }
 
-struct Cubic_Slice {
-	vec2 p0;
-	vec2 p1;
-	vec2 p2;
-	vec2 p3;
-};
-
 vec2 cubic_blossom(Curve curve, float u, float v, float w) {
 	vec2 b10 = u*curve.p1 + (1-u)*curve.p0;
 	vec2 b11 = u*curve.p2 + (1-u)*curve.p1;
@@ -477,33 +455,31 @@ vec2 cubic_blossom(Curve curve, float u, float v, float w) {
 	return b30;
 }
 
-Cubic_Slice cubic_slice(Curve curve, float s0, float s1) {
-	Cubic_Slice result;
+void cubic_slice(Curve curve, float s0, float s1, out vec2 sp[4]) {
 	/*NOTE: using blossoms to compute sub-curve control points ensure that the fourth point
 	        of sub-curve (s0, s1) and the first point of sub-curve (s1, s3) match.
 	        However, due to numerical errors, the evaluation of B(s=0) might not be equal to
 	        p[0] (and likewise, B(s=1) might not equal p[3]).
 	        We handle that case explicitly to ensure that we don't create gaps in the paths.
 	*/
-	result.p0 = (s0 == 0) ? curve.p0 : cubic_blossom(curve, s0, s0, s0);
-	result.p1 = cubic_blossom(curve, s0, s0, s1);
-	result.p2 = cubic_blossom(curve, s0, s1, s1);
-	result.p3 = (s1 == 1) ? curve.p3 : cubic_blossom(curve, s1, s1, s1);
-	return result;
+	sp[0] = (s0 == 0) ? curve.p0 : cubic_blossom(curve, s0, s0, s0);
+	sp[1] = cubic_blossom(curve, s0, s0, s1);
+	sp[2] = cubic_blossom(curve, s0, s1, s1);
+	sp[3] = (s1 == 1) ? curve.p3 : cubic_blossom(curve, s1, s1, s1);
 }
 
 mat3 barycentric_matrix(vec2 v0, vec2 v1, vec2 v2) {
-	float det = v0.x*(v1.y-v2.y) + v1.x*(v2.y-v0.y) + v2.x*(v0.y - v1.y);
+	float det = v0.x * (v1.y - v2.y) + v1.x * (v2.y - v0.y) + v2.x * (v0.y - v1.y);
 	mat3 B = mat3(
-		v1.y - v2.y, v2.y-v0.y, v0.y-v1.y,
-		v2.x - v1.x, v0.x-v2.x, v1.x-v0.x,
-		v1.x*v2.y-v2.x*v1.y, v2.x*v0.y-v0.x*v2.y, v0.x*v1.y-v1.x*v0.y
+		vec3(v1.y - v2.y, v2.y - v0.y, v0.y - v1.y),
+		vec3(v2.x - v1.x, v0.x - v2.x, v1.x - v0.x),
+		vec3(v1.x * v2.y - v2.x * v1.y, v2.x * v0.y - v0.x * v2.y, v0.x * v1.y - v1.x * v0.y)
 	);
-	B *= (1/det);
+	B *= (1.0 / det);
 	return B;
 }
 
-vec2 select_hull_vertex(Cubic_Slice s) {
+vec2 select_hull_vertex(vec2 sp[4]) {
 	/*NOTE: check intersection of lines (p1-p0) and (p3-p2)
 		P = p0 + u(p1-p0)
 		P = p2 + w(p3-p2)
@@ -511,29 +487,29 @@ vec2 select_hull_vertex(Cubic_Slice s) {
 		control points are inside a right triangle so we should always find an intersection
 	*/
 	vec2 pm;
-	float det = (s.p1.x - s.p0.x)*(s.p3.y - s.p2.y) - (s.p1.y - s.p0.y)*(s.p3.x - s.p2.x);
-	float sqr_norm0 = length_squared(s.p1 - s.p0);
-	float sqr_norm1 = length_squared(s.p2 - s.p3);
+	float det = (sp[1].x - sp[0].x)*(sp[3].y - sp[2].y) - (sp[1].y - sp[0].y)*(sp[3].x - sp[2].x);
+	float sqr_norm0 = length_squared(sp[1] - sp[0]);
+	float sqr_norm1 = length_squared(sp[2] - sp[3]);
 
 	if (abs(det) < 1e-3 || sqr_norm0 < 0.1 || sqr_norm1 < 0.1) {
-		sqr_norm0 = length_squared(s.p1 - s.p0);
-		sqr_norm1 = length_squared(s.p2 - s.p3);
+		sqr_norm0 = length_squared(sp[1] - sp[0]);
+		sqr_norm1 = length_squared(sp[2] - sp[3]);
 
 		if (sqr_norm0 < sqr_norm1) {
-			pm = s.p2;
+			pm = sp[2];
 		} else {
-			pm = s.p1;
+			pm = sp[1];
 		}
 	} else {
-		float u = ((s.p0.x - s.p2.x)*(s.p2.y - s.p3.y) - (s.p0.y - s.p2.y)*(s.p2.x - s.p3.x))/det;
-		pm = s.p0 + u*(s.p1 - s.p0);
+		float u = ((sp[0].x - sp[2].x)*(sp[2].y - sp[3].y) - (sp[0].y - sp[2].y)*(sp[2].x - sp[3].x))/det;
+		pm = sp[0] + u*(sp[1] - sp[0]);
 	}
 
 	return pm;
 }
 
-void cubic_emit(Curve curve, Cubic_Info info, float s0, float s1, Cubic_Slice slice) {
-	Implicit_Curve icurve = icurve_make(slice.p0, slice.p1, slice.p2, slice.p3, C_CUBIC);
+void cubic_emit(Curve curve, Cubic_Info info, float s0, float s1, vec2 sp[4]) {
+	Implicit_Curve icurve = icurve_make(sp[0], sp[1], sp[2], sp[3], C_CUBIC);
 	icurve.hull_padding = vec2(float(info.type), 0);
 
 	vec2 v0 = curve.p0;
@@ -564,7 +540,7 @@ void cubic_emit(Curve curve, Cubic_Info info, float s0, float s1, Cubic_Slice sl
 	//      when computing barycentric matrix?
 	mat3 B = barycentric_matrix(v0, v1, v2);
 	icurve.implicit_matrix = K*B;
-	icurve.hull_vertex = select_hull_vertex(slice);
+	icurve.hull_vertex = select_hull_vertex(sp);
 
 	//NOTE: compute sign flip
 	icurve.sign = 1;
@@ -582,7 +558,7 @@ void cubic_emit(Curve curve, Cubic_Info info, float s0, float s1, Cubic_Slice sl
 		icurve.sign = (H*d1 > 0) ? -1 : 1;
 	}
 
-	if (slice.p3.y > slice.p0.y) {
+	if (sp[3].y > sp[0].y) {
 		icurve.sign *= -1;
 	}
 
@@ -611,21 +587,9 @@ void cubic_setup(Curve curve) {
 
 	//NOTE: get the roots of B'(s) = 3.c3.s^2 + 2.c2.s + c1
 	// do separate because glsl restrictions
-	Quadratic_Roots roots_a = quadratic_roots(3*c[3].x, 2*c[2].x, c[1].x);
-	Quadratic_Roots roots_b = quadratic_roots(3*c[3].y, 2*c[2].y, c[1].y);
-	// combine results
-	float roots[6];
-	int root_count;
-	// add a
-	for (int i = 0; i < roots_a.count; i += 1) {
-		roots[root_count] = roots_a.values[i];
-		root_count += 1;
-	}
-	// add b
-	for (int i = 0; i < roots_b.count; i += 1) {
-		roots[root_count] = roots_b.values[i];
-		root_count += 1;
-	}
+	float roots[ARRAY_SIZE];
+	int root_count = quadratic_roots(3*c[3].x, 2*c[2].x, c[1].x, roots, 0);
+	root_count += quadratic_roots(3*c[3].y, 2*c[2].y, c[1].y, roots, root_count);
 
 	//NOTE: add double points and inflection points to roots if finite
 	for (int i = 0; i < 2; i += 1) {
@@ -667,8 +631,9 @@ void cubic_setup(Curve curve) {
 	for (int i = 0; i < split_count - 1; i += 1) {
 		float s0 = splits[i];
 		float s1 = splits[i + 1];
-		Cubic_Slice slice = cubic_slice(curve, s0, s1);
-		cubic_emit(curve, info, s0, s1, slice);
+		vec2 sp[4];
+		cubic_slice(curve, s0, s1, sp);
+		cubic_emit(curve, info, s0, s1, sp);
 	}
 }
 
