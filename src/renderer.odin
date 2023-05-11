@@ -131,8 +131,6 @@ Renderer_Tile :: struct #packed {
 	command_offset: i32,
 	command_count: i32,
 	pad1: i32,
-
-	color: [4]f32,
 }
 
 Renderer_Command :: struct #packed {
@@ -185,19 +183,6 @@ renderer_start :: proc(
 	renderer.indices.implicit_curves = 0
 	renderer.indices.commands = 1 // TODO maybe do 1?
 
-	if renderer.tile_count != tile_count {
-		for i in 0..<tile_count {
-			renderer.tiles[i] = {
-				color = {
-					rand.float32(),
-					rand.float32(),
-					rand.float32(),
-					1,
-				},
-			}
-		}
-	}
-
 	renderer.tiles_x = tiles_x
 	renderer.tiles_y = tiles_y
 	renderer.tile_count = tile_count
@@ -208,7 +193,7 @@ renderer_start :: proc(
 	for i in 0..<renderer.tile_count {
 		tile := &renderer.tiles[i]
 		tile.winding_offset = 0
-		tile.command_offset = 0
+		tile.command_offset = 100_000
 		tile.command_count = 0
 	}
 
@@ -261,139 +246,6 @@ renderer_font_push :: proc(renderer: ^Renderer, path: string) -> u32 {
 	font_init(font, path)
 	return index
 }
-
-// renderer_process_tiles :: proc(renderer: ^Renderer, width, height: f32) {
-// 	for i in 0..<renderer.tile_count {
-// 		tile := &renderer.tiles[i]
-// 		tile.winding_number = 0
-// 		tile.command_offset = 100_000
-// 		tile.command_count = 0
-// 	}
-
-// 	start: [2]f32
-// 	end: [2]f32
-
-// 	path_area := [4]f32 {
-// 		0, 0,
-// 		width, height,
-// 	}
-
-// 	// loop through all implicit curves
-// 	curve_loop: for j in 0..<renderer.output_index {
-// 		curve := renderer.output[j]
-
-// 		// swap
-// 		if curve.orientation == .TL || curve.orientation == .BR {
-// 			start = curve.box.xy
-// 			end = curve.box.zw
-// 		} else {
-// 			start = curve.box.xw
-// 			end = curve.box.zy
-// 		}
-
-// 		// TODO minimize iteration
-// 		// covered_tiles := curve.box / 32
-// 		// xmin := int(max(0, covered_tiles.x - path_area.x))
-// 		// ymin := int(max(0, covered_tiles.y - path_area.y))
-// 		// xmax := int(min(covered_tiles.z - path_area.x, path_area.z - 1))
-// 		// ymax := int(min(covered_tiles.w - path_area.y, path_area.w - 1))
-// 		// fmt.eprintln(xmin, ymin, xmax, ymax)
-// 		// for x in xmin..<xmax {
-// 		// 	for y in ymin..<ymax {
-
-// 		// loop through all tiles
-// 		for x in 0..<renderer.tiles_x {
-// 			for y in 0..<renderer.tiles_y {
-// 				index := x + y * renderer.tiles_x
-// 				tile := &renderer.tiles[index]
-
-// 				// tile in real coordinates
-// 				x1 := f32(x) / f32(renderer.tiles_x) * width
-// 				y1 := f32(y) / f32(renderer.tiles_x) * height
-// 				x2 := f32(x + 1) / f32(renderer.tiles_x) * width
-// 				y2 := f32(y + 1) / f32(renderer.tiles_x) * height
-
-// 				sbl := curve_eval(curve, { x1, y1 })
-// 				sbr := curve_eval(curve, { x2, y1 })
-// 				str := curve_eval(curve, { x2, y2 })
-// 				stl := curve_eval(curve, { x1, y2 })
-
-// 				crossL := (stl * sbl) < 0
-// 				crossR := (str * sbr) < 0
-// 				crossT := (stl * str) < 0
-// 				crossB := (sbl * sbr) < 0
-
-// 				start_inside := start.x >= x1 && start.x < x2 && start.y >= y1 && start.y < y2
-// 				end_inside := end.x >= x1 && end.x < x2 && end.y >= y1 && end.y < y2
-
-// 				if end_inside || start_inside || crossL || crossR || crossT || crossB {
-// 					cmd := Renderer_Command { curve_index = i32(j) }
-// 					cmd.tile_index = i32(index)
-// 					cmd.x = min(curve.box.x, curve.box.z)
-
-// 					if crossR {
-// 						cmd.crossed_right = true
-// 					}
-
-// 					if crossB {
-// 						tile.winding_number += curve.winding_increment
-// 					}
-
-// 					renderer.commands[renderer.command_index] = cmd
-// 					renderer.command_index += 1
-// 					tile.command_count += 1
-// 				}
-// 			}
-// 		}
-// 	}	
-
-// 	// sort by tile index on each command
-// 	slice.sort_by(renderer.commands[:renderer.command_index], proc(a, b: Renderer_Command) -> bool {
-// 		return a.tile_index < b.tile_index 
-// 	})
-
-// 	// TODO optimize to not use a for loop on all commands
-// 	// assign proper min offset to tile
-// 	last := i32(100_000)
-// 	for i in 0..<renderer.command_index {
-// 		cmd := renderer.commands[i]
-// 		defer last = cmd.tile_index
-
-// 		if last == cmd.tile_index {
-// 			continue
-// 		}
-
-// 		tile := &renderer.tiles[cmd.tile_index]
-// 		tile.command_offset = min(tile.command_offset, i32(i))
-// 	}
-
-// 	// for i in 0..<renderer.tile_count {
-// 	// 	tile := &renderer.tiles[i]
-		
-// 	// 	if tile.command_offset != 100_000 {
-// 	// 		// fmt.eprintln(tile.command_offset, tile.command_count)
-// 	// 		slice.sort_by(renderer.commands[tile.command_offset:tile.command_offset + tile.command_count], proc(a, b: Renderer_Command) -> bool {
-// 	// 			return a.x < b.x
-// 	// 			// return a.curve_index < b.curve_index
-// 	// 		})
-// 	// 	}
-// 	// }
-
-// 	// prefix sum backpropogation
-// 	if true {
-// 		for y in 0..<renderer.tiles_y {
-// 			sum: i32
-
-// 			for x := renderer.tiles_x - 1; x >= 0; x -= 1 {
-// 				index := x + y * renderer.tiles_x
-// 				tile := &renderer.tiles[index]
-// 				temp := tile.winding_number
-// 				tile.winding_number = sum
-// 				sum += temp
-// 			}
-// 		}
-// 	}
-// }
 
 renderer_gpu_gl_init :: proc(using gpu: ^Renderer_GL) {
 	{
@@ -513,13 +365,55 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, tiles_ssbo)
 		gl.NamedBufferSubData(tiles_ssbo, 0, renderer.tile_index * size_of(Renderer_Tile), raw_data(renderer.tiles))
 
-		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, implicit_curves_ssbo)
-
 		gl.DispatchCompute(u32(renderer.curve_index), 1, 1)
+
+		gl.GetNamedBufferSubData(indices_ssbo, 0, 1 * size_of(Renderer_Indices), &renderer.indices)
+
+		// get updated tiles / commands
+		gl.GetNamedBufferSubData(
+			tiles_ssbo, 
+			0, int(renderer.tile_index) * size_of(Renderer_Tile), 
+			raw_data(renderer.tiles),
+		)
+
+		gl.GetNamedBufferSubData(
+			commands_ssbo, 
+			0, int(renderer.indices.commands) * size_of(Renderer_Command), 
+			raw_data(renderer.commands),
+		)
+	}
+
+	// fmt.eprintln(renderer.commands[:renderer.indices.commands])
+
+	// TODO do this on the GPU?
+	// sort by tile index on each command
+	slice.sort_by(renderer.commands[:renderer.indices.commands], proc(a, b: Renderer_Command) -> bool {
+		return a.tile_index < b.tile_index 
+	})
+
+	// TODO optimize to not use a for loop on all commands
+	// assign proper min offset to tile
+	last := i32(100_000)
+	for i in 0..<renderer.indices.commands {
+		cmd := renderer.commands[i]
+		defer last = cmd.tile_index
+
+		if last == cmd.tile_index {
+			continue
+		}
+
+		tile := &renderer.tiles[cmd.tile_index]
+		tile.command_offset = min(tile.command_offset, i32(i))
 	}
 
 	// tile backprop stage
 	{
+		// update cpu->gpu tiles/commands
+		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, tiles_ssbo)
+		gl.NamedBufferSubData(tiles_ssbo, 0, renderer.tile_index * size_of(Renderer_Tile), raw_data(renderer.tiles))
+		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, commands_ssbo)
+		gl.NamedBufferSubData(commands_ssbo, 0, int(renderer.indices.commands) * size_of(Renderer_Command), raw_data(renderer.commands))
+
 		gl.UseProgram(backprop.program)
 		gl.DispatchCompute(u32(renderer.tiles_x), 1, 1)
 		gl.MemoryBarrier(gl.SHADER_STORAGE_BARRIER_BIT)
@@ -540,17 +434,6 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 		}
 
 		gl.MemoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT)
-
-		// gl.GetNamedBufferSubData(indices_ssbo, 0, 1 * size_of(Renderer_Indices), &renderer.indices)
-		// gl.GetNamedBufferSubData(
-		// 	implicit_curves_ssbo, 
-		// 	0, int(renderer.indices.implicit_curves) * size_of(Implicit_Curve), 
-		// 	raw_data(renderer.implicit_curves),
-		// )
-		// for i in 0..<renderer.indices.implicit_curves {
-		// 	c := renderer.implicit_curves[i]
-		// 	fmt.eprintln("\ti", i, c.kind, Implicit_Curve_Cubic_Type(c.hull_padding.x))
-		// }
 	}
 
 	// fill texture

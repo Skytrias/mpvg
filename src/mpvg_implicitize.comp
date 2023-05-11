@@ -43,8 +43,6 @@ struct Tile {
 	int command_offset;
 	int command_count;
 	bool had_cross_right;
-
-	vec4 color;
 };
 
 struct Command {
@@ -174,7 +172,9 @@ void curve_bin_to_tiles(Implicit_Curve curve) {
 	int curve_index = atomicAdd(indices.implicit_curves, 1);
 	implicit_curves.data[curve_index] = curve;
 
-	int tile_size = 25;
+	int tiles_x = 25;
+	int tiles_y = 25;
+	int tiles_size = 32;
 	// int4 path_area = context->path_queue->area;
 	// int4 covered_tiles = int4(seg->box) / tile_size;
 	// int x_min = max(0, covered_tiles.x - path_area.x);
@@ -191,14 +191,14 @@ void curve_bin_to_tiles(Implicit_Curve curve) {
 		s1 = curve.box.zy;
 	}
 
-	for (int y = 0; y <= 25; y += 1) {
-		for (int x = 0; x <= 25; x += 1) {
+	for (int y = 0; y <= tiles_y; y += 1) {
+		for (int x = 0; x <= tiles_x; x += 1) {
 			vec4 tile_box = vec4(
 				float(x),
 				float(y),
 				float(x + 1),
 				float(y + 1)
-			) * float(tile_size);
+			) * float(tiles_size);
 
 			vec2 bl = vec2(tile_box.x, tile_box.y);
 			vec2 br = vec2(tile_box.z, tile_box.y);
@@ -221,7 +221,7 @@ void curve_bin_to_tiles(Implicit_Curve curve) {
 			if (cross_l || cross_r || cross_t || cross_b || s0_inside || s1_inside) {
 				Command cmd;
 
-				int tile_index = x + y * tile_size;
+				int tile_index = x + y * tiles_x;
 				cmd.tile_index = tile_index;
 				cmd.curve_index = curve_index;
 				cmd.pad1 = 0;
@@ -236,6 +236,9 @@ void curve_bin_to_tiles(Implicit_Curve curve) {
 
 				int command_index = atomicAdd(indices.commands, 1);
 				commands.data[command_index] = cmd;
+				
+				// add to tile command count
+				atomicAdd(tiles.data[tile_index].command_count, 1);
 			}
 		}
 	}

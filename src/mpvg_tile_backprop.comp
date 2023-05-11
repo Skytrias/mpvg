@@ -7,8 +7,6 @@ struct Tile {
 	int command_offset;
 	int command_count;
 	bool had_cross_right;
-
-	vec4 color;
 };
 
 layout(std140, binding = 3) buffer Tiles {
