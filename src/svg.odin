@@ -154,18 +154,12 @@ renderer_svg :: proc(using renderer: ^Renderer, svg: []SVG_Path_Command) {
 		
 		case .Quadratic_To_Absolute: 
 			p := cmd.points
-			renderer_quadratic_to(renderer, p[2], p[3], p[0], p[1])
+			renderer_quadratic_to(renderer, p[0], p[1], p[2], p[3])
 
 		// TODO check where the control points should be
 		case .Curve_To_Absolute: 
 			p := cmd.points
-			renderer_cubic_to(renderer, p[4], p[5], p[0], p[1], p[2], p[3])
-			// renderer_line_to(renderer, p[4], p[5])
-			
-			// renderer_cubic_to(renderer, p[0], p[1], p[2], p[3], p[4], p[5])
-
-		// 	fmt.eprintln("C", points[:point_index])
-		// 	path_cubic_to(path, points[4], points[5], points[0], points[1], points[2], points[3])
+			renderer_cubic_to(renderer, p[0], p[1], p[2], p[3], p[4], p[5])
 
 		case .Close_Path: renderer_close(renderer)
 		}

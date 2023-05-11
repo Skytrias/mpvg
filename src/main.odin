@@ -188,7 +188,6 @@ main :: proc() {
 		TILE_SIZE :: 32
 		tiles_x := width / TILE_SIZE
 		tiles_y := height / TILE_SIZE
-		fmt.eprintln("tiles_x", tiles_x, tiles_y)
 
 		mouse_tile_x := clamp(int(app.mouse.x), 0, width) / TILE_SIZE
 		mouse_tile_y := clamp(int(app.mouse.y), 0, height) / TILE_SIZE
@@ -231,23 +230,24 @@ main :: proc() {
 			// renderer_state_translate(&app.renderer, app.mouse.x, app.mouse.y)
 			// renderer_circle(&app.renderer, 0, 0, 100)
 			
-			// renderer_move_to(&app.renderer, 100, 100)
+			// renderer_move_to(&app.renderer, 300, 300)
 			// // renderer_line_to(&app.renderer, app.mouse.x, app.mouse.y)
-			// renderer_cubic_to(&app.renderer, p2.x, p2.y, p1.x, p1.y, p3.x, p3.y)
-			// // renderer_quadratic_to(&app.renderer, p2.x, p2.y, p3.x, p3.y)
+			// // renderer_cubic_to(&app.renderer, p1.x, p1.y, p3.x, p3.y, p2.x, p2.y)
+			// renderer_arc_to(&app.renderer, 20, 20, 0, 1, 0, p2.x, p2.y)
+			// // renderer_quadratic_to(&app.renderer, p3.x, p3.y, p2.x, p2.y)
 			// // renderer_line_to(&app.renderer, p2.x, p2.y)
 			// renderer_close(&app.renderer)
 
-			// NOTE: NEW
-			renderer_state_translate(&app.renderer, 200, 200)
-			renderer_state_rotate(&app.renderer, count * 0.01)
-			// renderer_state_translate(&app.renderer, app.mouse.x, app.mouse.y)
-			renderer_rect(&app.renderer, -100, -50, 200, 100)
+			// // NOTE: NEW
+			// renderer_state_translate(&app.renderer, 200, 200)
+			// renderer_state_rotate(&app.renderer, count * 0.01)
+			// // renderer_state_translate(&app.renderer, app.mouse.x, app.mouse.y)
+			// renderer_rect(&app.renderer, -100, -50, 200, 100)
 
-			// renderer_state_translate(&app.renderer, app.mouse.x, app.mouse.y)
-			// renderer_state_scale(&app.renderer, 10, 10)
-			// // renderer_state_translate(&app.renderer, 100, 100)
-			// renderer_svg(&app.renderer, svg_curves)
+			renderer_state_translate(&app.renderer, app.mouse.x, app.mouse.y)
+			renderer_state_scale(&app.renderer, 10, 10)
+			// renderer_state_translate(&app.renderer, 100, 100)
+			renderer_svg(&app.renderer, svg_curves)
 		}
 
 		glfw.SwapBuffers(window)

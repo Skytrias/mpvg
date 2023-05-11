@@ -628,7 +628,7 @@ renderer_horizontal_line_to :: proc(using renderer: ^Renderer, x: f32) {
 	curve_last = { x, curve_last.y }
 }
 
-renderer_quadratic_to :: proc(using renderer: ^Renderer, x, y, cx, cy: f32) {
+renderer_quadratic_to :: proc(using renderer: ^Renderer, cx, cy, x, y: f32) {
 	state := renderer_state_get(renderer)
 	curves[curve_index] = c2_make(
 		xform_point_v2(state.xform, curve_last), 
@@ -639,7 +639,7 @@ renderer_quadratic_to :: proc(using renderer: ^Renderer, x, y, cx, cy: f32) {
 	curve_last = { x, y }
 }
 
-renderer_quadratic_to_rel :: proc(using renderer: ^Renderer, x, y, cx, cy: f32) {
+renderer_quadratic_to_rel :: proc(using renderer: ^Renderer, cx, cy, x, y: f32) {
 	state := renderer_state_get(renderer)
 	curves[curve_index] = c2_make(
 		xform_point_v2(state.xform, curve_last), 
@@ -650,7 +650,7 @@ renderer_quadratic_to_rel :: proc(using renderer: ^Renderer, x, y, cx, cy: f32) 
 	curve_last = curve_last + { x, y }
 }
 
-renderer_cubic_to :: proc(using renderer: ^Renderer, x, y, c1x, c1y, c2x, c2y: f32) {
+renderer_cubic_to :: proc(using renderer: ^Renderer, c1x, c1y, c2x, c2y, x, y: f32) {
 	state := renderer_state_get(renderer)
 	curves[curve_index] = c3_make(
 		xform_point_v2(state.xform, curve_last),
@@ -662,7 +662,7 @@ renderer_cubic_to :: proc(using renderer: ^Renderer, x, y, c1x, c1y, c2x, c2y: f
 	curve_last = { x, y }
 }
 
-renderer_cubic_to_rel :: proc(using renderer: ^Renderer, x, y, c1x, c1y, c2x, c2y: f32) {
+renderer_cubic_to_rel :: proc(using renderer: ^Renderer, c1x, c1y, c2x, c2y, x, y: f32) {
 	state := renderer_state_get(renderer)
 	curves[curve_index] = c3_make(
 		xform_point_v2(state.xform, curve_last),
@@ -828,7 +828,7 @@ renderer_arc_to :: proc(
 
 	// Split arc into max 90 degree segments.
 	// The loop assumes an iteration per end point (including start and end), this +1.
-	ndivs := (int)(abs(da) / (math.PI*0.5) + 1)
+	ndivs := int(abs(da) / (math.PI*0.5) + 1)
 	hda := (da / f32(ndivs)) / 2
 	// Fix for ticket #179: division by 0: avoid cotangens around 0 (infinite)
 	if hda < 1e-3 && hda > -1e-3 {
@@ -837,14 +837,14 @@ renderer_arc_to :: proc(
 		hda = (1 - math.cos(hda)) / math.sin(hda)
 	}
 
-	kappa := abs(4 / 3 * hda)
-	if da < 0 {
+	kappa := abs(4.0 / 3.0 * hda)
+	if da < 0.0 {
 		kappa = -kappa
 	}
 
 	state := renderer_state_get(renderer)
 	p, ptan: [2]f32
-	for i in 0..<ndivs {
+	for i in 0..=ndivs {
 		a := a1 + da * (f32(i)/f32(ndivs))
 		dx = math.cos(a)
 		dy = math.sin(a)
@@ -853,7 +853,7 @@ renderer_arc_to :: proc(
 		tan := xform_v2(t, { -dy*rx * kappa, dx*ry * kappa }) // tangent
 
 		if i > 0 {
-			renderer_cubic_to(renderer, curr.x, curr.y, p.x+ptan.x, p.y+ptan.y, curr.x-tan.x, curr.y-tan.y)
+			renderer_cubic_to(renderer, p.x+ptan.x, p.y+ptan.y, curr.x-tan.x, curr.y-tan.y, curr.x, curr.y)
 		}
 
 		p = curr
