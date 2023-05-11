@@ -13,6 +13,17 @@ import glm "core:math/linalg/glsl"
 import glfw "vendor:glfw"
 import gl "vendor:OpenGL"
 
+// COMPUTE PIPELINE
+// path setup ??? 
+
+// segment setup DONE
+// segment bin to tiles directly
+
+// tile backprop
+// tile merge
+
+// raster DONE
+
 length :: linalg.vector_length
 
 App :: struct {
@@ -166,12 +177,6 @@ main :: proc() {
 	svg_curves := svg_gen_temp(svg_shield_path)
 	defer delete(svg_curves)
 
-	// fmt.eprintln("size", size_of(glm.mat3), size_of(glm.mat3x4), size_of(glm.mat4x3), size_of([12]f32))
-
-	// if true {
-	// 	return
-	// }
-
 	count: f32
 	duration: time.Duration
 	for !glfw.WindowShouldClose(window) {
@@ -183,7 +188,7 @@ main :: proc() {
 		TILE_SIZE :: 32
 		tiles_x := width / TILE_SIZE
 		tiles_y := height / TILE_SIZE
-		// fmt.eprintln("tiles_x", tiles_x, tiles_y)
+		fmt.eprintln("tiles_x", tiles_x, tiles_y)
 
 		mouse_tile_x := clamp(int(app.mouse.x), 0, width) / TILE_SIZE
 		mouse_tile_y := clamp(int(app.mouse.y), 0, height) / TILE_SIZE
@@ -223,18 +228,15 @@ main :: proc() {
 				}
 			}
 
-			// renderer_circle_test(&app.renderer, 200, 200, 200)
-
 			// renderer_state_translate(&app.renderer, 300, 300)
 			// renderer_circle(&app.renderer, 0, 0, 100)
 			
-			renderer_move_to(&app.renderer, 000, 500)
+			renderer_move_to(&app.renderer, 100, 100)
 			// renderer_line_to(&app.renderer, app.mouse.x, app.mouse.y)
 			renderer_cubic_to(&app.renderer, p2.x, p2.y, p1.x, p1.y, p3.x, p3.y)
 			// renderer_quadratic_to(&app.renderer, p2.x, p2.y, p3.x, p3.y)
-			// renderer_line_to(&app.renderer, p2.x + 200, p2.y)
+			// renderer_line_to(&app.renderer, p2.x, p2.y)
 			renderer_close(&app.renderer)
-			fmt.eprintln("~~~")
 
 			// // // NOTE: NEW
 			// renderer_state_translate(&app.renderer, 200, 200)

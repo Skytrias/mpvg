@@ -20,23 +20,19 @@ uniform int fill_rule;
 struct Implicit_Curve {
 	vec4 box;
 	
-	mat4 implicit_matrix;
-
 	vec2 hull_vertex;
-	vec2 padding;
+	vec2 hull_padding;
 
 	int kind;
 	int orientation;
 	int sign;
 	int winding_increment;
+
+	mat3 implicit_matrix;
 };
 
-layout(std140, binding = 0) buffer Curves {
-	Implicit_Curve data[];
-} curves;
-
 struct Tile {
-	int winding_number;
+	int winding_offset;
 	int command_offset;
 	int command_count;
 	bool had_cross_right;
@@ -44,18 +40,29 @@ struct Tile {
 	vec4 color;
 };
 
-layout(std140, binding = 1) buffer Tiles {
+struct Command {
+	int curve_index;
+	int tile_index;
+	bool cross_right;
+	int pad1;
+};
+
+layout(std140, binding = 0) volatile buffer Input_Indices {
+	int implicit_curves;
+	int commands;
+	int pad1;
+	int pad2;
+} indices;
+
+layout(std140, binding = 2) readonly buffer Input_Implicit_Curves {
+	Implicit_Curve data[];
+} implicit_curves;
+
+layout(std140, binding = 3) buffer Tiles {
 	Tile data[];
 } tiles;
 
-struct Command {
-	int curve_index;
-	bool crossed_right;
-	int tile_index;
-	int pad2;
-};
-
-layout(std140, binding = 2) buffer Commands {
+layout(std140, binding = 4) buffer Commands {
 	Command data[];
 } commands;
 
@@ -112,7 +119,7 @@ int curve_side(Implicit_Curve curve, vec2 pt) {
 			}
 		}
 
-		vec2 c = curve.E;
+		vec2 c = curve.hull_vertex;
 
 		if (ccw(a, b, pt) < 0) {
 			// other side of the diagonal
@@ -128,16 +135,15 @@ int curve_side(Implicit_Curve curve, vec2 pt) {
 					break;
 
 				case C_QUADRATIC: {
-					vec4 ph = vec4(pt.x, pt.y, 1, 1);
-					vec4 klm = curve.M * ph;
+					vec3 ph = vec3(pt.x, pt.y, 1);
+					vec3 klm = curve.implicit_matrix * ph;
 					side = ((klm.x*klm.x - klm.y)*klm.z < 0) ? -1 : 1;
 				} break;
 
 				case C_CUBIC: {
-					vec4 ph = vec4(pt.x, pt.y, 1, 1);
-					vec4 klm = curve.M * ph;
-					int sign = int(curve.negative);
-					side = (sign * (klm.x*klm.x*klm.x - klm.y*klm.z) < 0)? -1 : 1;
+					vec3 ph = vec3(pt.x, pt.y, 1);
+					vec3 klm = curve.implicit_matrix * ph;
+					side = (curve.sign * (klm.x*klm.x*klm.x - klm.y*klm.z) < 0)? -1 : 1;
 				} break;
 			}
 		}
@@ -185,10 +191,10 @@ void main() {
 	uint tile_index = gl_WorkGroupID.x + gl_WorkGroupID.y * 25;
 	Tile tile = tiles.data[tile_index];
 
-	int winding_number = tile.winding_number;
+	int winding_number = tile.winding_offset;
 	for (int i = 0; i < tile.command_count; i += 1) {
 		Command cmd = commands.data[tile.command_offset + i];
-		Implicit_Curve curve = curves.data[cmd.curve_index];
+		Implicit_Curve curve = implicit_curves.data[cmd.curve_index];
 
 		int side = curve_side(curve, px);
 		if (px.y > curve.box.y && px.y <= curve.box.w) {
@@ -197,7 +203,7 @@ void main() {
 			} 
 		}
 
-		if (cmd.crossed_right) {
+		if (cmd.cross_right) {
 			if ((curve.orientation == C_BR || curve.orientation == C_TL) && (px.y > curve.box.w)) {
 				winding_number += curve.winding_increment;
 			} else if( (curve.orientation == C_BL || curve.orientation == C_TR) && (px.y > curve.box.y)) {
@@ -239,6 +245,5 @@ void main() {
 		}
 	}
 
-	// imageStore(img_output, ivec2(int(px.x), int(px.y)), color);
 	imageStore(img_output, pixel_coords, color);
 }

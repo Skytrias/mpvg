@@ -38,11 +38,27 @@ struct Implicit_Curve {
 	mat3 implicit_matrix;
 };
 
+struct Tile {
+	int winding_offset;
+	int command_offset;
+	int command_count;
+	bool had_cross_right;
+
+	vec4 color;
+};
+
+struct Command {
+	int curve_index;
+	int tile_index;
+	bool cross_right;
+	int pad1;
+};
+
 layout(std140, binding = 0) volatile buffer Input_Indices {
 	int implicit_curves;
+	int commands;
 	int pad1;
 	int pad2;
-	int pad3;
 } indices;
 
 layout(std140, binding = 1) readonly buffer Input_Curves {
@@ -53,9 +69,176 @@ layout(std140, binding = 2) writeonly buffer Output_Implicit_Curves {
 	Implicit_Curve data[];
 } implicit_curves;
 
+layout(std140, binding = 3) buffer Tiles {
+	Tile data[];
+} tiles;
+
+layout(std140, binding = 4) buffer Commands {
+	Command data[];
+} commands;
+
 // non sqrt version as the builtin length does sqrt(dot(v, v))
 float length_squared(vec2 v) {
 	return dot(v, v);
+}
+
+float ccw(vec2 a, vec2 b, vec2 c) {
+	return ((b.x-a.x)*(c.y-a.y) - (b.y-a.y)*(c.x-a.x));
+}
+
+int curve_side(Implicit_Curve curve, vec2 pt) {
+	int side = 0;
+
+	// pt.y inside box
+	if (pt.y > curve.box.w || pt.y <= curve.box.y) {
+		// pt.x inside box
+		if (pt.x > curve.box.x && pt.x <= curve.box.z) {
+			// pt.y really inside
+			if (pt.y > curve.box.w) {
+				side = (curve.orientation == C_TL || curve.orientation == C_BR) ? -1 : 1;
+			}	else {
+				side = (curve.orientation == C_TL || curve.orientation == C_BR) ? 1 : -1;
+			}
+		}
+	} else if(pt.x > curve.box.z) {
+		// pt.x to right of the curve
+		side = 1;
+	} else if(pt.x <= curve.box.x) {
+		// pt.x to left of the curve
+		side = -1;
+	} else {
+		vec2 a, b;
+
+		switch (curve.orientation) {
+			case C_TL: {
+				a = curve.box.xy;
+				b = curve.box.zw;
+				break;
+			}
+
+			case C_BR: {
+				a = curve.box.zw;
+				b = curve.box.xy;
+				break;
+			}
+
+			case C_TR: {
+				a = curve.box.xw;
+				b = curve.box.zy;
+				break;
+			}
+
+			case C_BL: {
+				a = curve.box.zy;
+				b = curve.box.xw;
+				break;
+			}
+		}
+
+		vec2 c = curve.hull_vertex;
+
+		if (ccw(a, b, pt) < 0) {
+			// other side of the diagonal
+			side = (curve.orientation == C_BR || curve.orientation == C_TR) ? -1 : 1;
+		}	else if(ccw(b, c, pt) < 0 || ccw(c, a, pt) < 0) {
+			// same side of the diagonal, but outside curve hull
+			side = (curve.orientation == C_BL || curve.orientation == C_TL) ? -1 : 1;
+		}	else {
+			// inside curve hull
+			switch(curve.kind) {
+				case C_LINE:
+					side = 1;
+					break;
+
+				case C_QUADRATIC: {
+					vec3 ph = vec3(pt.x, pt.y, 1);
+					vec3 klm = curve.implicit_matrix * ph;
+					side = ((klm.x*klm.x - klm.y)*klm.z < 0) ? -1 : 1;
+				} break;
+
+				case C_CUBIC: {
+					vec3 ph = vec3(pt.x, pt.y, 1);
+					vec3 klm = curve.implicit_matrix * ph;
+					side = (curve.sign * (klm.x*klm.x*klm.x - klm.y*klm.z) < 0)? -1 : 1;
+				} break;
+			}
+		}
+	}
+
+	return(side);
+}
+
+// TODO optimize for tile x/y bounds iteration only
+void curve_bin_to_tiles(Implicit_Curve curve) {
+	// push the icurve result to the stack
+	int curve_index = atomicAdd(indices.implicit_curves, 1);
+	implicit_curves.data[curve_index] = curve;
+
+	int tile_size = 25;
+	// int4 path_area = context->path_queue->area;
+	// int4 covered_tiles = int4(seg->box) / tile_size;
+	// int x_min = max(0, covered_tiles.x - path_area.x);
+	// int y_min = max(0, covered_tiles.y - path_area.y);
+	// int x_max = min(covered_tiles.z - path_area.x, path_area.z - 1);
+	// int y_max = min(covered_tiles.w - path_area.y, path_area.w - 1);
+
+	vec2 s0, s1;
+	if (curve.orientation == C_TL || curve.orientation == C_BR) {
+		s0 = curve.box.xy;
+		s1 = curve.box.zw;
+	} else {
+		s0 = curve.box.xw;
+		s1 = curve.box.zy;
+	}
+
+	for (int y = 0; y <= 25; y += 1) {
+		for (int x = 0; x <= 25; x += 1) {
+			vec4 tile_box = vec4(
+				float(x),
+				float(y),
+				float(x + 1),
+				float(y + 1)
+			) * float(tile_size);
+
+			vec2 bl = vec2(tile_box.x, tile_box.y);
+			vec2 br = vec2(tile_box.z, tile_box.y);
+			vec2 tr = vec2(tile_box.z, tile_box.w);
+			vec2 tl = vec2(tile_box.x, tile_box.w);
+
+			int sbl = curve_side(curve, bl);
+			int sbr = curve_side(curve, br);
+			int str = curve_side(curve, tr);
+			int stl = curve_side(curve, tl);
+
+			bool cross_l = (stl * sbl < 0);
+			bool cross_r = (str * sbr < 0);
+			bool cross_t = (stl * str < 0);
+			bool cross_b = (sbl * sbr < 0);
+			
+			bool s0_inside = s0.x >= tile_box.x && s0.x < tile_box.z && s0.y >= tile_box.y && s0.y < tile_box.w;
+			bool s1_inside = s1.x >= tile_box.x && s1.x < tile_box.z && s1.y >= tile_box.y && s1.y < tile_box.w;
+
+			if (cross_l || cross_r || cross_t || cross_b || s0_inside || s1_inside) {
+				Command cmd;
+
+				int tile_index = x + y * tile_size;
+				cmd.tile_index = tile_index;
+				cmd.curve_index = curve_index;
+				cmd.pad1 = 0;
+
+				// note: if the segment crosses the tile's bottom boundary, update the tile's winding offset
+				if (cross_b) {
+					atomicAdd(tiles.data[tile_index].winding_offset, curve.winding_increment);
+				}
+
+				// note: if the segment crosses the right boundary, mark it. we reuse one of the previous tests
+				cmd.cross_right = cross_r;
+
+				int command_index = atomicAdd(indices.commands, 1);
+				commands.data[command_index] = cmd;
+			}
+		}
+	}
 }
 
 Implicit_Curve icurve_make(vec2 p0, vec2 p1, vec2 p2, vec2 p3, int kind) {
@@ -135,9 +318,7 @@ Implicit_Curve icurve_make(vec2 p0, vec2 p1, vec2 p2, vec2 p3, int kind) {
 void line_setup(vec2 p0, vec2 p1) {
 	Implicit_Curve icurve = icurve_make(p0, p1, vec2(0), vec2(0), C_LINE);
 	icurve.hull_vertex = p0;
-
-	int old_index = atomicAdd(indices.implicit_curves, 1);
-	implicit_curves.data[old_index] = icurve;
+	curve_bin_to_tiles(icurve);
 }
 
 int quadratic_monotonize(vec2 p0, vec2 p1, vec2 p2, out float splits[4]) {
@@ -199,8 +380,7 @@ void quadratic_emit(vec2 sp[3]) {
 	icurve.implicit_matrix = (1/det)*matrix;
 	icurve.hull_vertex = sp[1];
 
-	int old_index = atomicAdd(indices.implicit_curves, 1);
-	implicit_curves.data[old_index] = icurve;	
+	curve_bin_to_tiles(icurve);
 }
 
 void quadratic_setup(vec2 p0, vec2 p1, vec2 p2) {
@@ -563,8 +743,7 @@ void cubic_emit(Curve curve, Cubic_Info info, float s0, float s1, vec2 sp[4]) {
 		icurve.sign *= -1;
 	}
 
-	int old_index = atomicAdd(indices.implicit_curves, 1);
-	implicit_curves.data[old_index] = icurve;	
+	curve_bin_to_tiles(icurve);
 }
 
 void cubic_setup(Curve curve) {

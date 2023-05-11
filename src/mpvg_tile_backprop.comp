@@ -1,0 +1,30 @@
+#version 450 core
+
+layout(local_size_x = 1, local_size_y = 1) in;
+
+struct Tile {
+	int winding_offset;
+	int command_offset;
+	int command_count;
+	bool had_cross_right;
+
+	vec4 color;
+};
+
+layout(std140, binding = 3) buffer Tiles {
+	Tile data[];
+} tiles;
+
+#define ROWS 25
+
+// backpropogate right to left and do prefix sum
+void main() {
+	int sum = 0;
+	
+	for (int x = ROWS - 1; x >= 0; x -= 1) {
+		int tile_index = int(gl_GlobalInvocationID.x) * ROWS + x;
+		int temp = tiles.data[tile_index].winding_offset;
+		tiles.data[tile_index].winding_offset = sum;
+		sum += temp;
+	}
+}
