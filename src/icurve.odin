@@ -12,7 +12,7 @@ Implicit_Curve_Kind :: enum i32 {
 }
 
 Implicit_Curve_Cubic_Type :: enum i32 {
-	ERROR,
+	ERROR = 0,
 	SERPENTINE,
 	CUSP,
 	CUSP_INFINITY,
