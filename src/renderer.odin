@@ -128,14 +128,14 @@ Renderer_GL :: struct {
 
 Renderer_Tile :: struct #packed {
 	winding_offset: i32,
-	command_offset: i32,
-	command_count: i32,
+	command_first: i32,
+	command_last: i32,
 	pad1: i32,
 }
 
 Renderer_Command :: struct #packed {
 	curve_index: i32,
-	tile_index: i32,
+	command_next: i32,
 	cross_right: b32,
 	pad1: i32	
 }
@@ -193,8 +193,8 @@ renderer_start :: proc(
 	for i in 0..<renderer.tile_count {
 		tile := &renderer.tiles[i]
 		tile.winding_offset = 0
-		tile.command_offset = 100_000
-		tile.command_count = 0
+		tile.command_first = -1
+		tile.command_last = -1
 	}
 
 	renderer_gpu_gl_start(renderer)
@@ -366,56 +366,12 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 		gl.NamedBufferSubData(tiles_ssbo, 0, renderer.tile_index * size_of(Renderer_Tile), raw_data(renderer.tiles))
 
 		gl.DispatchCompute(u32(renderer.curve_index), 1, 1)
-
-		gl.GetNamedBufferSubData(indices_ssbo, 0, 1 * size_of(Renderer_Indices), &renderer.indices)
-
-		// get updated tiles / commands
-		gl.GetNamedBufferSubData(
-			tiles_ssbo, 
-			0, int(renderer.tile_index) * size_of(Renderer_Tile), 
-			raw_data(renderer.tiles),
-		)
-
-		gl.GetNamedBufferSubData(
-			commands_ssbo, 
-			0, int(renderer.indices.commands) * size_of(Renderer_Command), 
-			raw_data(renderer.commands),
-		)
 	}
 
-	// fmt.eprintln(renderer.commands[:renderer.indices.commands])
-
-	// TODO do this on the GPU?
-	// sort by tile index on each command
-	slice.sort_by(renderer.commands[:renderer.indices.commands], proc(a, b: Renderer_Command) -> bool {
-		return a.tile_index < b.tile_index 
-	})
-
-	// TODO optimize to not use a for loop on all commands
-	// assign proper min offset to tile
-	last := i32(100_000)
-	for i in 0..<renderer.indices.commands {
-		cmd := renderer.commands[i]
-		defer last = cmd.tile_index
-
-		if last == cmd.tile_index {
-			continue
-		}
-
-		tile := &renderer.tiles[cmd.tile_index]
-		tile.command_offset = min(tile.command_offset, i32(i))
-	}
-
-	// tile backprop stage
+	// tile backprop stage go by 0->tiles_y
 	{
-		// update cpu->gpu tiles/commands
-		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, tiles_ssbo)
-		gl.NamedBufferSubData(tiles_ssbo, 0, renderer.tile_index * size_of(Renderer_Tile), raw_data(renderer.tiles))
-		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, commands_ssbo)
-		gl.NamedBufferSubData(commands_ssbo, 0, int(renderer.indices.commands) * size_of(Renderer_Command), raw_data(renderer.commands))
-
 		gl.UseProgram(backprop.program)
-		gl.DispatchCompute(u32(renderer.tiles_x), 1, 1)
+		gl.DispatchCompute(u32(renderer.tiles_y), 1, 1)
 		gl.MemoryBarrier(gl.SHADER_STORAGE_BARRIER_BIT)
 	}
 

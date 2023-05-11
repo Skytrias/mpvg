@@ -40,14 +40,14 @@ struct Implicit_Curve {
 
 struct Tile {
 	int winding_offset;
-	int command_offset;
-	int command_count;
+	int command_first;
+	int command_last;
 	bool had_cross_right;
 };
 
 struct Command {
 	int curve_index;
-	int tile_index;
+	int command_next;
 	bool cross_right;
 	int pad1;
 };
@@ -67,11 +67,11 @@ layout(std140, binding = 2) writeonly buffer Output_Implicit_Curves {
 	Implicit_Curve data[];
 } implicit_curves;
 
-layout(std140, binding = 3) buffer Tiles {
+layout(std140, binding = 3) volatile buffer Tiles {
 	Tile data[];
 } tiles;
 
-layout(std140, binding = 4) buffer Commands {
+layout(std140, binding = 4) volatile buffer Commands {
 	Command data[];
 } commands;
 
@@ -222,7 +222,6 @@ void curve_bin_to_tiles(Implicit_Curve curve) {
 				Command cmd;
 
 				int tile_index = x + y * tiles_x;
-				cmd.tile_index = tile_index;
 				cmd.curve_index = curve_index;
 				cmd.pad1 = 0;
 
@@ -235,10 +234,15 @@ void curve_bin_to_tiles(Implicit_Curve curve) {
 				cmd.cross_right = cross_r;
 
 				int command_index = atomicAdd(indices.commands, 1);
-				commands.data[command_index] = cmd;
 				
-				// add to tile command count
-				atomicAdd(tiles.data[tile_index].command_count, 1);
+				cmd.command_next = -1;
+				cmd.command_next = atomicExchange(tiles.data[tile_index].command_first, command_index);
+
+				if (cmd.command_next == -1) {
+					tiles.data[tile_index].command_last = command_index;
+				}
+
+				commands.data[command_index] = cmd;
 			}
 		}
 	}

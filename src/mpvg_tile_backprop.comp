@@ -4,15 +4,16 @@ layout(local_size_x = 1, local_size_y = 1) in;
 
 struct Tile {
 	int winding_offset;
-	int command_offset;
-	int command_count;
+	int command_first;
+	int command_last;
 	bool had_cross_right;
 };
-
-layout(std140, binding = 3) buffer Tiles {
+	
+layout(std140, binding = 3) volatile buffer Tiles {
 	Tile data[];
 } tiles;
 
+// TODO make this extendable with a global
 #define ROWS 25
 
 // backpropogate right to left and do prefix sum

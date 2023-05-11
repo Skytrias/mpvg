@@ -33,14 +33,14 @@ struct Implicit_Curve {
 
 struct Tile {
 	int winding_offset;
-	int command_offset;
-	int command_count;
+	int command_first;
+	int command_last;
 	bool had_cross_right;
 };
 
 struct Command {
 	int curve_index;
-	int tile_index;
+	int command_next;
 	bool cross_right;
 	int pad1;
 };
@@ -56,11 +56,11 @@ layout(std140, binding = 2) readonly buffer Input_Implicit_Curves {
 	Implicit_Curve data[];
 } implicit_curves;
 
-layout(std140, binding = 3) buffer Tiles {
+layout(std140, binding = 3) readonly buffer Tiles {
 	Tile data[];
 } tiles;
 
-layout(std140, binding = 4) buffer Commands {
+layout(std140, binding = 4) readonly buffer Commands {
 	Command data[];
 } commands;
 
@@ -190,8 +190,10 @@ void main() {
 	Tile tile = tiles.data[tile_index];
 
 	int winding_number = tile.winding_offset;
-	for (int i = 0; i < tile.command_count; i += 1) {
-		Command cmd = commands.data[tile.command_offset + i];
+	int cmd_index = tile.command_first;
+
+	while (cmd_index != -1) {
+		Command cmd = commands.data[cmd_index];
 		Implicit_Curve curve = implicit_curves.data[cmd.curve_index];
 
 		int side = curve_side(curve, px);
@@ -208,6 +210,8 @@ void main() {
 				winding_number -= curve.winding_increment;
 			}
 		}
+
+		cmd_index = cmd.command_next;
 	}
 
 	vec4 color = vec4(1, 1, 1, 1);

@@ -228,8 +228,8 @@ main :: proc() {
 				}
 			}
 
-			renderer_state_translate(&app.renderer, app.mouse.x, app.mouse.y)
-			renderer_circle(&app.renderer, 0, 0, 100)
+			// renderer_state_translate(&app.renderer, app.mouse.x, app.mouse.y)
+			// renderer_circle(&app.renderer, 0, 0, 100)
 			
 			// renderer_move_to(&app.renderer, 100, 100)
 			// // renderer_line_to(&app.renderer, app.mouse.x, app.mouse.y)
@@ -238,11 +238,11 @@ main :: proc() {
 			// // renderer_line_to(&app.renderer, p2.x, p2.y)
 			// renderer_close(&app.renderer)
 
-			// // NOTE: NEW
-			// renderer_state_translate(&app.renderer, 200, 200)
-			// renderer_state_rotate(&app.renderer, count * 0.01)
-			// // renderer_state_translate(&app.renderer, app.mouse.x, app.mouse.y)
-			// renderer_rect(&app.renderer, -100, -50, 200, 100)
+			// NOTE: NEW
+			renderer_state_translate(&app.renderer, 200, 200)
+			renderer_state_rotate(&app.renderer, count * 0.01)
+			// renderer_state_translate(&app.renderer, app.mouse.x, app.mouse.y)
+			renderer_rect(&app.renderer, -100, -50, 200, 100)
 
 			// renderer_state_translate(&app.renderer, app.mouse.x, app.mouse.y)
 			// renderer_state_scale(&app.renderer, 10, 10)
