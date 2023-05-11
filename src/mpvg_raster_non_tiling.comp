@@ -43,7 +43,7 @@ layout(std140, binding = 2) readonly buffer Input_Implicit_Curves {
 } implicit_curves;
 
 float ccw(vec2 a, vec2 b, vec2 c) {
-	return((b.x-a.x)*(c.y-a.y) - (b.y-a.y)*(c.x-a.x));
+	return ((b.x-a.x)*(c.y-a.y) - (b.y-a.y)*(c.x-a.x));
 }
 
 int curve_side(Implicit_Curve curve, vec2 pt) {

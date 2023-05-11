@@ -19,6 +19,7 @@ App :: struct {
 	mouse: Mouse,
 	renderer: Renderer,
 	ctrl: bool,
+	shift: bool,
 }
 app: App
 
@@ -54,12 +55,20 @@ window_key_callback :: proc "c" (handle: glfw.WindowHandle, key, scancode, actio
 		app.ctrl = down
 	}
 
+	if mods == glfw.MOD_SHIFT {
+		app.shift = down
+	}
+
 	if mods != 0 {
 		return
 	}
 
 	if key == glfw.KEY_LEFT_CONTROL {
 		app.ctrl = down
+	}
+
+	if key == glfw.KEY_LEFT_SHIFT {
+		app.shift = down
 	}
 
 	if down {
@@ -179,11 +188,13 @@ main :: proc() {
 		mouse_tile_x := clamp(int(app.mouse.x), 0, width) / TILE_SIZE
 		mouse_tile_y := clamp(int(app.mouse.y), 0, height) / TILE_SIZE
 		window_text := fmt.ctprintf(
-			"mpvg %fms, tilex: %d, tiley: %d, tileid: %d", 
+			"mpvg %fms, tilex: %d, tiley: %d, tileid: %d, mousex: %d, mousey: %d", 
 			time.duration_milliseconds(duration),
 			mouse_tile_x,
 			mouse_tile_y,
 			mouse_tile_x + mouse_tile_y * tiles_x,
+			int(app.mouse.x),
+			int(app.mouse.y),
 		)
 		glfw.SetWindowTitle(window, window_text)
 
@@ -198,12 +209,18 @@ main :: proc() {
 			if app.mouse.left {
 				p := app.ctrl ? &p1 : &p2
 				p.x = app.mouse.x - offset.x
-				p.y = app.mouse.y - offset.y
+				
+				if !app.shift {
+					p.y = app.mouse.y - offset.y
+				}
 			}
 
 			if app.mouse.right {
 				p3.x = app.mouse.x - offset.x
-				p3.y = app.mouse.y - offset.y
+
+				if !app.shift {
+					p3.y = app.mouse.y - offset.y
+				}
 			}
 
 			// renderer_circle_test(&app.renderer, 200, 200, 200)
@@ -211,7 +228,7 @@ main :: proc() {
 			// renderer_state_translate(&app.renderer, 300, 300)
 			// renderer_circle(&app.renderer, 0, 0, 100)
 			
-			renderer_move_to(&app.renderer, 100, 500)
+			renderer_move_to(&app.renderer, 000, 500)
 			// renderer_line_to(&app.renderer, app.mouse.x, app.mouse.y)
 			renderer_cubic_to(&app.renderer, p2.x, p2.y, p1.x, p1.y, p3.x, p3.y)
 			// renderer_quadratic_to(&app.renderer, p2.x, p2.y, p3.x, p3.y)

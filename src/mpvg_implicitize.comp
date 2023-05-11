@@ -503,6 +503,7 @@ vec2 select_hull_vertex(vec2 sp[4]) {
 		pm = sp[0] + u*(sp[1] - sp[0]);
 	}
 
+	// pm.y -= 20;
 	return pm;
 }
 
@@ -544,7 +545,7 @@ void cubic_emit(Curve curve, Cubic_Info info, float s0, float s1, vec2 sp[4]) {
 	icurve.sign = 1;
 
 	if (info.type == T_SERPENTINE || info.type == T_CUSP) {
-		icurve.sign = (info.d1 < 0)? -1 : 1;
+		icurve.sign = (info.d1 < 0.0)? -1 : 1;
 	} else if(info.type == T_LOOP) {
 		float d1 = info.d1;
 		float d2 = info.d2;
@@ -553,7 +554,9 @@ void cubic_emit(Curve curve, Cubic_Info info, float s0, float s1, vec2 sp[4]) {
 		float H0 = d3*d1-square(d2) + d1*d2*s0 - square(d1)*square(s0);
 		float H1 = d3*d1-square(d2) + d1*d2*s1 - square(d1)*square(s1);
 		float H = (abs(H0) > abs(H1)) ? H0 : H1;
-		icurve.sign = (H*d1 > 0) ? -1 : 1;
+		icurve.sign = (H*d1 > 0.0) ? -1 : 1;
+	} else {
+
 	}
 
 	if (sp[3].y > sp[0].y) {
@@ -587,11 +590,12 @@ void cubic_setup(Curve curve) {
 	// do separate because glsl restrictions
 	float roots[ARRAY_SIZE];
 	int root_count = quadratic_roots(3*c[3].x, 2*c[2].x, c[1].x, roots, 0);
-	root_count += quadratic_roots(3*c[3].y, 2*c[2].y, c[1].y, roots, root_count);
+	int temp = root_count;
+	root_count += quadratic_roots(3*c[3].y, 2*c[2].y, c[1].y, roots, temp);
 
 	//NOTE: add double points and inflection points to roots if finite
 	for (int i = 0; i < 2; i += 1) {
-		if (info.ts[i].y > 0.0) {
+		if (info.ts[i].y != 0) {
 			roots[root_count] = info.ts[i].x / info.ts[i].y;
 			root_count += 1;
 		}
