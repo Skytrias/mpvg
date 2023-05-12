@@ -2,6 +2,10 @@
 
 layout(local_size_x = 1, local_size_y = 1) in;
 
+uniform int tiles_x;
+uniform int tiles_y;
+uniform int tiles_size;
+
 // kind of curve
 #define C_LINE 0
 #define C_QUADRATIC 1
@@ -172,9 +176,6 @@ void curve_bin_to_tiles(Implicit_Curve curve) {
 	int curve_index = atomicAdd(indices.implicit_curves, 1);
 	implicit_curves.data[curve_index] = curve;
 
-	int tiles_x = 25;
-	int tiles_y = 25;
-	int tiles_size = 32;
 	// int4 path_area = context->path_queue->area;
 	// int4 covered_tiles = int4(seg->box) / tile_size;
 	// int x_min = max(0, covered_tiles.x - path_area.x);
@@ -235,13 +236,14 @@ void curve_bin_to_tiles(Implicit_Curve curve) {
 
 				int command_index = atomicAdd(indices.commands, 1);
 				
+				// set links
 				cmd.command_next = -1;
 				cmd.command_next = atomicExchange(tiles.data[tile_index].command_first, command_index);
-
 				if (cmd.command_next == -1) {
 					tiles.data[tile_index].command_last = command_index;
 				}
 
+				// set command
 				commands.data[command_index] = cmd;
 			}
 		}

@@ -2,6 +2,10 @@
 
 layout(local_size_x = 1, local_size_y = 1) in;
 
+uniform int tiles_x;
+uniform int tiles_y;
+uniform int tiles_size;
+
 struct Tile {
 	int winding_offset;
 	int command_first;
@@ -13,15 +17,12 @@ layout(std140, binding = 3) volatile buffer Tiles {
 	Tile data[];
 } tiles;
 
-// TODO make this extendable with a global
-#define ROWS 25
-
 // backpropogate right to left and do prefix sum
 void main() {
 	int sum = 0;
 	
-	for (int x = ROWS - 1; x >= 0; x -= 1) {
-		int tile_index = int(gl_GlobalInvocationID.x) * ROWS + x;
+	for (int x = tiles_x - 1; x >= 0; x -= 1) {
+		int tile_index = int(gl_GlobalInvocationID.x) * tiles_x + x;
 		int temp = tiles.data[tile_index].winding_offset;
 		tiles.data[tile_index].winding_offset = sum;
 		sum += temp;

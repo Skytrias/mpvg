@@ -17,9 +17,9 @@ import gl "vendor:OpenGL"
 // path setup ??? 
 
 // segment setup DONE
-// segment bin to tiles directly
+// segment bin to tiles directly DONE
 
-// tile backprop
+// tile backprop DONE
 // tile merge
 
 // raster DONE
@@ -185,18 +185,14 @@ main :: proc() {
 		width := 800
 		height := 800
 
-		TILE_SIZE :: 32
-		tiles_x := width / TILE_SIZE
-		tiles_y := height / TILE_SIZE
-
-		mouse_tile_x := clamp(int(app.mouse.x), 0, width) / TILE_SIZE
-		mouse_tile_y := clamp(int(app.mouse.y), 0, height) / TILE_SIZE
+		mouse_tile_x := clamp(int(app.mouse.x), 0, width) / app.renderer.tiles_size
+		mouse_tile_y := clamp(int(app.mouse.y), 0, height) / app.renderer.tiles_size
 		window_text := fmt.ctprintf(
 			"mpvg %fms, tilex: %d, tiley: %d, tileid: %d, mousex: %d, mousey: %d", 
 			time.duration_milliseconds(duration),
 			mouse_tile_x,
 			mouse_tile_y,
-			mouse_tile_x + mouse_tile_y * tiles_x,
+			mouse_tile_x + mouse_tile_y * app.renderer.tiles_x,
 			int(app.mouse.x),
 			int(app.mouse.y),
 		)
@@ -207,7 +203,7 @@ main :: proc() {
 		gl.Clear(gl.COLOR_BUFFER_BIT)
 
 		{
-			renderer_start(&app.renderer, tiles_x * tiles_y, tiles_x, tiles_y)
+			renderer_start(&app.renderer, width, height)
 			defer renderer_end(&app.renderer, width, height)
 
 			if app.mouse.left {
@@ -238,7 +234,7 @@ main :: proc() {
 			// // renderer_line_to(&app.renderer, p2.x, p2.y)
 			// renderer_close(&app.renderer)
 
-			// // NOTE: NEW
+			// NOTE: NEW
 			// renderer_state_translate(&app.renderer, 200, 200)
 			// renderer_state_rotate(&app.renderer, count * 0.01)
 			// // renderer_state_translate(&app.renderer, app.mouse.x, app.mouse.y)

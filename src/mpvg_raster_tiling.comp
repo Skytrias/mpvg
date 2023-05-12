@@ -1,8 +1,11 @@
 #version 450 core
 
-layout(local_size_x = 32, local_size_y = 32) in;
+layout(local_size_x = 20, local_size_y = 20) in;
 layout(rgba8, binding = 0) uniform image2D img_output;
 
+uniform int tiles_x;
+uniform int tiles_y;
+uniform int tiles_size;
 uniform int color_mode;
 uniform int fill_rule;
 
@@ -186,16 +189,18 @@ void main() {
 	ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
 	vec2 px = gl_GlobalInvocationID.xy;
 
-	uint tile_index = gl_WorkGroupID.x + gl_WorkGroupID.y * 25;
+	uint tile_index = gl_WorkGroupID.x + gl_WorkGroupID.y * tiles_x;
 	Tile tile = tiles.data[tile_index];
 
 	int winding_number = tile.winding_offset;
 	int cmd_index = tile.command_first;
 
+	// iterate only added commands
 	while (cmd_index != -1) {
 		Command cmd = commands.data[cmd_index];
 		Implicit_Curve curve = implicit_curves.data[cmd.curve_index];
 
+		// normal curve winding 
 		int side = curve_side(curve, px);
 		if (px.y > curve.box.y && px.y <= curve.box.w) {
 			if (side < 0) {
@@ -203,6 +208,7 @@ void main() {
 			} 
 		}
 
+		// apply command crosses
 		if (cmd.cross_right) {
 			if ((curve.orientation == C_BR || curve.orientation == C_TL) && (px.y > curve.box.w)) {
 				winding_number += curve.winding_increment;
@@ -249,7 +255,7 @@ void main() {
 			}
 		}
 
-		if (pixel_coords.x % 32 == 0 || pixel_coords.y % 32 == 0) {
+		if (pixel_coords.x % tiles_size == 0 || pixel_coords.y % tiles_size == 0) {
 			color = vec4(0, 0, 0, 1);
 		}
 	}
