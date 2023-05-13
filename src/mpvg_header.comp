@@ -1,6 +1,4 @@
-uniform int tiles_x;
-uniform int tiles_y;
-uniform int tiles_size;
+#define TILE_SIZE 32
 
 // kind of curve
 #define C_LINE 0
@@ -66,6 +64,11 @@ layout(std140, binding = 0) volatile buffer Input_Indices {
 	int operations;
 	int pad1;
 	int pad2;
+
+	int tiles_x;
+	int tiles_y;
+	int pad3;
+	int pad4;
 } indices;
 
 struct Path {
@@ -78,7 +81,12 @@ struct Path {
 };
 
 struct Path_Queue {
+	ivec4 area;
+
+	int tile_queues;
 	int pad1;
+	int pad2;
+	int pad3;
 };
 
 layout(std140, binding = 1) readonly buffer Input_Curves {
@@ -104,3 +112,89 @@ layout(std140, binding = 5) buffer Paths {
 layout(std140, binding = 6) buffer Path_Queues {
 	Path_Queue data[];
 } path_queues;
+
+float ccw(vec2 a, vec2 b, vec2 c) {
+	return ((b.x-a.x)*(c.y-a.y) - (b.y-a.y)*(c.x-a.x));
+}
+
+int curve_side(Implicit_Curve curve, vec2 pt) {
+	int side = 0;
+
+	// pt.y inside box
+	if (pt.y > curve.box.w || pt.y <= curve.box.y) {
+		// pt.x inside box
+		if (pt.x > curve.box.x && pt.x <= curve.box.z) {
+			// pt.y really inside
+			if (pt.y > curve.box.w) {
+				side = (curve.orientation == C_TL || curve.orientation == C_BR) ? -1 : 1;
+			}	else {
+				side = (curve.orientation == C_TL || curve.orientation == C_BR) ? 1 : -1;
+			}
+		}
+	} else if(pt.x > curve.box.z) {
+		// pt.x to right of the curve
+		side = 1;
+	} else if(pt.x <= curve.box.x) {
+		// pt.x to left of the curve
+		side = -1;
+	} else {
+		vec2 a, b;
+
+		switch (curve.orientation) {
+			case C_TL: {
+				a = curve.box.xy;
+				b = curve.box.zw;
+				break;
+			}
+
+			case C_BR: {
+				a = curve.box.zw;
+				b = curve.box.xy;
+				break;
+			}
+
+			case C_TR: {
+				a = curve.box.xw;
+				b = curve.box.zy;
+				break;
+			}
+
+			case C_BL: {
+				a = curve.box.zy;
+				b = curve.box.xw;
+				break;
+			}
+		}
+
+		vec2 c = curve.hull_vertex;
+
+		if (ccw(a, b, pt) < 0) {
+			// other side of the diagonal
+			side = (curve.orientation == C_BR || curve.orientation == C_TR) ? -1 : 1;
+		}	else if(ccw(b, c, pt) < 0 || ccw(c, a, pt) < 0) {
+			// same side of the diagonal, but outside curve hull
+			side = (curve.orientation == C_BL || curve.orientation == C_TL) ? -1 : 1;
+		}	else {
+			// inside curve hull
+			switch(curve.kind) {
+				case C_LINE:
+					side = 1;
+					break;
+
+				case C_QUADRATIC: {
+					vec3 ph = vec3(pt.x, pt.y, 1);
+					vec3 klm = curve.implicit_matrix * ph;
+					side = ((klm.x*klm.x - klm.y)*klm.z < 0) ? -1 : 1;
+				} break;
+
+				case C_CUBIC: {
+					vec3 ph = vec3(pt.x, pt.y, 1);
+					vec3 klm = curve.implicit_matrix * ph;
+					side = (curve.sign * (klm.x*klm.x*klm.x - klm.y*klm.z) < 0)? -1 : 1;
+				} break;
+			}
+		}
+	}
+
+	return(side);
+}

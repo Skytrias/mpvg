@@ -11,17 +11,19 @@ import glm "core:math/linalg/glsl"
 import sa "core:container/small_array"
 import gl "vendor:OpenGL"
 
-TILE_SIZE :: 32
+TILE_SIZE :: 32 // has to match compute header
 MAX_STATES :: 32
 MAX_CURVES :: 256
 MAX_IMPLICIT_CURVES :: 256
 MAX_TILES :: 1028 * 2
 MAX_OPERATIONS :: 1028
 MAX_PATHS :: 1028
+MAX_PATH_QUEUES :: 1028
 
 shader_vert := #load("vertex.glsl")
 shader_frag := #load("fragment.glsl")
 shader_compute_header := #load("mpvg_header.comp")
+shader_compute_path := #load("mpvg_path.comp")
 shader_compute_implicitize := #load("mpvg_implicitize.comp")
 shader_compute_tile_backprop := #load("mpvg_tile_backprop.comp")
 
@@ -48,6 +50,12 @@ Renderer_Indices :: struct #packed {
 	operations: i32,
 	pad1: i32,
 	pad2: i32,
+
+	// data used throughout
+	tiles_x: i32,
+	tiles_y: i32,
+	pad3: i32,
+	pad4: i32,
 }
 
 Renderer :: struct {
@@ -65,8 +73,12 @@ Renderer :: struct {
 	// result of monotization & implicitization
 	operations: []Renderer_Operation,
 
+	// paths per curve shape
 	paths: []Renderer_Path,
 	path_index: int,
+
+	// path queues created internally
+	path_queues: []Renderer_Path_Queue,
 
 	// tiling temp
 	tiles: []Renderer_Tile,
@@ -93,27 +105,19 @@ Renderer_GL :: struct {
 
 	implicitize: struct {
 		program: u32,
-		loc_tiles_x: i32,
-		loc_tiles_y: i32,
-		loc_tiles_size: i32,
 	},
 
 	raster: struct {
 		program: u32,
-		loc_tiles_x: i32,
-		loc_tiles_y: i32,
-		loc_tiles_size: i32,
-		loc_color_mode: i32,
-		loc_fill_rule: i32,
-		loc_ignore_temp: i32,
 		texture_id: u32,
 	},
 
 	backprop: struct {
 		program: u32,
-		loc_tiles_x: i32,
-		loc_tiles_y: i32,
-		loc_tiles_size: i32,
+	},
+
+	path: struct {
+		program: u32,
 	},
 
 	indices_ssbo: u32,
@@ -122,6 +126,7 @@ Renderer_GL :: struct {
 	tiles_ssbo: u32,
 	operations_ssbo: u32,
 	paths_ssbo: u32,
+	path_queue_ssbo: u32,
 }
 
 Renderer_Tile :: struct #packed {
@@ -153,8 +158,12 @@ Renderer_Path :: struct #packed {
 }
 
 Renderer_Path_Queue :: struct #packed {
-	area: [4]f32,
-	tile_queues: int,
+	area: [4]i32,
+
+	tile_queues: i32,
+	pad1: i32,
+	pad2: i32,
+	pad3: i32,
 }
 
 Implicit_Curve_Kind :: enum i32 {
@@ -209,6 +218,7 @@ renderer_init :: proc(renderer: ^Renderer) {
 	renderer.tiles = make([]Renderer_Tile, MAX_TILES)
 	renderer.operations = make([]Renderer_Operation, MAX_OPERATIONS)
 	renderer.paths = make([]Renderer_Path, MAX_PATHS)
+	renderer.path_queues = make([]Renderer_Path_Queue, MAX_PATH_QUEUES)
 	pool_clear(&renderer.font_pool)
 
 	renderer_gpu_gl_init(&renderer.gpu)
@@ -241,6 +251,8 @@ renderer_start :: proc(renderer: ^Renderer, width, height: int) {
 
 	renderer.curve_index = 0
 	renderer.indices.implicit_curves = 0
+	renderer.indices.tiles_x = i32(renderer.tiles_x)
+	renderer.indices.tiles_y = i32(renderer.tiles_y)
 	renderer.indices.operations = 1 // TODO maybe do 1?
 	renderer.path_index = 0
 	renderer_path_init(&renderer.paths[0])
@@ -318,8 +330,6 @@ renderer_gpu_shader_compute :: proc(
 	// write rest of the data
 	strings.write_bytes(builder, data)
 
-	fmt.eprintln("RESULT", strings.to_string(builder^))
-
 	// write result
 	program, ok := gl.load_compute_source(strings.to_string(builder^))
 	if !ok {
@@ -356,14 +366,7 @@ renderer_gpu_gl_init :: proc(using gpu: ^Renderer_GL) {
 	builder := strings.builder_make(mem.Kilobyte * 4, context.temp_allocator)
 
 	{
-		raster.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_raster, 32, 32)
-
-		raster.loc_color_mode = gl.GetUniformLocation(raster.program, "color_mode")
-		raster.loc_fill_rule = gl.GetUniformLocation(raster.program, "fill_rule")
-		raster.loc_ignore_temp = gl.GetUniformLocation(raster.program, "ignore_temp")
-		raster.loc_tiles_x = gl.GetUniformLocation(raster.program, "tiles_x")
-		raster.loc_tiles_y = gl.GetUniformLocation(raster.program, "tiles_y")
-		raster.loc_tiles_size = gl.GetUniformLocation(raster.program, "tiles_size")
+		raster.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_raster, TILE_SIZE, TILE_SIZE)
 
 		gl.GenTextures(1, &raster.texture_id)
 		gl.BindTexture(gl.TEXTURE_2D, raster.texture_id)
@@ -382,50 +385,26 @@ renderer_gpu_gl_init :: proc(using gpu: ^Renderer_GL) {
 		gl.BindTexture(gl.TEXTURE_2D, 0)
 	}
 
-	{
-		implicitize.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_implicitize, 1, 1)
-		implicitize.loc_tiles_x = gl.GetUniformLocation(implicitize.program, "tiles_x")
-		implicitize.loc_tiles_y = gl.GetUniformLocation(implicitize.program, "tiles_y")
-		implicitize.loc_tiles_size = gl.GetUniformLocation(implicitize.program, "tiles_size")
-	}
-
-	{
-		backprop.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_tile_backprop, 1, 1)
-		backprop.loc_tiles_x = gl.GetUniformLocation(backprop.program, "tiles_x")
-		backprop.loc_tiles_y = gl.GetUniformLocation(backprop.program, "tiles_y")
-		backprop.loc_tiles_size = gl.GetUniformLocation(backprop.program, "tiles_size")
-	}
+	implicitize.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_implicitize, 1, 1)
+	backprop.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_tile_backprop, 1, 1)
+	path.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_path, 1, 1)
 
 	// TODO revisit STREAM/STATIC?
-	gl.CreateBuffers(1, &indices_ssbo)
-	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, indices_ssbo)
-	gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, 0, indices_ssbo)
-	gl.NamedBufferData(indices_ssbo, 1 * size_of(Renderer_Indices), nil, gl.STREAM_DRAW)
+	create :: proc(base: u32, size: int) -> (index: u32) {
+		gl.CreateBuffers(1, &index)
+		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, index)
+		gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, base, index)
+		gl.NamedBufferData(index, size, nil, gl.STREAM_DRAW)
+		return index
+	}
 
-	gl.CreateBuffers(1, &curves_ssbo)
-	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, curves_ssbo)
-	gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, 1, curves_ssbo)
-	gl.NamedBufferData(curves_ssbo, MAX_CURVES * size_of(Curve), nil, gl.STREAM_DRAW)
-
-	gl.CreateBuffers(1, &implicit_curves_ssbo)
-	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, implicit_curves_ssbo)
-	gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, 2, implicit_curves_ssbo)
-	gl.NamedBufferData(implicit_curves_ssbo, MAX_IMPLICIT_CURVES * size_of(Implicit_Curve), nil, gl.STREAM_DRAW)
-
-	gl.CreateBuffers(1, &tiles_ssbo)
-	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, tiles_ssbo)
-	gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, 3, tiles_ssbo)
-	gl.NamedBufferData(tiles_ssbo, MAX_TILES * size_of(Renderer_Tile), nil, gl.STREAM_DRAW)
-
-	gl.CreateBuffers(1, &operations_ssbo)
-	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, operations_ssbo)
-	gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, 4, operations_ssbo)
-	gl.NamedBufferData(operations_ssbo, MAX_OPERATIONS * size_of(Renderer_Operation), nil, gl.STREAM_DRAW)
-
-	gl.CreateBuffers(1, &paths_ssbo)
-	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, paths_ssbo)
-	gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, 5, paths_ssbo)
-	gl.NamedBufferData(paths_ssbo, MAX_PATHS * size_of(Renderer_Path), nil, gl.STREAM_DRAW)
+	indices_ssbo = create(0, 1 * size_of(Renderer_Indices))
+	curves_ssbo = create(1, MAX_CURVES * size_of(Curve))
+	implicit_curves_ssbo = create(2, MAX_IMPLICIT_CURVES * size_of(Implicit_Curve))
+	tiles_ssbo = create(3, MAX_TILES * size_of(Renderer_Tile))
+	operations_ssbo = create(4, MAX_OPERATIONS * size_of(Renderer_Operation))
+	paths_ssbo = create(5, MAX_PATHS * size_of(Renderer_Path))
+	path_queue_ssbo = create(6, MAX_PATH_QUEUES * size_of(Renderer_Path_Queue))
 }
 
 renderer_gpu_gl_destroy :: proc(using gpu: ^Renderer_GL) {
@@ -443,10 +422,6 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 	// implicitize stage
 	{
 		gl.UseProgram(implicitize.program)
-
-		gl.Uniform1i(implicitize.loc_tiles_x, i32(renderer.tiles_x))
-		gl.Uniform1i(implicitize.loc_tiles_y, i32(renderer.tiles_y))
-		gl.Uniform1i(implicitize.loc_tiles_size, i32(renderer.tiles_size))
 
 		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, indices_ssbo)
 		gl.NamedBufferSubData(indices_ssbo, 0, 1 * size_of(Renderer_Indices), &renderer.indices)
@@ -466,11 +441,6 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 	// tile backprop stage go by 0->tiles_y
 	{
 		gl.UseProgram(backprop.program)
-
-		gl.Uniform1i(backprop.loc_tiles_x, i32(renderer.tiles_x))
-		gl.Uniform1i(backprop.loc_tiles_y, i32(renderer.tiles_y))
-		gl.Uniform1i(backprop.loc_tiles_size, i32(renderer.tiles_size))
-
 		gl.DispatchCompute(u32(renderer.tiles_y), 1, 1)
 		gl.MemoryBarrier(gl.SHADER_STORAGE_BARRIER_BIT)
 	}
@@ -478,10 +448,6 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 	// raster stage
 	{
 		gl.UseProgram(raster.program)
-
-		gl.Uniform1i(raster.loc_tiles_x, i32(renderer.tiles_x))
-		gl.Uniform1i(raster.loc_tiles_y, i32(renderer.tiles_y))
-		gl.Uniform1i(raster.loc_tiles_size, i32(renderer.tiles_size))
 
 		when USE_TILING {
 			gl.DispatchCompute(u32(renderer.tiles_x), u32(renderer.tiles_y), 1)

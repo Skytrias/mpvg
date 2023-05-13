@@ -3,92 +3,6 @@ float length_squared(vec2 v) {
 	return dot(v, v);
 }
 
-float ccw(vec2 a, vec2 b, vec2 c) {
-	return ((b.x-a.x)*(c.y-a.y) - (b.y-a.y)*(c.x-a.x));
-}
-
-int curve_side(Implicit_Curve curve, vec2 pt) {
-	int side = 0;
-
-	// pt.y inside box
-	if (pt.y > curve.box.w || pt.y <= curve.box.y) {
-		// pt.x inside box
-		if (pt.x > curve.box.x && pt.x <= curve.box.z) {
-			// pt.y really inside
-			if (pt.y > curve.box.w) {
-				side = (curve.orientation == C_TL || curve.orientation == C_BR) ? -1 : 1;
-			}	else {
-				side = (curve.orientation == C_TL || curve.orientation == C_BR) ? 1 : -1;
-			}
-		}
-	} else if(pt.x > curve.box.z) {
-		// pt.x to right of the curve
-		side = 1;
-	} else if(pt.x <= curve.box.x) {
-		// pt.x to left of the curve
-		side = -1;
-	} else {
-		vec2 a, b;
-
-		switch (curve.orientation) {
-			case C_TL: {
-				a = curve.box.xy;
-				b = curve.box.zw;
-				break;
-			}
-
-			case C_BR: {
-				a = curve.box.zw;
-				b = curve.box.xy;
-				break;
-			}
-
-			case C_TR: {
-				a = curve.box.xw;
-				b = curve.box.zy;
-				break;
-			}
-
-			case C_BL: {
-				a = curve.box.zy;
-				b = curve.box.xw;
-				break;
-			}
-		}
-
-		vec2 c = curve.hull_vertex;
-
-		if (ccw(a, b, pt) < 0) {
-			// other side of the diagonal
-			side = (curve.orientation == C_BR || curve.orientation == C_TR) ? -1 : 1;
-		}	else if(ccw(b, c, pt) < 0 || ccw(c, a, pt) < 0) {
-			// same side of the diagonal, but outside curve hull
-			side = (curve.orientation == C_BL || curve.orientation == C_TL) ? -1 : 1;
-		}	else {
-			// inside curve hull
-			switch(curve.kind) {
-				case C_LINE:
-					side = 1;
-					break;
-
-				case C_QUADRATIC: {
-					vec3 ph = vec3(pt.x, pt.y, 1);
-					vec3 klm = curve.implicit_matrix * ph;
-					side = ((klm.x*klm.x - klm.y)*klm.z < 0) ? -1 : 1;
-				} break;
-
-				case C_CUBIC: {
-					vec3 ph = vec3(pt.x, pt.y, 1);
-					vec3 klm = curve.implicit_matrix * ph;
-					side = (curve.sign * (klm.x*klm.x*klm.x - klm.y*klm.z) < 0)? -1 : 1;
-				} break;
-			}
-		}
-	}
-
-	return(side);
-}
-
 // TODO optimize for tile x/y bounds iteration only
 void curve_bin_to_tiles(Implicit_Curve curve) {
 	// push the icurve result to the stack
@@ -111,14 +25,14 @@ void curve_bin_to_tiles(Implicit_Curve curve) {
 		s1 = curve.box.zy;
 	}
 
-	for (int y = 0; y <= tiles_y; y += 1) {
-		for (int x = 0; x <= tiles_x; x += 1) {
+	for (int y = 0; y <= indices.tiles_y; y += 1) {
+		for (int x = 0; x <= indices.tiles_x; x += 1) {
 			vec4 tile_box = vec4(
 				float(x),
 				float(y),
 				float(x + 1),
 				float(y + 1)
-			) * float(tiles_size);
+			) * float(TILE_SIZE);
 
 			vec2 bl = vec2(tile_box.x, tile_box.y);
 			vec2 br = vec2(tile_box.z, tile_box.y);
@@ -141,7 +55,7 @@ void curve_bin_to_tiles(Implicit_Curve curve) {
 			if (cross_l || cross_r || cross_t || cross_b || s0_inside || s1_inside) {
 				Operation op;
 
-				int tile_index = x + y * tiles_x;
+				int tile_index = x + y * indices.tiles_x;
 				op.curve_index = curve_index;
 				op.kind = OPERATION_SEGMENT;
 				op.pad1 = 0;

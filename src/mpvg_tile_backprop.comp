@@ -2,8 +2,8 @@
 void main() {
 	int sum = 0;
 	
-	for (int x = tiles_x - 1; x >= 0; x -= 1) {
-		int tile_index = int(gl_GlobalInvocationID.x) * tiles_x + x;
+	for (int x = indices.tiles_x - 1; x >= 0; x -= 1) {
+		int tile_index = int(gl_GlobalInvocationID.x) * indices.tiles_x + x;
 		int temp = tiles.data[tile_index].winding_offset;
 		tiles.data[tile_index].winding_offset = sum;
 		sum += temp;
