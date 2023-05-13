@@ -17,15 +17,19 @@ uniform int tiles_size;
 #define C_TL 2
 #define C_TR 3
 
+// kind of operation
+#define OPERATION_START 0
+#define OPERATION_SEGMENT 1
+
 struct Curve {
 	vec2 p0;
 	vec2 p1;
 	vec2 p2;
 	vec2 p3;
 	int count;
+	int path_index;
 	int pad1;
 	int pad2;
-	int pad3;
 };
 
 struct Implicit_Curve {
@@ -44,24 +48,33 @@ struct Implicit_Curve {
 
 struct Tile {
 	int winding_offset;
-	int command_first;
-	int command_last;
+	int op_first;
+	int op_last;
 	bool had_cross_right;
 };
 
-struct Command {
+struct Operation {
+	int kind;
+	int op_next;
+	int path_index;
 	int curve_index;
-	int command_next;
+
 	bool cross_right;
 	int pad1;
+	int pad2;
+	int pad3;
 };
 
 layout(std140, binding = 0) volatile buffer Input_Indices {
 	int implicit_curves;
-	int commands;
+	int operations;
 	int pad1;
 	int pad2;
 } indices;
+
+struct Path {
+	vec4 color;
+};
 
 layout(std140, binding = 1) readonly buffer Input_Curves {
 	Curve data[];
@@ -75,9 +88,13 @@ layout(std140, binding = 3) volatile buffer Tiles {
 	Tile data[];
 } tiles;
 
-layout(std140, binding = 4) volatile buffer Commands {
-	Command data[];
-} commands;
+layout(std140, binding = 4) volatile buffer Operations {
+	Operation data[];
+} operations;
+
+layout(std140, binding = 5) readonly buffer Paths {
+	Path data[];
+} paths;
 
 // non sqrt version as the builtin length does sqrt(dot(v, v))
 float length_squared(vec2 v) {
@@ -220,11 +237,14 @@ void curve_bin_to_tiles(Implicit_Curve curve) {
 			bool s1_inside = s1.x >= tile_box.x && s1.x < tile_box.z && s1.y >= tile_box.y && s1.y < tile_box.w;
 
 			if (cross_l || cross_r || cross_t || cross_b || s0_inside || s1_inside) {
-				Command cmd;
+				Operation op;
 
 				int tile_index = x + y * tiles_x;
-				cmd.curve_index = curve_index;
-				cmd.pad1 = 0;
+				op.curve_index = curve_index;
+				op.kind = OPERATION_SEGMENT;
+				op.pad1 = 0;
+				op.pad2 = 0;
+				op.pad3 = 0;
 
 				// note: if the segment crosses the tile's bottom boundary, update the tile's winding offset
 				if (cross_b) {
@@ -232,19 +252,19 @@ void curve_bin_to_tiles(Implicit_Curve curve) {
 				}
 
 				// note: if the segment crosses the right boundary, mark it. we reuse one of the previous tests
-				cmd.cross_right = cross_r;
+				op.cross_right = cross_r;
 
-				int command_index = atomicAdd(indices.commands, 1);
+				int op_index = atomicAdd(indices.operations, 1);
 				
 				// set links
-				cmd.command_next = -1;
-				cmd.command_next = atomicExchange(tiles.data[tile_index].command_first, command_index);
-				if (cmd.command_next == -1) {
-					tiles.data[tile_index].command_last = command_index;
+				op.op_next = -1;
+				op.op_next = atomicExchange(tiles.data[tile_index].op_first, op_index);
+				if (op.op_next == -1) {
+					tiles.data[tile_index].op_last = op_index;
 				}
 
-				// set command
-				commands.data[command_index] = cmd;
+				// set operation
+				operations.data[op_index] = op;
 			}
 		}
 	}

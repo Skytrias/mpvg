@@ -82,21 +82,21 @@ window_key_callback :: proc "c" (handle: glfw.WindowHandle, key, scancode, actio
 		app.shift = down
 	}
 
-	if down {
-		switch key {
-		case glfw.KEY_1: app.renderer.color_mode = 0
-		case glfw.KEY_2: app.renderer.color_mode = 1
-		case glfw.KEY_3: app.renderer.color_mode = 2
-		case glfw.KEY_4: app.renderer.color_mode = 3
+	// if down {
+	// 	switch key {
+	// 	case glfw.KEY_1: app.renderer.color_mode = 0
+	// 	case glfw.KEY_2: app.renderer.color_mode = 1
+	// 	case glfw.KEY_3: app.renderer.color_mode = 2
+	// 	case glfw.KEY_4: app.renderer.color_mode = 3
 
-		case glfw.KEY_Q: app.renderer.fill_rule = 0
-		case glfw.KEY_W: app.renderer.fill_rule = 1
-		case glfw.KEY_E: app.renderer.fill_rule = 2
-		case glfw.KEY_R: app.renderer.fill_rule = 3
+	// 	case glfw.KEY_Q: app.renderer.fill_rule = 0
+	// 	case glfw.KEY_W: app.renderer.fill_rule = 1
+	// 	case glfw.KEY_E: app.renderer.fill_rule = 2
+	// 	case glfw.KEY_R: app.renderer.fill_rule = 3
 
-		case glfw.KEY_SPACE: app.renderer.ignore_temp = app.renderer.ignore_temp == 0 ? 1 : 0
-		}
-	}
+	// 	case glfw.KEY_SPACE: app.renderer.ignore_temp = app.renderer.ignore_temp == 0 ? 1 : 0
+	// 	}
+	// }
 }
 
 POINTS_PATH :: "test.points"
@@ -116,9 +116,6 @@ points_read :: proc(p1, p2, p3: ^[2]f32) {
 	read_ptr(&read, p1, size)
 	read_ptr(&read, p2, size)
 	read_ptr(&read, p3, size)
-	
-	read_ptr(&read, &app.renderer.color_mode, size_of(int))
-	read_ptr(&read, &app.renderer.fill_rule, size_of(int))
 }
 
 points_write :: proc(p1, p2, p3: ^[2]f32) {
@@ -130,9 +127,6 @@ points_write :: proc(p1, p2, p3: ^[2]f32) {
 	blob_write_ptr(&blob, p1, size)
 	blob_write_ptr(&blob, p2, size)
 	blob_write_ptr(&blob, p3, size)
-
-	blob_write_ptr(&blob, &app.renderer.color_mode, size_of(int))
-	blob_write_ptr(&blob, &app.renderer.fill_rule, size_of(int))
 
 	os.write_entire_file(POINTS_PATH, blob_result(blob))
 }
@@ -166,7 +160,7 @@ main :: proc() {
 	renderer_init(&app.renderer)
 	defer renderer_destroy(&app.renderer)
 
-	renderer_font_push(&app.renderer, "Lato-Regular.ttf")
+	// renderer_font_push(&app.renderer, "Lato-Regular.ttf")
 
 	p1, p2, p3: [2]f32
 	points_read(&p1, &p2, &p3)

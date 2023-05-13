@@ -219,7 +219,13 @@ glyph_compiler_move_to :: proc(using gc: ^Glyph_Compiler, x, y: f32) {
 glyph_compiler_line_to :: proc(using gc: ^Glyph_Compiler, x, y: f32) {
 	contour_count += 1
 
-	gc.curves[gc.curve_index] = c1_make({ current_x, current_y }, { x, y })
+	// TODO
+	// c1_init(
+	// 	&gc.curves[gc.curve_index], 
+	// 	{ current_x, current_y }, 
+	// 	{ x, y },
+
+	// )
 	gc.curve_index += 1
 	current_x = x
 	current_y = y
@@ -228,7 +234,7 @@ glyph_compiler_line_to :: proc(using gc: ^Glyph_Compiler, x, y: f32) {
 glyph_compiler_curve_to :: proc(using gc: ^Glyph_Compiler, cx, cy, x, y: f32) {
 	contour_count += 1
 
-	gc.curves[gc.curve_index] = c1_make({ current_x, current_y }, { x, y })
+	// c1_init(&gc.curves[gc.curve_index], { current_x, current_y }, { x, y })
 	gc.curve_index += 1
 
 	// gc.curves[gc.curve_index] = c2_make({ current_x, current_y }, { cx, cy }, { x, y })
