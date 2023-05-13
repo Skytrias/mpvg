@@ -4,54 +4,54 @@ void main() {
 	ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
 	vec2 px = gl_GlobalInvocationID.xy;
 
-	uint tile_index = gl_WorkGroupID.x + gl_WorkGroupID.y * indices.tiles_x;
-	Tile tile = tiles.data[tile_index];
+	// uint tile_index = gl_WorkGroupID.x + gl_WorkGroupID.y * indices.tiles_x;
+	// Tile tile = tiles.data[tile_index];
 
-	int path_index = 0;
-	int winding_number = tile.winding_offset;
-	int op_index = tile.op_first;
+	// int path_index = 0;
+	// int winding_number = tile.winding_offset;
+	// int op_index = tile.op_first;
 
-	// iterate only added operations
-	while (op_index != -1) {
-		Operation op = operations.data[op_index];
+	// // iterate only added operations
+	// while (op_index != -1) {
+	// 	Operation op = operations.data[op_index];
 
-		if (op.kind == OPERATION_START) {
-			path_index = op.path_index;
-		} else if (op.kind == OPERATION_SEGMENT) {
-			Implicit_Curve curve = implicit_curves.data[op.curve_index];
+	// 	if (op.kind == OPERATION_START) {
+	// 		path_index = op.path_index;
+	// 	} else if (op.kind == OPERATION_SEGMENT) {
+	// 		Implicit_Curve curve = implicit_curves.data[op.curve_index];
 	
-			// normal curve winding 
-			int side = curve_side(curve, px);
-			if (px.y > curve.box.y && px.y <= curve.box.w) {
-				if (side < 0) {
-					winding_number += curve.winding_increment;
-				} 
-			}
+	// 		// normal curve winding 
+	// 		int side = curve_side(curve, px);
+	// 		if (px.y > curve.box.y && px.y <= curve.box.w) {
+	// 			if (side < 0) {
+	// 				winding_number += curve.winding_increment;
+	// 			} 
+	// 		}
 
-			// apply command crosses
-			if (op.cross_right) {
-				if ((curve.orientation == C_BR || curve.orientation == C_TL) && (px.y > curve.box.w)) {
-					winding_number += curve.winding_increment;
-				} else if( (curve.orientation == C_BL || curve.orientation == C_TR) && (px.y > curve.box.y)) {
-					winding_number -= curve.winding_increment;
-				}
-			}
-		}
+	// 		// apply command crosses
+	// 		if (op.cross_right) {
+	// 			if ((curve.orientation == C_BR || curve.orientation == C_TL) && (px.y > curve.box.w)) {
+	// 				winding_number += curve.winding_increment;
+	// 			} else if( (curve.orientation == C_BL || curve.orientation == C_TR) && (px.y > curve.box.y)) {
+	// 				winding_number -= curve.winding_increment;
+	// 			}
+	// 		}
+	// 	}
 		
-		op_index = op.op_next;
-	}
+	// 	op_index = op.op_next;
+	// }
 
-	Path path = paths.data[path_index];
-	vec4 color = vec4(1);
+	// Path path = paths.data[path_index];
+	// vec4 color = vec4(1);
 
-	// TODO fill / stroke?
-	if ((winding_number & 1) == 1) {
-		color = path.color;
-	}
+	// // TODO fill / stroke?
+	// if ((winding_number & 1) == 1) {
+	// 	color = path.color;
+	// }
 
-	if (pixel_coords.x % TILE_SIZE == 0 || pixel_coords.y % TILE_SIZE == 0) {
-		color = vec4(0, 0, 0, 1);
-	}
+	// if (pixel_coords.x % TILE_SIZE == 0 || pixel_coords.y % TILE_SIZE == 0) {
+	// 	color = vec4(0, 0, 0, 1);
+	// }
 
-	imageStore(img_output, pixel_coords, color);
+	// imageStore(img_output, pixel_coords, color);
 }

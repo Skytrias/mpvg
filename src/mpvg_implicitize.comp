@@ -4,11 +4,15 @@ float length_squared(vec2 v) {
 }
 
 // TODO optimize for tile x/y bounds iteration only
-void curve_bin_to_tiles(Implicit_Curve curve) {
+void curve_bin_to_tiles(Path_Queue path, Implicit_Curve curve) {
 	// push the icurve result to the stack
 	int curve_index = atomicAdd(indices.implicit_curves, 1);
 	implicit_curves.data[curve_index] = curve;
 
+	int off = path.tile_queue_index;
+
+	// TODO use proper coords
+	// ivec4 covered_tiles = ivec4(curve.box) / TILE_SIZE;
 	// int4 path_area = context->path_queue->area;
 	// int4 covered_tiles = int4(seg->box) / tile_size;
 	// int x_min = max(0, covered_tiles.x - path_area.x);
@@ -53,8 +57,9 @@ void curve_bin_to_tiles(Implicit_Curve curve) {
 			bool s1_inside = s1.x >= tile_box.x && s1.x < tile_box.z && s1.y >= tile_box.y && s1.y < tile_box.w;
 
 			if (cross_l || cross_r || cross_t || cross_b || s0_inside || s1_inside) {
-				Operation op;
+				Tile_Operation op;
 
+				// TODO use path_area.z
 				int tile_index = x + y * indices.tiles_x;
 				op.curve_index = curve_index;
 				op.kind = OPERATION_SEGMENT;
@@ -64,23 +69,23 @@ void curve_bin_to_tiles(Implicit_Curve curve) {
 
 				// note: if the segment crosses the tile's bottom boundary, update the tile's winding offset
 				if (cross_b) {
-					atomicAdd(tiles.data[tile_index].winding_offset, curve.winding_increment);
+					atomicAdd(tile_queues.data[off + tile_index].winding_offset, curve.winding_increment);
 				}
 
 				// note: if the segment crosses the right boundary, mark it. we reuse one of the previous tests
 				op.cross_right = cross_r;
 
-				int op_index = atomicAdd(indices.operations, 1);
+				int op_index = atomicAdd(indices.tile_operations, 1);
 				
 				// set links
 				op.op_next = -1;
-				op.op_next = atomicExchange(tiles.data[tile_index].op_first, op_index);
+				op.op_next = atomicExchange(tile_queues.data[off + tile_index].op_first, op_index);
 				if (op.op_next == -1) {
-					tiles.data[tile_index].op_last = op_index;
+					tile_queues.data[off + tile_index].op_last = op_index;
 				}
 
 				// set operation
-				operations.data[op_index] = op;
+				tile_operations.data[op_index] = op;
 			}
 		}
 	}
@@ -160,10 +165,10 @@ Implicit_Curve icurve_make(vec2 p0, vec2 p1, vec2 p2, vec2 p3, int kind) {
 	return res;
 }
 
-void line_setup(vec2 p0, vec2 p1) {
+void line_setup(Path_Queue path, vec2 p0, vec2 p1) {
 	Implicit_Curve icurve = icurve_make(p0, p1, vec2(0), vec2(0), C_LINE);
 	icurve.hull_vertex = p0;
-	curve_bin_to_tiles(icurve);
+	curve_bin_to_tiles(path, icurve);
 }
 
 int quadratic_monotonize(vec2 p0, vec2 p1, vec2 p2, out float splits[4]) {
@@ -205,7 +210,7 @@ void quadratic_slice(vec2 p0, vec2 p1, vec2 p2, float s0, float s1, out vec2 sp[
 	sp[2] = (s1 == 1) ? p2 : quadratic_blossom(p0, p1, p2, s1, s1);
 }
 
-void quadratic_emit(vec2 sp[3]) {
+void quadratic_emit(Path_Queue path, vec2 sp[3]) {
 	Implicit_Curve icurve = icurve_make(sp[0], sp[1], sp[2], vec2(0), C_QUADRATIC);
 
 	//NOTE: compute implicit equation matrix
@@ -225,10 +230,10 @@ void quadratic_emit(vec2 sp[3]) {
 	icurve.implicit_matrix = (1/det)*matrix;
 	icurve.hull_vertex = sp[1];
 
-	curve_bin_to_tiles(icurve);
+	curve_bin_to_tiles(path, icurve);
 }
 
-void quadratic_setup(vec2 p0, vec2 p1, vec2 p2) {
+void quadratic_setup(Path_Queue path, vec2 p0, vec2 p1, vec2 p2) {
 	float splits[4];
 	int split_count = quadratic_monotonize(p0, p1, p2, splits);
 
@@ -237,7 +242,7 @@ void quadratic_setup(vec2 p0, vec2 p1, vec2 p2) {
 		float s1 = splits[i + 1];
 		vec2 sp[3];
 		quadratic_slice(p0, p1, p2, s0, s1, sp);
-		quadratic_emit(sp);
+		quadratic_emit(path, sp);
 	}
 }
 
@@ -532,7 +537,7 @@ vec2 select_hull_vertex(vec2 sp[4]) {
 	return pm;
 }
 
-void cubic_emit(Curve curve, Cubic_Info info, float s0, float s1, vec2 sp[4]) {
+void cubic_emit(Path_Queue path, Curve curve, Cubic_Info info, float s0, float s1, vec2 sp[4]) {
 	Implicit_Curve icurve = icurve_make(sp[0], sp[1], sp[2], sp[3], C_CUBIC);
 	icurve.hull_padding = vec2(float(info.type), 0);
 
@@ -588,10 +593,10 @@ void cubic_emit(Curve curve, Cubic_Info info, float s0, float s1, vec2 sp[4]) {
 		icurve.sign *= -1;
 	}
 
-	curve_bin_to_tiles(icurve);
+	curve_bin_to_tiles(path, icurve);
 }
 
-void cubic_setup(Curve curve) {
+void cubic_setup(Path_Queue path, Curve curve) {
 	vec2 c[4] = {
 		curve.p0,
 		3.0*(curve.p1 - curve.p0),
@@ -602,11 +607,11 @@ void cubic_setup(Curve curve) {
 	Cubic_Info info = cubic_classify(c);
 
 	if (info.type == T_DEGENERATE_LINE) {
-		line_setup(curve.p0, curve.p3);
+		line_setup(path, curve.p0, curve.p3);
 		return;
 	} else if(info.type == T_DEGENERATE_QUADRATIC) {
 		vec2 quad_point = vec2(1.5*curve.p1.x - 0.5*curve.p0.x, 1.5*curve.p1.y - 0.5*curve.p0.y);
-		quadratic_setup(curve.p0, quad_point, curve.p3);
+		quadratic_setup(path, curve.p0, quad_point, curve.p3);
 		return;
 	}
 
@@ -659,17 +664,18 @@ void cubic_setup(Curve curve) {
 		float s1 = splits[i + 1];
 		vec2 sp[4];
 		cubic_slice(curve, s0, s1, sp);
-		cubic_emit(curve, info, s0, s1, sp);
+		cubic_emit(path, curve, info, s0, s1, sp);
 	}
 }
 
 void main() {
 	int curve_index = int(gl_GlobalInvocationID.x);
 	Curve curve = curves.data[curve_index];
+	Path_Queue path = path_queues.data[curve.path_index];
 
 	switch (curve.count) {
-	case C_LINE: line_setup(curve.p0, curve.p1); break; 
-	case C_QUADRATIC: quadratic_setup(curve.p0, curve.p1, curve.p2); break; 
-	case C_CUBIC: cubic_setup(curve); break; 
+	case C_LINE: line_setup(path, curve.p0, curve.p1); break; 
+	case C_QUADRATIC: quadratic_setup(path, curve.p0, curve.p1, curve.p2); break; 
+	case C_CUBIC: cubic_setup(path, curve); break; 
 	}
 }

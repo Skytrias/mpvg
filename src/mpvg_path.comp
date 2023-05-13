@@ -1,3 +1,36 @@
 void main() {
-	
+	int path_index = int(gl_GlobalInvocationID.x);
+	Path path = paths.data[path_index]; 
+
+	// TODO add custom clipping?
+	vec4 clipped_box = path.box;
+	ivec2 first_tile = ivec2(clipped_box.xy) / TILE_SIZE;
+	ivec2 last_tile = ivec2(clipped_box.zw) / TILE_SIZE;
+
+	int tiles_x = max(0, last_tile.x - first_tile.x + 1);
+	int tiles_y = max(0, last_tile.y - first_tile.y + 1);
+	int tile_count = tiles_x * tiles_y;
+
+	int tile_queue_index = atomicAdd(indices.tile_queues, tile_count);
+
+	// TODO could just modify path to take this data?
+	// setup path queue data
+	Path_Queue queue;
+	queue.area = ivec4(
+		first_tile.x,
+		first_tile.y,
+		last_tile.x,
+		last_tile.y
+	);
+	queue.tile_queue_index = tile_queue_index;
+	path_queues.data[path_index] = queue;
+
+	// init all tiles per path
+	for (int i = tile_queue_index; i < tile_queue_index + tile_count; i += 1) {
+		Tile_Queue tile;
+		tile.op_first = -1;
+		tile.op_last = -1;
+		tile.winding_offset = 0;
+		tile_queues.data[i] = tile;
+	}
 }

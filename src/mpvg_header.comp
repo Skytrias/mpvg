@@ -40,14 +40,15 @@ struct Implicit_Curve {
 	mat3 implicit_matrix;
 };
 
-struct Tile {
-	int winding_offset;
+struct Tile_Queue {
 	int op_first;
 	int op_last;
-	bool had_cross_right;
+	int winding_offset;
+	int pad1;
 };
 
-struct Operation {
+// TODO winding offset included here?
+struct Tile_Operation {
 	int kind;
 	int op_next;
 	int path_index;
@@ -61,14 +62,14 @@ struct Operation {
 
 layout(std140, binding = 0) volatile buffer Input_Indices {
 	int implicit_curves;
-	int operations;
+	int tile_operations;
+	int tile_queues;
 	int pad1;
-	int pad2;
 
 	int tiles_x;
 	int tiles_y;
+	int pad2;
 	int pad3;
-	int pad4;
 } indices;
 
 struct Path {
@@ -83,7 +84,7 @@ struct Path {
 struct Path_Queue {
 	ivec4 area;
 
-	int tile_queues;
+	int tile_queue_index;
 	int pad1;
 	int pad2;
 	int pad3;
@@ -97,13 +98,13 @@ layout(std140, binding = 2) volatile buffer Output_Implicit_Curves {
 	Implicit_Curve data[];
 } implicit_curves;
 
-layout(std140, binding = 3) volatile buffer Tiles {
-	Tile data[];
-} tiles;
+layout(std140, binding = 3) volatile buffer Tile_Queues {
+	Tile_Queue data[];
+} tile_queues;
 
-layout(std140, binding = 4) volatile buffer Operations {
-	Operation data[];
-} operations;
+layout(std140, binding = 4) volatile buffer Tile_Operations {
+	Tile_Operation data[];
+} tile_operations;
 
 layout(std140, binding = 5) buffer Paths {
 	Path data[];
@@ -112,6 +113,10 @@ layout(std140, binding = 5) buffer Paths {
 layout(std140, binding = 6) buffer Path_Queues {
 	Path_Queue data[];
 } path_queues;
+
+layout(std140, binding = 7) buffer Screen_Tiles {
+	int data[];
+} screen_tiles;
 
 float ccw(vec2 a, vec2 b, vec2 c) {
 	return ((b.x-a.x)*(c.y-a.y) - (b.y-a.y)*(c.x-a.x));

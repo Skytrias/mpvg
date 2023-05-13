@@ -15,10 +15,11 @@ TILE_SIZE :: 32 // has to match compute header
 MAX_STATES :: 32
 MAX_CURVES :: 256
 MAX_IMPLICIT_CURVES :: 256
-MAX_TILES :: 1028 * 2
-MAX_OPERATIONS :: 1028
+MAX_TILE_QUEUES :: 1028
+MAX_TILE_OPERATIONS :: 1028
 MAX_PATHS :: 1028
-MAX_PATH_QUEUES :: 1028
+MAX_PATH_QUEUES :: MAX_PATHS
+MAX_SCREEN_TILES :: 1028 * 2
 
 shader_vert := #load("vertex.glsl")
 shader_frag := #load("fragment.glsl")
@@ -45,17 +46,17 @@ KAPPA90 :: 0.5522847493
 
 // glsl std140 layout
 // indices that will get advanced in compute shaders!
-Renderer_Indices :: struct #packed {
+Indices :: struct #packed {
 	implicit_curves: i32,
-	operations: i32,
+	tile_operations: i32,
+	tile_queues: i32,
 	pad1: i32,
-	pad2: i32,
 
 	// data used throughout
 	tiles_x: i32,
 	tiles_y: i32,
+	pad2: i32,
 	pad3: i32,
-	pad4: i32,
 }
 
 Renderer :: struct {
@@ -68,20 +69,23 @@ Renderer :: struct {
 	implicit_curves: []Implicit_Curve,
 
 	// indices that will get advanced on the gpu	
-	indices: Renderer_Indices,
+	indices: Indices,
 
 	// result of monotization & implicitization
-	operations: []Renderer_Operation,
+	tile_operations: []Tile_Operation,
 
 	// paths per curve shape
-	paths: []Renderer_Path,
+	paths: []Path,
 	path_index: int,
 
 	// path queues created internally
-	path_queues: []Renderer_Path_Queue,
+	path_queues: []Path_Queue,
+
+	// final screen tiles with first tile op index
+	screen_tiles: []i32,
 
 	// tiling temp
-	tiles: []Renderer_Tile,
+	tile_queues: []Tile_Queue,
 	tile_index: int,
 	tile_count: int,
 	tiles_size: int,
@@ -123,20 +127,21 @@ Renderer_GL :: struct {
 	indices_ssbo: u32,
 	curves_ssbo: u32,
 	implicit_curves_ssbo: u32,
-	tiles_ssbo: u32,
-	operations_ssbo: u32,
+	tile_queues_ssbo: u32,
+	tile_operations_ssbo: u32,
 	paths_ssbo: u32,
 	path_queue_ssbo: u32,
+	screen_tiles_ssbo: u32,
 }
 
-Renderer_Tile :: struct #packed {
-	winding_offset: i32,
+Tile_Queue :: struct #packed {
 	op_first: i32,
 	op_last: i32,
+	winding_offset: i32,
 	pad1: i32,
 }
 
-Renderer_Operation :: struct #packed {
+Tile_Operation :: struct #packed {
 	kind: i32,
 	op_next: i32,	// next command index
 	path_index: i32, // which path this belongs to
@@ -148,7 +153,7 @@ Renderer_Operation :: struct #packed {
 	pad3: i32,
 }
 
-Renderer_Path :: struct #packed {
+Path :: struct #packed {
 	color: [4]f32,
 	box: [4]f32, // bounding box for all inserted vertices,
 
@@ -157,7 +162,7 @@ Renderer_Path :: struct #packed {
 	pad2: i32,
 }
 
-Renderer_Path_Queue :: struct #packed {
+Path_Queue :: struct #packed {
 	area: [4]i32,
 
 	tile_queues: i32,
@@ -215,10 +220,10 @@ Curve :: struct #packed {
 renderer_init :: proc(renderer: ^Renderer) {
 	renderer.curves = make([]Curve, MAX_CURVES)
 	renderer.implicit_curves = make([]Implicit_Curve, MAX_IMPLICIT_CURVES)
-	renderer.tiles = make([]Renderer_Tile, MAX_TILES)
-	renderer.operations = make([]Renderer_Operation, MAX_OPERATIONS)
-	renderer.paths = make([]Renderer_Path, MAX_PATHS)
-	renderer.path_queues = make([]Renderer_Path_Queue, MAX_PATH_QUEUES)
+	renderer.tile_queues = make([]Tile_Queue, MAX_TILE_QUEUES)
+	renderer.tile_operations = make([]Tile_Operation, MAX_TILE_OPERATIONS)
+	renderer.paths = make([]Path, MAX_PATHS)
+	renderer.path_queues = make([]Path_Queue, MAX_PATH_QUEUES)
 	pool_clear(&renderer.font_pool)
 
 	renderer_gpu_gl_init(&renderer.gpu)
@@ -234,8 +239,8 @@ renderer_make :: proc() -> (res: Renderer) {
 renderer_destroy :: proc(renderer: ^Renderer) {
 	delete(renderer.implicit_curves)
 	delete(renderer.curves)
-	delete(renderer.tiles)
-	delete(renderer.operations)
+	delete(renderer.tile_queues)
+	delete(renderer.tile_operations)
 	delete(renderer.paths)
 
 	renderer_gpu_gl_destroy(&renderer.gpu)
@@ -253,18 +258,10 @@ renderer_start :: proc(renderer: ^Renderer, width, height: int) {
 	renderer.indices.implicit_curves = 0
 	renderer.indices.tiles_x = i32(renderer.tiles_x)
 	renderer.indices.tiles_y = i32(renderer.tiles_y)
-	renderer.indices.operations = 1 // TODO maybe do 1?
+	renderer.indices.tile_queues = 0
+	renderer.indices.tile_operations = 1 // TODO maybe dont do 1?
 	renderer.path_index = 0
-	renderer_path_init(&renderer.paths[0])
-
-	// TODO could do this on GPU, maybe happens during path setup?
-	// reset winding offsets
-	for i in 0..<renderer.tile_count {
-		tile := &renderer.tiles[i]
-		tile.winding_offset = 0
-		tile.op_first = -1
-		tile.op_last = -1
-	}
+	path_init(&renderer.paths[0])
 
 	renderer_gpu_gl_start(renderer)
 }
@@ -318,6 +315,7 @@ renderer_gpu_shader_compute :: proc(
 	header: []byte, 
 	data: []byte, 
 	x, y: int,
+	loc := #caller_location,
 ) -> u32 {
 	strings.builder_reset(builder)
 
@@ -333,7 +331,7 @@ renderer_gpu_shader_compute :: proc(
 	// write result
 	program, ok := gl.load_compute_source(strings.to_string(builder^))
 	if !ok {
-		panic("failed loading compute shader")
+		panic("failed loading compute shader", loc)
 	}
 
 	return program
@@ -398,13 +396,14 @@ renderer_gpu_gl_init :: proc(using gpu: ^Renderer_GL) {
 		return index
 	}
 
-	indices_ssbo = create(0, 1 * size_of(Renderer_Indices))
+	indices_ssbo = create(0, 1 * size_of(Indices))
 	curves_ssbo = create(1, MAX_CURVES * size_of(Curve))
 	implicit_curves_ssbo = create(2, MAX_IMPLICIT_CURVES * size_of(Implicit_Curve))
-	tiles_ssbo = create(3, MAX_TILES * size_of(Renderer_Tile))
-	operations_ssbo = create(4, MAX_OPERATIONS * size_of(Renderer_Operation))
-	paths_ssbo = create(5, MAX_PATHS * size_of(Renderer_Path))
-	path_queue_ssbo = create(6, MAX_PATH_QUEUES * size_of(Renderer_Path_Queue))
+	tile_queues_ssbo = create(3, MAX_TILE_QUEUES * size_of(Tile_Queue))
+	tile_operations_ssbo = create(4, MAX_TILE_OPERATIONS * size_of(Tile_Operation))
+	paths_ssbo = create(5, MAX_PATHS * size_of(Path))
+	path_queue_ssbo = create(6, MAX_PATH_QUEUES * size_of(Path_Queue))
+	screen_tiles_ssbo = create(7, MAX_SCREEN_TILES * size_of(i32))
 }
 
 renderer_gpu_gl_destroy :: proc(using gpu: ^Renderer_GL) {
@@ -419,21 +418,29 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 	gpu := &renderer.gpu
 	using gpu
 
+	// path setup
+	{
+		gl.UseProgram(path.program)
+	
+		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, indices_ssbo)
+		gl.NamedBufferSubData(indices_ssbo, 0, 1 * size_of(Indices), &renderer.indices)
+
+		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, paths_ssbo)
+		gl.NamedBufferSubData(paths_ssbo, 0, (renderer.path_index + 1) * size_of(Path), raw_data(renderer.paths))
+	
+		gl.DispatchCompute(u32(renderer.path_index + 1), 1, 1)
+		gl.MemoryBarrier(gl.SHADER_STORAGE_BARRIER_BIT)
+	}
+
 	// implicitize stage
 	{
 		gl.UseProgram(implicitize.program)
 
-		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, indices_ssbo)
-		gl.NamedBufferSubData(indices_ssbo, 0, 1 * size_of(Renderer_Indices), &renderer.indices)
-
 		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, curves_ssbo)
 		gl.NamedBufferSubData(curves_ssbo, 0, renderer.curve_index * size_of(Curve), raw_data(renderer.curves))
 
-		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, tiles_ssbo)
-		gl.NamedBufferSubData(tiles_ssbo, 0, renderer.tile_index * size_of(Renderer_Tile), raw_data(renderer.tiles))
-
-		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, paths_ssbo)
-		gl.NamedBufferSubData(paths_ssbo, 0, (renderer.path_index + 1) * size_of(Renderer_Path), raw_data(renderer.paths))
+		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, tile_queues_ssbo)
+		gl.NamedBufferSubData(tile_queues_ssbo, 0, renderer.tile_index * size_of(Tile_Queue), raw_data(renderer.tile_queues))
 
 		gl.DispatchCompute(u32(renderer.curve_index), 1, 1)
 	}
@@ -512,8 +519,8 @@ renderer_line_to :: proc(using renderer: ^Renderer, x, y: f32) {
 
 	curve_linear_init(
 		&curves[curve_index],
-		renderer_path_xform_v2(path, curve_last), 
-		renderer_path_xform_v2(path, { x, y }),
+		path_xform_v2(path, curve_last), 
+		path_xform_v2(path, { x, y }),
 		renderer.path_index,
 	)
 	curve_index += 1
@@ -524,8 +531,8 @@ renderer_line_to_rel :: proc(using renderer: ^Renderer, x, y: f32) {
 	path := renderer_path_get(renderer)
 	curve_linear_init(
 		&curves[curve_index],
-		renderer_path_xform_v2(path, curve_last), 
-		renderer_path_xform_v2(path, curve_last + { x, y }),
+		path_xform_v2(path, curve_last), 
+		path_xform_v2(path, curve_last + { x, y }),
 		renderer.path_index,
 	)
 	curve_index += 1
@@ -536,8 +543,8 @@ renderer_vertical_line_to :: proc(using renderer: ^Renderer, y: f32) {
 	path := renderer_path_get(renderer)
 	curve_linear_init(
 		&curves[curve_index],
-		renderer_path_xform_v2(path, curve_last), 
-		renderer_path_xform_v2(path, { curve_last.x, y }),
+		path_xform_v2(path, curve_last), 
+		path_xform_v2(path, { curve_last.x, y }),
 		renderer.path_index,
 	)
 	curve_index += 1
@@ -548,8 +555,8 @@ renderer_horizontal_line_to :: proc(using renderer: ^Renderer, x: f32) {
 	path := renderer_path_get(renderer)
 	curve_linear_init(
 		&curves[curve_index],
-		renderer_path_xform_v2(path, curve_last), 
-		renderer_path_xform_v2(path, { x, curve_last.y }),
+		path_xform_v2(path, curve_last), 
+		path_xform_v2(path, { x, curve_last.y }),
 		renderer.path_index,
 	)
 	curve_index += 1
@@ -560,9 +567,9 @@ renderer_quadratic_to :: proc(using renderer: ^Renderer, cx, cy, x, y: f32) {
 	path := renderer_path_get(renderer)
 	curve_quadratic_init(
 		&curves[curve_index],
-		renderer_path_xform_v2(path, curve_last), 
-		renderer_path_xform_v2(path, { cx, cy }), 
-		renderer_path_xform_v2(path, { x, y }),
+		path_xform_v2(path, curve_last), 
+		path_xform_v2(path, { cx, cy }), 
+		path_xform_v2(path, { x, y }),
 		renderer.path_index,
 	)
 	curve_index += 1
@@ -573,9 +580,9 @@ renderer_quadratic_to_rel :: proc(using renderer: ^Renderer, cx, cy, x, y: f32) 
 	path := renderer_path_get(renderer)
 	curve_quadratic_init(
 		&curves[curve_index],
-		renderer_path_xform_v2(path, curve_last), 
-		renderer_path_xform_v2(path, curve_last + { cx, cy }),
-		renderer_path_xform_v2(path, curve_last + { x, y }),
+		path_xform_v2(path, curve_last), 
+		path_xform_v2(path, curve_last + { cx, cy }),
+		path_xform_v2(path, curve_last + { x, y }),
 		renderer.path_index,
 	)
 	curve_index += 1
@@ -586,10 +593,10 @@ renderer_cubic_to :: proc(using renderer: ^Renderer, c1x, c1y, c2x, c2y, x, y: f
 	path := renderer_path_get(renderer)
 	curve_cubic_init(
 		&curves[curve_index],
-		renderer_path_xform_v2(path, curve_last),
-		renderer_path_xform_v2(path, { c1x, c1y }),
-		renderer_path_xform_v2(path, { c2x, c2y }),
-		renderer_path_xform_v2(path, { x, y }),
+		path_xform_v2(path, curve_last),
+		path_xform_v2(path, { c1x, c1y }),
+		path_xform_v2(path, { c2x, c2y }),
+		path_xform_v2(path, { x, y }),
 		renderer.path_index,
 	)
 	curve_index += 1
@@ -600,10 +607,10 @@ renderer_cubic_to_rel :: proc(using renderer: ^Renderer, c1x, c1y, c2x, c2y, x, 
 	path := renderer_path_get(renderer)
 	curve_cubic_init(
 		&curves[curve_index],
-		renderer_path_xform_v2(path, curve_last),
-		renderer_path_xform_v2(path, curve_last + { c1x, c1y }),
-		renderer_path_xform_v2(path, curve_last + { c2x, c2y }),
-		renderer_path_xform_v2(path, curve_last + { x, y }),
+		path_xform_v2(path, curve_last),
+		path_xform_v2(path, curve_last + { c1x, c1y }),
+		path_xform_v2(path, curve_last + { c2x, c2y }),
+		path_xform_v2(path, curve_last + { x, y }),
 		renderer.path_index,
 	)
 	curve_index += 1
@@ -617,7 +624,7 @@ renderer_close :: proc(using renderer: ^Renderer) {
 
 		curve_linear_init(
 			&curves[curve_index],
-			renderer_path_xform_v2(path, curve_last), 
+			path_xform_v2(path, curve_last), 
 			{ start.x, start.y },
 			renderer.path_index,
 		)
@@ -853,7 +860,7 @@ pool_at :: proc(p: ^Pool($N, $T), slot_index: u32, loc := #caller_location) -> ^
 // PATH
 ///////////////////////////////////////////////////////////
 
-renderer_path_init :: proc(using path: ^Renderer_Path) {
+path_init :: proc(using path: ^Path) {
 	path.box = {
 		max(f32),
 		max(f32),
@@ -866,19 +873,19 @@ renderer_path_init :: proc(using path: ^Renderer_Path) {
 }
 
 // add to bounding box
-renderer_path_box_push :: proc(path: ^Renderer_Path, output: [2]f32) {
+path_box_push :: proc(path: ^Path, output: [2]f32) {
 	path.box.x = min(path.box.x, output.x)
 	path.box.z = max(path.box.z, output.x)
 	path.box.y = min(path.box.y, output.y)
 	path.box.w = max(path.box.w, output.y)	
 }
 
-renderer_path_xform_v2 :: proc(path: ^Renderer_Path, input: [2]f32) -> (res: [2]f32) {
+path_xform_v2 :: proc(path: ^Path, input: [2]f32) -> (res: [2]f32) {
 	res = {
 		input.x * path.xform[0] + input.y * path.xform[2] + path.xform[4],
 		input.x * path.xform[1] + input.y * path.xform[3] + path.xform[5],
 	}
-	renderer_path_box_push(path, res)
+	path_box_push(path, res)
 	return
 }
 
@@ -906,7 +913,7 @@ curve_cubic_init :: proc(curve: ^Curve, a, b, c, d: [2]f32, path_index: int) {
 	curve.path_index = i32(path_index)
 }
 
-renderer_path_get :: #force_inline proc(renderer: ^Renderer) -> ^Renderer_Path #no_bounds_check {
+renderer_path_get :: #force_inline proc(renderer: ^Renderer) -> ^Path #no_bounds_check {
 	return &renderer.paths[renderer.path_index]
 }
 
