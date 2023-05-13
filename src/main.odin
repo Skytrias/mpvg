@@ -234,8 +234,8 @@ main :: proc() {
 			// // renderer_state_translate(&app.renderer, app.mouse.x, app.mouse.y)
 			// renderer_rect(&app.renderer, -100, -50, 200, 100)
 
-			renderer_state_translate(&app.renderer, app.mouse.x, app.mouse.y)
-			renderer_state_scale(&app.renderer, 10, 10)
+			renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
+			renderer_path_scale(&app.renderer, 10, 10)
 			// renderer_state_translate(&app.renderer, 100, 100)
 			renderer_svg(&app.renderer, svg_curves)
 		}

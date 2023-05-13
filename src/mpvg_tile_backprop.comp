@@ -1,22 +1,3 @@
-#version 450 core
-
-layout(local_size_x = 1, local_size_y = 1) in;
-
-uniform int tiles_x;
-uniform int tiles_y;
-uniform int tiles_size;
-
-struct Tile {
-	int winding_offset;
-	int command_first;
-	int command_last;
-	bool had_cross_right;
-};
-	
-layout(std140, binding = 3) volatile buffer Tiles {
-	Tile data[];
-} tiles;
-
 // backpropogate right to left and do prefix sum
 void main() {
 	int sum = 0;

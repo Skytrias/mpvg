@@ -1,0 +1,106 @@
+uniform int tiles_x;
+uniform int tiles_y;
+uniform int tiles_size;
+
+// kind of curve
+#define C_LINE 0
+#define C_QUADRATIC 1
+#define C_CUBIC 2
+
+// orientation of curve
+#define C_BL 0
+#define C_BR 1
+#define C_TL 2
+#define C_TR 3
+
+// kind of operation
+#define OPERATION_START 0
+#define OPERATION_SEGMENT 1
+
+struct Curve {
+	vec2 p0;
+	vec2 p1;
+	vec2 p2;
+	vec2 p3;
+	int count;
+	int path_index;
+	int pad1;
+	int pad2;
+};
+
+struct Implicit_Curve {
+	vec4 box;
+	
+	vec2 hull_vertex;
+	vec2 hull_padding;
+
+	int kind;
+	int orientation;
+	int sign;
+	int winding_increment;
+
+	mat3 implicit_matrix;
+};
+
+struct Tile {
+	int winding_offset;
+	int op_first;
+	int op_last;
+	bool had_cross_right;
+};
+
+struct Operation {
+	int kind;
+	int op_next;
+	int path_index;
+	int curve_index;
+
+	bool cross_right;
+	int pad1;
+	int pad2;
+	int pad3;
+};
+
+layout(std140, binding = 0) volatile buffer Input_Indices {
+	int implicit_curves;
+	int operations;
+	int pad1;
+	int pad2;
+} indices;
+
+struct Path {
+	vec4 color;
+	vec4 box;
+
+	float xform[6];
+	int pad1;
+	int pad2;
+};
+
+struct Path_Queue {
+	int pad1;
+};
+
+layout(std140, binding = 1) readonly buffer Input_Curves {
+	Curve data[];
+} curves;
+
+layout(std140, binding = 2) volatile buffer Output_Implicit_Curves {
+	Implicit_Curve data[];
+} implicit_curves;
+
+layout(std140, binding = 3) volatile buffer Tiles {
+	Tile data[];
+} tiles;
+
+layout(std140, binding = 4) volatile buffer Operations {
+	Operation data[];
+} operations;
+
+layout(std140, binding = 5) buffer Paths {
+	Path data[];
+} paths;
+
+layout(std140, binding = 6) buffer Path_Queues {
+	Path_Queue data[];
+} path_queues;

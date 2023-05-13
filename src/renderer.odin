@@ -5,6 +5,7 @@ import "core:fmt"
 import "core:math"
 import "core:slice"
 import "core:runtime"
+import "core:strings"
 import "core:math/rand"
 import glm "core:math/linalg/glsl"
 import sa "core:container/small_array"
@@ -20,6 +21,7 @@ MAX_PATHS :: 1028
 
 shader_vert := #load("vertex.glsl")
 shader_frag := #load("fragment.glsl")
+shader_compute_header := #load("mpvg_header.comp")
 shader_compute_implicitize := #load("mpvg_implicitize.comp")
 shader_compute_tile_backprop := #load("mpvg_tile_backprop.comp")
 
@@ -38,11 +40,6 @@ Vertex :: struct {
 }
 
 KAPPA90 :: 0.5522847493
-
-// TODO just do single xform?
-Renderer_State :: struct {
-	xform: Xform, // state affine transformation
-}
 
 // glsl std140 layout
 // indices that will get advanced in compute shaders!
@@ -84,9 +81,6 @@ Renderer :: struct {
 
 	// platform dependent implementation
 	gpu: Renderer_GL,
-
-	// small states
-	states: sa.Small_Array(MAX_STATES, Renderer_State),
 }
 
 Renderer_GL :: struct {
@@ -151,6 +145,16 @@ Renderer_Operation :: struct #packed {
 
 Renderer_Path :: struct #packed {
 	color: [4]f32,
+	box: [4]f32, // bounding box for all inserted vertices,
+
+	xform: Xform, // transformation used throughout vertice creation
+	pad1: i32,
+	pad2: i32,
+}
+
+Renderer_Path_Queue :: struct #packed {
+	area: [4]f32,
+	tile_queues: int,
 }
 
 Implicit_Curve_Kind :: enum i32 {
@@ -199,30 +203,6 @@ Curve :: struct #packed {
 	pad2: i32,
 }
 
-curve_linear_init :: proc(curve: ^Curve, a, b: [2]f32, path_index: int) {
-	curve.B[0] = a
-	curve.B[1] = b
-	curve.count = 0
-	curve.path_index = i32(path_index)
-}
-
-curve_quadratic_init :: proc(curve: ^Curve, a, b, c: [2]f32, path_index: int) {
-	curve.B[0] = a
-	curve.B[1] = b
-	curve.B[2] = c
-	curve.count = 1
-	curve.path_index = i32(path_index)
-}
-
-curve_cubic_init :: proc(curve: ^Curve, a, b, c, d: [2]f32, path_index: int) {
-	curve.B[0] = a
-	curve.B[1] = b
-	curve.B[2] = c
-	curve.B[3] = d
-	curve.count = 2
-	curve.path_index = i32(path_index)
-}
-
 renderer_init :: proc(renderer: ^Renderer) {
 	renderer.curves = make([]Curve, MAX_CURVES)
 	renderer.implicit_curves = make([]Implicit_Curve, MAX_IMPLICIT_CURVES)
@@ -232,9 +212,6 @@ renderer_init :: proc(renderer: ^Renderer) {
 	pool_clear(&renderer.font_pool)
 
 	renderer_gpu_gl_init(&renderer.gpu)
-
-	renderer_state_save(renderer)
-	renderer_state_reset(renderer)
 
 	renderer.tiles_size = TILE_SIZE
 }
@@ -266,9 +243,7 @@ renderer_start :: proc(renderer: ^Renderer, width, height: int) {
 	renderer.indices.implicit_curves = 0
 	renderer.indices.operations = 1 // TODO maybe do 1?
 	renderer.path_index = 0
-	renderer.paths[0] = {
-		color = { 0, 1, 0, 1 },
-	}
+	renderer_path_init(&renderer.paths[0])
 
 	// TODO could do this on GPU, maybe happens during path setup?
 	// reset winding offsets
@@ -280,10 +255,6 @@ renderer_start :: proc(renderer: ^Renderer, width, height: int) {
 	}
 
 	renderer_gpu_gl_start(renderer)
-
-	renderer.states.len = 0
-	renderer_state_save(renderer)
-	renderer_state_reset(renderer)
 }
 
 renderer_end :: proc(using renderer: ^Renderer, width, height: int) {
@@ -329,6 +300,35 @@ renderer_font_push :: proc(renderer: ^Renderer, path: string) -> u32 {
 	return index
 }
 
+// build unified compute shader with a shared header
+renderer_gpu_shader_compute :: proc(
+	builder: ^strings.Builder,
+	header: []byte, 
+	data: []byte, 
+	x, y: int,
+) -> u32 {
+	strings.builder_reset(builder)
+
+	// write version + sizes
+	fmt.sbprintf(builder, "#version 450 core\nlayout(local_size_x = %d, local_size_y = %d) in;\n\n", x, y)
+	
+	// write header
+	strings.write_bytes(builder, header)
+
+	// write rest of the data
+	strings.write_bytes(builder, data)
+
+	fmt.eprintln("RESULT", strings.to_string(builder^))
+
+	// write result
+	program, ok := gl.load_compute_source(strings.to_string(builder^))
+	if !ok {
+		panic("failed loading compute shader")
+	}
+
+	return program
+}
+
 renderer_gpu_gl_init :: proc(using gpu: ^Renderer_GL) {
 	{
 		gl.GenVertexArrays(1, &fill.vao)
@@ -353,12 +353,11 @@ renderer_gpu_gl_init :: proc(using gpu: ^Renderer_GL) {
 		fill.loc_projection = gl.GetUniformLocation(fill.program, "projection")
 	}
 	
+	builder := strings.builder_make(mem.Kilobyte * 4, context.temp_allocator)
+
 	{
-		ok: bool
-		raster.program, ok = gl.load_compute_source(string(shader_compute_raster))
-		if !ok {
-			panic("failed loading compute shader")
-		}
+		raster.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_raster, 32, 32)
+
 		raster.loc_color_mode = gl.GetUniformLocation(raster.program, "color_mode")
 		raster.loc_fill_rule = gl.GetUniformLocation(raster.program, "fill_rule")
 		raster.loc_ignore_temp = gl.GetUniformLocation(raster.program, "ignore_temp")
@@ -384,24 +383,14 @@ renderer_gpu_gl_init :: proc(using gpu: ^Renderer_GL) {
 	}
 
 	{
-		ok: bool
-		implicitize.program, ok = gl.load_compute_source(string(shader_compute_implicitize))
-		if !ok {
-			panic("failed loading compute shader")
-		}
-
+		implicitize.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_implicitize, 1, 1)
 		implicitize.loc_tiles_x = gl.GetUniformLocation(implicitize.program, "tiles_x")
 		implicitize.loc_tiles_y = gl.GetUniformLocation(implicitize.program, "tiles_y")
 		implicitize.loc_tiles_size = gl.GetUniformLocation(implicitize.program, "tiles_size")
 	}
 
 	{
-		ok: bool
-		backprop.program, ok = gl.load_compute_source(string(shader_compute_tile_backprop))
-		if !ok {
-			panic("failed loading compute shader")
-		}
-
+		backprop.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_tile_backprop, 1, 1)
 		backprop.loc_tiles_x = gl.GetUniformLocation(backprop.program, "tiles_x")
 		backprop.loc_tiles_y = gl.GetUniformLocation(backprop.program, "tiles_y")
 		backprop.loc_tiles_size = gl.GetUniformLocation(backprop.program, "tiles_size")
@@ -534,143 +523,11 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 }
 
 ///////////////////////////////////////////////////////////
-// STATE
-///////////////////////////////////////////////////////////
-
-renderer_state_save :: proc(using renderer: ^Renderer) {
-	length := states.len
-
-	if length >= len(states.data) {
-		return
-	}
-
-	if length > 0 {
-		states.data[length] = states.data[length - 1]
-	}
-
-	states.len += 1
-}
-
-renderer_state_restore :: proc(using renderer: ^Renderer) {
-	if states.len <= 1 {
-		return
-	}
-
-	states.len -= 1
-}
-
-renderer_state_reset :: proc(using renderer: ^Renderer) {
-	state := renderer_state_get(renderer)
-	state^ = {}
-	xform_identity(&state.xform)
-}
-
-renderer_state_get :: #force_inline proc(using renderer: ^Renderer) -> ^Renderer_State #no_bounds_check {
-	return &states.data[states.len - 1]
-}
-
-renderer_state_reset_transform :: proc(using renderer: ^Renderer) {
-	state := renderer_state_get(renderer)
-	xform_identity(&state.xform)
-}
-
-renderer_state_translate :: proc(using renderer: ^Renderer, x, y: f32) {
-	state := renderer_state_get(renderer)
-	temp := xform_translate(x, y)
-	xform_premultiply(&state.xform, temp)
-}
-
-renderer_state_rotate :: proc(using renderer: ^Renderer, angle: f32) {
-	state := renderer_state_get(renderer)
-	temp := xform_rotate(angle)
-	xform_premultiply(&state.xform, temp)
-}
-
-renderer_state_scale :: proc(using renderer: ^Renderer, x, y: f32) {
-	state := renderer_state_get(renderer)
-	temp := xform_scale(x, y)
-	xform_premultiply(&state.xform, temp)
-}
-
-xform_point_v2 :: proc(xform: Xform, input: [2]f32) -> [2]f32 {
-	return {
-		input.x * xform[0] + input.y * xform[2] + xform[4],
-		input.x * xform[1] + input.y * xform[3] + xform[5],
-	}
-}
-
-xform_point_xy :: proc(xform: Xform, x, y: f32) -> (outx, outy: f32) {
-	outx = x * xform[0] + y * xform[2] + xform[4]
-	outy = x * xform[1] + y * xform[3] + xform[5]
-	return
-}
-
-// without offset
-xform_v2 :: proc(xform: Xform, input: [2]f32) -> [2]f32 {
-	return {
-		input.x * xform[0] + input.y * xform[2],
-		input.x * xform[1] + input.y * xform[3],
-	}
-}
-
-xform_identity :: proc(xform: ^Xform) {
-	xform^ = {
-		1, 0, 
-		0, 1,
-		0, 0,
-	}
-}
-
-xform_translate :: proc(tx, ty: f32) -> Xform {
-	return {
-		1, 0,
-		0, 1,
-		tx, ty,
-	}
-}
-
-xform_scale :: proc(sx, sy: f32) -> Xform {
-	return {
-		sx, 0,
-		0, sy,
-		0, 0,
-	}
-}
-
-xform_rotate :: proc(angle: f32) -> Xform {
-	cs := math.cos(angle)
-	sn := math.sin(angle)
-	return {
-		cs, sn,
-		-sn, cs,
-		0, 0,
-	}
-}
-
-xform_multiply :: proc(t: ^Xform, s: Xform) {
-	t0 := t[0] * s[0] + t[1] * s[2]
-	t2 := t[2] * s[0] + t[3] * s[2]
-	t4 := t[4] * s[0] + t[5] * s[2] + s[4]
-	t[1] = t[0] * s[1] + t[1] * s[3]
-	t[3] = t[2] * s[1] + t[3] * s[3]
-	t[5] = t[4] * s[1] + t[5] * s[3] + s[5]
-	t[0] = t0
-	t[2] = t2
-	t[4] = t4
-}
-
-xform_premultiply :: proc(a: ^Xform, b: Xform) {
-	temp := b
-	xform_multiply(&temp, a^)
-	a^ = temp
-}
-
-///////////////////////////////////////////////////////////
-// PATH
+// PATHING
 ///////////////////////////////////////////////////////////
 
 renderer_move_to :: proc(renderer: ^Renderer, x, y: f32) {
-	state := renderer_state_get(renderer)
+	path := renderer_path_get(renderer)
 	
 	// if renderer.curve_index > 0 {
 	// 	renderer_close(renderer)
@@ -680,16 +537,17 @@ renderer_move_to :: proc(renderer: ^Renderer, x, y: f32) {
 }
 
 renderer_move_to_rel :: proc(renderer: ^Renderer, x, y: f32) {
-	state := renderer_state_get(renderer)
+	path := renderer_path_get(renderer)
 	renderer.curve_last = renderer.curve_last + { x, y }
 }
 
 renderer_line_to :: proc(using renderer: ^Renderer, x, y: f32) {
-	state := renderer_state_get(renderer)
+	path := renderer_path_get(renderer)
+
 	curve_linear_init(
 		&curves[curve_index],
-		xform_point_v2(state.xform, curve_last), 
-		xform_point_v2(state.xform, { x, y }),
+		renderer_path_xform_v2(path, curve_last), 
+		renderer_path_xform_v2(path, { x, y }),
 		renderer.path_index,
 	)
 	curve_index += 1
@@ -697,11 +555,11 @@ renderer_line_to :: proc(using renderer: ^Renderer, x, y: f32) {
 }
 
 renderer_line_to_rel :: proc(using renderer: ^Renderer, x, y: f32) {
-	state := renderer_state_get(renderer)
+	path := renderer_path_get(renderer)
 	curve_linear_init(
 		&curves[curve_index],
-		xform_point_v2(state.xform, curve_last), 
-		xform_point_v2(state.xform, curve_last + { x, y }),
+		renderer_path_xform_v2(path, curve_last), 
+		renderer_path_xform_v2(path, curve_last + { x, y }),
 		renderer.path_index,
 	)
 	curve_index += 1
@@ -709,11 +567,11 @@ renderer_line_to_rel :: proc(using renderer: ^Renderer, x, y: f32) {
 }
 
 renderer_vertical_line_to :: proc(using renderer: ^Renderer, y: f32) {
-	state := renderer_state_get(renderer)
+	path := renderer_path_get(renderer)
 	curve_linear_init(
 		&curves[curve_index],
-		xform_point_v2(state.xform, curve_last), 
-		xform_point_v2(state.xform, { curve_last.x, y }),
+		renderer_path_xform_v2(path, curve_last), 
+		renderer_path_xform_v2(path, { curve_last.x, y }),
 		renderer.path_index,
 	)
 	curve_index += 1
@@ -721,11 +579,11 @@ renderer_vertical_line_to :: proc(using renderer: ^Renderer, y: f32) {
 }
 
 renderer_horizontal_line_to :: proc(using renderer: ^Renderer, x: f32) {
-	state := renderer_state_get(renderer)
+	path := renderer_path_get(renderer)
 	curve_linear_init(
 		&curves[curve_index],
-		xform_point_v2(state.xform, curve_last), 
-		xform_point_v2(state.xform, { x, curve_last.y }),
+		renderer_path_xform_v2(path, curve_last), 
+		renderer_path_xform_v2(path, { x, curve_last.y }),
 		renderer.path_index,
 	)
 	curve_index += 1
@@ -733,12 +591,12 @@ renderer_horizontal_line_to :: proc(using renderer: ^Renderer, x: f32) {
 }
 
 renderer_quadratic_to :: proc(using renderer: ^Renderer, cx, cy, x, y: f32) {
-	state := renderer_state_get(renderer)
+	path := renderer_path_get(renderer)
 	curve_quadratic_init(
 		&curves[curve_index],
-		xform_point_v2(state.xform, curve_last), 
-		xform_point_v2(state.xform, { cx, cy }), 
-		xform_point_v2(state.xform, { x, y }),
+		renderer_path_xform_v2(path, curve_last), 
+		renderer_path_xform_v2(path, { cx, cy }), 
+		renderer_path_xform_v2(path, { x, y }),
 		renderer.path_index,
 	)
 	curve_index += 1
@@ -746,12 +604,12 @@ renderer_quadratic_to :: proc(using renderer: ^Renderer, cx, cy, x, y: f32) {
 }
 
 renderer_quadratic_to_rel :: proc(using renderer: ^Renderer, cx, cy, x, y: f32) {
-	state := renderer_state_get(renderer)
+	path := renderer_path_get(renderer)
 	curve_quadratic_init(
 		&curves[curve_index],
-		xform_point_v2(state.xform, curve_last), 
-		xform_point_v2(state.xform, curve_last + { cx, cy }),
-		xform_point_v2(state.xform, curve_last + { x, y }),
+		renderer_path_xform_v2(path, curve_last), 
+		renderer_path_xform_v2(path, curve_last + { cx, cy }),
+		renderer_path_xform_v2(path, curve_last + { x, y }),
 		renderer.path_index,
 	)
 	curve_index += 1
@@ -759,13 +617,13 @@ renderer_quadratic_to_rel :: proc(using renderer: ^Renderer, cx, cy, x, y: f32) 
 }
 
 renderer_cubic_to :: proc(using renderer: ^Renderer, c1x, c1y, c2x, c2y, x, y: f32) {
-	state := renderer_state_get(renderer)
+	path := renderer_path_get(renderer)
 	curve_cubic_init(
 		&curves[curve_index],
-		xform_point_v2(state.xform, curve_last),
-		xform_point_v2(state.xform, { c1x, c1y }),
-		xform_point_v2(state.xform, { c2x, c2y }),
-		xform_point_v2(state.xform, { x, y }),
+		renderer_path_xform_v2(path, curve_last),
+		renderer_path_xform_v2(path, { c1x, c1y }),
+		renderer_path_xform_v2(path, { c2x, c2y }),
+		renderer_path_xform_v2(path, { x, y }),
 		renderer.path_index,
 	)
 	curve_index += 1
@@ -773,13 +631,13 @@ renderer_cubic_to :: proc(using renderer: ^Renderer, c1x, c1y, c2x, c2y, x, y: f
 }
 
 renderer_cubic_to_rel :: proc(using renderer: ^Renderer, c1x, c1y, c2x, c2y, x, y: f32) {
-	state := renderer_state_get(renderer)
+	path := renderer_path_get(renderer)
 	curve_cubic_init(
 		&curves[curve_index],
-		xform_point_v2(state.xform, curve_last),
-		xform_point_v2(state.xform, curve_last + { c1x, c1y }),
-		xform_point_v2(state.xform, curve_last + { c2x, c2y }),
-		xform_point_v2(state.xform, curve_last + { x, y }),
+		renderer_path_xform_v2(path, curve_last),
+		renderer_path_xform_v2(path, curve_last + { c1x, c1y }),
+		renderer_path_xform_v2(path, curve_last + { c2x, c2y }),
+		renderer_path_xform_v2(path, curve_last + { x, y }),
 		renderer.path_index,
 	)
 	curve_index += 1
@@ -788,12 +646,12 @@ renderer_cubic_to_rel :: proc(using renderer: ^Renderer, c1x, c1y, c2x, c2y, x, 
 
 renderer_close :: proc(using renderer: ^Renderer) {
 	if curve_index > 0 {
-		state := renderer_state_get(renderer)
+		path := renderer_path_get(renderer)
 		start := curves[0].B[0]
 
 		curve_linear_init(
 			&curves[curve_index],
-			xform_point_v2(state.xform, curve_last), 
+			renderer_path_xform_v2(path, curve_last), 
 			{ start.x, start.y },
 			renderer.path_index,
 		)
@@ -956,7 +814,7 @@ renderer_arc_to :: proc(
 		kappa = -kappa
 	}
 
-	state := renderer_state_get(renderer)
+	path := renderer_path_get(renderer)
 	p, ptan: [2]f32
 	for i in 0..=ndivs {
 		a := a1 + da * (f32(i)/f32(ndivs))
@@ -1023,4 +881,161 @@ pool_at :: proc(p: ^Pool($N, $T), slot_index: u32, loc := #caller_location) -> ^
 	runtime.bounds_check_error_loc(loc, int(slot_index), N)
 	assert(slot_index > Pool_Invalid_Slot_Index)
 	return &p.data[slot_index]
+}
+
+///////////////////////////////////////////////////////////
+// PATH
+///////////////////////////////////////////////////////////
+
+renderer_path_init :: proc(using path: ^Renderer_Path) {
+	path.box = {
+		max(f32),
+		max(f32),
+		-max(f32),
+		-max(f32),
+	}
+
+	xform_identity(&path.xform)
+	path.color = { 1, 0, 0, 1 }
+}
+
+// add to bounding box
+renderer_path_box_push :: proc(path: ^Renderer_Path, output: [2]f32) {
+	path.box.x = min(path.box.x, output.x)
+	path.box.z = max(path.box.z, output.x)
+	path.box.y = min(path.box.y, output.y)
+	path.box.w = max(path.box.w, output.y)	
+}
+
+renderer_path_xform_v2 :: proc(path: ^Renderer_Path, input: [2]f32) -> (res: [2]f32) {
+	res = {
+		input.x * path.xform[0] + input.y * path.xform[2] + path.xform[4],
+		input.x * path.xform[1] + input.y * path.xform[3] + path.xform[5],
+	}
+	renderer_path_box_push(path, res)
+	return
+}
+
+curve_linear_init :: proc(curve: ^Curve, a, b: [2]f32, path_index: int) {
+	curve.B[0] = a
+	curve.B[1] = b
+	curve.count = 0
+	curve.path_index = i32(path_index)
+}
+
+curve_quadratic_init :: proc(curve: ^Curve, a, b, c: [2]f32, path_index: int) {
+	curve.B[0] = a
+	curve.B[1] = b
+	curve.B[2] = c
+	curve.count = 1
+	curve.path_index = i32(path_index)
+}
+
+curve_cubic_init :: proc(curve: ^Curve, a, b, c, d: [2]f32, path_index: int) {
+	curve.B[0] = a
+	curve.B[1] = b
+	curve.B[2] = c
+	curve.B[3] = d
+	curve.count = 2
+	curve.path_index = i32(path_index)
+}
+
+renderer_path_get :: #force_inline proc(renderer: ^Renderer) -> ^Renderer_Path #no_bounds_check {
+	return &renderer.paths[renderer.path_index]
+}
+
+renderer_path_reset_transform :: proc(using renderer: ^Renderer) {
+	path := renderer_path_get(renderer)
+	xform_identity(&path.xform)
+}
+
+renderer_path_translate :: proc(using renderer: ^Renderer, x, y: f32) {
+	path := renderer_path_get(renderer)
+	temp := xform_translate(x, y)
+	xform_premultiply(&path.xform, temp)
+}
+
+renderer_path_rotate :: proc(using renderer: ^Renderer, angle: f32) {
+	path := renderer_path_get(renderer)
+	temp := xform_rotate(angle)
+	xform_premultiply(&path.xform, temp)
+}
+
+renderer_path_scale :: proc(using renderer: ^Renderer, x, y: f32) {
+	path := renderer_path_get(renderer)
+	temp := xform_scale(x, y)
+	xform_premultiply(&path.xform, temp)
+}
+
+xform_point_v2 :: proc(xform: Xform, input: [2]f32) -> [2]f32 {
+	return {
+		input.x * xform[0] + input.y * xform[2] + xform[4],
+		input.x * xform[1] + input.y * xform[3] + xform[5],
+	}
+}
+
+xform_point_xy :: proc(xform: Xform, x, y: f32) -> (outx, outy: f32) {
+	outx = x * xform[0] + y * xform[2] + xform[4]
+	outy = x * xform[1] + y * xform[3] + xform[5]
+	return
+}
+
+// without offset
+xform_v2 :: proc(xform: Xform, input: [2]f32) -> [2]f32 {
+	return {
+		input.x * xform[0] + input.y * xform[2],
+		input.x * xform[1] + input.y * xform[3],
+	}
+}
+
+xform_identity :: proc(xform: ^Xform) {
+	xform^ = {
+		1, 0, 
+		0, 1,
+		0, 0,
+	}
+}
+
+xform_translate :: proc(tx, ty: f32) -> Xform {
+	return {
+		1, 0,
+		0, 1,
+		tx, ty,
+	}
+}
+
+xform_scale :: proc(sx, sy: f32) -> Xform {
+	return {
+		sx, 0,
+		0, sy,
+		0, 0,
+	}
+}
+
+xform_rotate :: proc(angle: f32) -> Xform {
+	cs := math.cos(angle)
+	sn := math.sin(angle)
+	return {
+		cs, sn,
+		-sn, cs,
+		0, 0,
+	}
+}
+
+xform_multiply :: proc(t: ^Xform, s: Xform) {
+	t0 := t[0] * s[0] + t[1] * s[2]
+	t2 := t[2] * s[0] + t[3] * s[2]
+	t4 := t[4] * s[0] + t[5] * s[2] + s[4]
+	t[1] = t[0] * s[1] + t[1] * s[3]
+	t[3] = t[2] * s[1] + t[3] * s[3]
+	t[5] = t[4] * s[1] + t[5] * s[3] + s[5]
+	t[0] = t0
+	t[2] = t2
+	t[4] = t4
+}
+
+xform_premultiply :: proc(a: ^Xform, b: Xform) {
+	temp := b
+	xform_multiply(&temp, a^)
+	a^ = temp
 }

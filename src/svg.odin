@@ -134,8 +134,6 @@ svg_gen_temp :: proc(svg: string, allocator := context.allocator) -> []SVG_Path_
 }
 
 renderer_svg :: proc(using renderer: ^Renderer, svg: []SVG_Path_Command) {
-	state := renderer_state_get(renderer)
-
 	for cmd in svg {
 		#partial switch cmd.type {
 		case .Move_To_Absolute: renderer_move_to(renderer, cmd.points[0], cmd.points[1])
