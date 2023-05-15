@@ -54,13 +54,32 @@ struct Tile_Operation {
 	int path_index;
 	int curve_index;
 
-	bool cross_right;
+	int cross_right;
 	int pad1;
 	int pad2;
 	int pad3;
 };
 
-layout(std140, binding = 0) volatile buffer Input_Indices {
+struct Path {
+	vec4 color;
+	vec4 box;
+	vec4 clip;
+
+	float xform[6];
+	int pad1;
+	int pad2;
+};
+
+struct Path_Queue {
+	ivec4 area;
+
+	int tile_queue_index;
+	int index;
+	int pad1;
+	int pad2;
+};
+
+layout(std140, binding = 0) coherent buffer Input_Indices {
 	int implicit_curves;
 	int tile_operations;
 	int tile_queues;
@@ -72,37 +91,19 @@ layout(std140, binding = 0) volatile buffer Input_Indices {
 	int pad3;
 } indices;
 
-struct Path {
-	vec4 color;
-	vec4 box;
-
-	float xform[6];
-	int pad1;
-	int pad2;
-};
-
-struct Path_Queue {
-	ivec4 area;
-
-	int tile_queue_index;
-	int pad1;
-	int pad2;
-	int pad3;
-};
-
 layout(std140, binding = 1) readonly buffer Input_Curves {
 	Curve data[];
 } curves;
 
-layout(std140, binding = 2) volatile buffer Output_Implicit_Curves {
+layout(std140, binding = 2) coherent buffer Output_Implicit_Curves {
 	Implicit_Curve data[];
 } implicit_curves;
 
-layout(std140, binding = 3) volatile buffer Tile_Queues {
+layout(std140, binding = 3) coherent buffer Tile_Queues {
 	Tile_Queue data[];
 } tile_queues;
 
-layout(std140, binding = 4) volatile buffer Tile_Operations {
+layout(std140, binding = 4) coherent buffer Tile_Operations {
 	Tile_Operation data[];
 } tile_operations;
 

@@ -10,15 +10,12 @@ void curve_bin_to_tiles(Path_Queue path, Implicit_Curve curve) {
 	implicit_curves.data[curve_index] = curve;
 
 	int off = path.tile_queue_index;
-
-	// TODO use proper coords
-	// ivec4 covered_tiles = ivec4(curve.box) / TILE_SIZE;
-	// int4 path_area = context->path_queue->area;
-	// int4 covered_tiles = int4(seg->box) / tile_size;
-	// int x_min = max(0, covered_tiles.x - path_area.x);
-	// int y_min = max(0, covered_tiles.y - path_area.y);
-	// int x_max = min(covered_tiles.z - path_area.x, path_area.z - 1);
-	// int y_max = min(covered_tiles.w - path_area.y, path_area.w - 1);
+	ivec4 covered_tiles = ivec4(curve.box) / TILE_SIZE;
+	ivec4 path_area = path.area;
+	int x_min = max(0, covered_tiles.x - path_area.x);
+	int y_min = max(0, covered_tiles.y - path_area.y);
+	int x_max = min(covered_tiles.z - path_area.x, path_area.z - 1);
+	int y_max = min(covered_tiles.w - path_area.y, path_area.w - 1);
 
 	vec2 s0, s1;
 	if (curve.orientation == C_TL || curve.orientation == C_BR) {
@@ -29,13 +26,13 @@ void curve_bin_to_tiles(Path_Queue path, Implicit_Curve curve) {
 		s1 = curve.box.zy;
 	}
 
-	for (int y = 0; y <= indices.tiles_y; y += 1) {
-		for (int x = 0; x <= indices.tiles_x; x += 1) {
+	for (int y = y_min; y <= y_max; y += 1) {
+		for (int x = x_min; x <= x_max; x += 1) {
 			vec4 tile_box = vec4(
-				float(x),
-				float(y),
-				float(x + 1),
-				float(y + 1)
+				float(x + path_area.x),
+				float(y + path_area.y),
+				float(x + path_area.x + 1),
+				float(y + path_area.y + 1)
 			) * float(TILE_SIZE);
 
 			vec2 bl = vec2(tile_box.x, tile_box.y);
@@ -59,33 +56,31 @@ void curve_bin_to_tiles(Path_Queue path, Implicit_Curve curve) {
 			if (cross_l || cross_r || cross_t || cross_b || s0_inside || s1_inside) {
 				Tile_Operation op;
 
-				// TODO use path_area.z
-				int tile_index = x + y * indices.tiles_x;
 				op.curve_index = curve_index;
 				op.kind = OPERATION_SEGMENT;
-				op.pad1 = 0;
-				op.pad2 = 0;
-				op.pad3 = 0;
+				op.op_next = -1;
+				op.path_index = path.index;
+				op.pad1 = 1000;
+				op.pad2 = 2000;
+				op.pad3 = 3000;
+
+				int tile_index = x + y * path_area.z;
+				int tile_op_index = atomicAdd(indices.tile_operations, 1);
+
+				// set links
+				op.op_next = atomicExchange(tile_queues.data[off + tile_index].op_first, tile_op_index);
+				if (op.op_next == -1) {
+					tile_queues.data[off + tile_index].op_last = tile_op_index;
+				}
 
 				// note: if the segment crosses the tile's bottom boundary, update the tile's winding offset
 				if (cross_b) {
 					atomicAdd(tile_queues.data[off + tile_index].winding_offset, curve.winding_increment);
 				}
-
-				// note: if the segment crosses the right boundary, mark it. we reuse one of the previous tests
-				op.cross_right = cross_r;
-
-				int op_index = atomicAdd(indices.tile_operations, 1);
-				
-				// set links
-				op.op_next = -1;
-				op.op_next = atomicExchange(tile_queues.data[off + tile_index].op_first, op_index);
-				if (op.op_next == -1) {
-					tile_queues.data[off + tile_index].op_last = op_index;
-				}
+				op.cross_right = int(cross_r);
 
 				// set operation
-				tile_operations.data[op_index] = op;
+				tile_operations.data[tile_op_index] = op;
 			}
 		}
 	}
