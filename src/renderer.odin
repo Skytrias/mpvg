@@ -73,6 +73,9 @@ Renderer :: struct {
 	paths: []Path,
 	path_index: int,
 
+	tile_operations: []Tile_Operation,
+	tile_operation_count_last_frame: i32,
+
 	// tiling temp
 	tile_index: int,
 	tile_count: int,
@@ -213,6 +216,7 @@ Curve :: struct #packed {
 renderer_init :: proc(renderer: ^Renderer) {
 	renderer.curves = make([]Curve, MAX_CURVES)
 	renderer.paths = make([]Path, MAX_PATHS)
+	renderer.tile_operations = make([]Tile_Operation, MAX_TILE_OPERATIONS)
 	pool_clear(&renderer.font_pool)
 
 	renderer_gpu_gl_init(&renderer.gpu)
@@ -228,6 +232,7 @@ renderer_make :: proc() -> (res: Renderer) {
 renderer_destroy :: proc(renderer: ^Renderer) {
 	delete(renderer.curves)
 	delete(renderer.paths)
+	delete(renderer.tile_operations)
 
 	renderer_gpu_gl_destroy(&renderer.gpu)
 	// TODO destroy fonts
@@ -370,7 +375,8 @@ renderer_gpu_gl_init :: proc(using gpu: ^Renderer_GL) {
 	}
 
 	implicitize.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_implicitize, 1, 1)
-	backprop.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_tile_backprop, 16, 1)
+	// backprop.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_tile_backprop, 16, 1)
+	backprop.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_tile_backprop, 1, 1)
 	path.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_path, 1, 1)
 	merge.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_merge, 1, 1)
 
@@ -410,7 +416,7 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 		gl.UseProgram(path.program)
 
 		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, indices_ssbo)
-		gl.NamedBufferSubData(indices_ssbo, 0, 1 * size_of(Indices), &renderer.indices)
+		gl.NamedBufferSubData(indices_ssbo, 0, size_of(Indices), &renderer.indices)
 
 		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, paths_ssbo)
 		gl.NamedBufferSubData(paths_ssbo, 0, (renderer.path_index + 1) * size_of(Path), raw_data(renderer.paths))
@@ -426,41 +432,61 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 	{
 		gl.UseProgram(implicitize.program)
 		gl.DispatchCompute(u32(renderer.curve_index), 1, 1)
+
+		gl.GetNamedBufferSubData(indices_ssbo, 0, 1 * size_of(Indices), &renderer.indices)
+		// fmt.eprintln(renderer.indices)
+		temp := make([]Tile_Operation, renderer.indices.tile_operations, context.temp_allocator)
+		gl.GetNamedBufferSubData(tile_operations_ssbo, 0, size_of(Tile_Operation) * len(temp), raw_data(temp))
+		
+		was_different := mem.compare(
+			mem.slice_to_bytes(renderer.tile_operations[:renderer.tile_operation_count_last_frame]), 
+			mem.slice_to_bytes(temp),
+		)
+
+		fmt.eprintln("~~~", was_different != 0)
+		for i in 0..<renderer.indices.tile_operations {
+			op := temp[i]
+			fmt.eprintf("%+d\t\t", op.op_next)
+		}
+		fmt.eprintln()
+
+		copy(renderer.tile_operations, temp)
+		renderer.tile_operation_count_last_frame = renderer.indices.tile_operations
 	}
 
 	// fmt.eprintln("yo0")
 
-	// tile backprop stage go by 0->tiles_y
-	{
-		gl.UseProgram(backprop.program)
-		// gl.DispatchCompute(u32(renderer.tiles_y), 1, 1)
-		gl.DispatchCompute(u32(renderer.path_index + 1), 1, 1)
-		gl.MemoryBarrier(gl.SHADER_STORAGE_BARRIER_BIT)
-	}
+	// // tile backprop stage go by 0->tiles_y
+	// {
+	// 	gl.UseProgram(backprop.program)
+	// 	// gl.DispatchCompute(u32(renderer.tiles_y), 1, 1)
+	// 	gl.DispatchCompute(u32(renderer.path_index + 1), 1, 1)
+	// 	gl.MemoryBarrier(gl.SHADER_STORAGE_BARRIER_BIT)
+	// }
 
 	// fmt.eprintln("yo1")
 
-	// tile merging to screen tiles
-	{
-		gl.UseProgram(merge.program)
-		gl.DispatchCompute(u32(renderer.tiles_x), u32(renderer.tiles_y), 1)
-		gl.MemoryBarrier(gl.SHADER_STORAGE_BARRIER_BIT)
-	}
+	// // tile merging to screen tiles
+	// {
+	// 	gl.UseProgram(merge.program)
+	// 	gl.DispatchCompute(u32(renderer.tiles_x), u32(renderer.tiles_y), 1)
+	// 	gl.MemoryBarrier(gl.SHADER_STORAGE_BARRIER_BIT)
+	// }
 
-	// fmt.eprintln("yo2")
+	// // fmt.eprintln("yo2")
 
-	// raster stage
-	{
-		gl.UseProgram(raster.program)
+	// // raster stage
+	// {
+	// 	gl.UseProgram(raster.program)
 
-		when USE_TILING {
-			gl.DispatchCompute(u32(renderer.tiles_x), u32(renderer.tiles_y), 1)
-		} else {
-			gl.DispatchCompute(u32(width), u32(height), 1)
-		}
+	// 	when USE_TILING {
+	// 		gl.DispatchCompute(u32(renderer.tiles_x), u32(renderer.tiles_y), 1)
+	// 	} else {
+	// 		gl.DispatchCompute(u32(width), u32(height), 1)
+	// 	}
 
-		gl.MemoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT)
-	}
+	// 	gl.MemoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT)
+	// }
 
 	// fill texture
 	gl.Enable(gl.BLEND)

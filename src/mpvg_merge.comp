@@ -8,15 +8,15 @@ void main() {
 
 	for (int path_index = 0; path_index < paths.data.length(); path_index += 1) {
 		Path_Queue path_queue = path_queues.data[path_index];
-		ivec2 path_tile_coord = tile_coord - path_queue.area.xy;
+		ivec2 path_tile_coord = tile_coord - ivec2(path_queue.x, path_queue.y);
 
 		Path path = paths.data[path_index];
 		float x_max = min(path.box.z, path.clip.z);
 		int tile_max = int(x_max / TILE_SIZE);
-		int path_tile_max = tile_max - path_queue.area.x;
+		int path_tile_max = tile_max - path_queue.x;
 
-		if (path_tile_coord.x >= 0 && path_tile_coord.x <= path_tile_max && path_tile_coord.y >= 0 && path_tile_coord.y < path_queue.area.w) {
-			int path_tile_index = path_tile_coord.y * path_queue.area.z + path_tile_coord.x;
+		if (path_tile_coord.x >= 0 && path_tile_coord.x <= path_tile_max && path_tile_coord.y >= 0 && path_tile_coord.y < path_queue.tiles_y) {
+			int path_tile_index = path_tile_coord.y * path_queue.tiles_x + path_tile_coord.x;
 			Tile_Queue tile_queue = tile_queues.data[path_queue.tile_queue_index + path_tile_index];
 
 			// TODO atomic load?

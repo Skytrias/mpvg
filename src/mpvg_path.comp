@@ -6,7 +6,7 @@ void main() {
 		max(path.box.x, path.clip.x),
 		max(path.box.y, path.clip.y),
 		path.box.z,
-		max(path.box.w, path.clip.w)
+		min(path.box.w, path.clip.w)
 	);
 	ivec2 first_tile = ivec2(clipped_box.xy) / TILE_SIZE;
 	ivec2 last_tile = ivec2(clipped_box.zw) / TILE_SIZE;
@@ -20,12 +20,11 @@ void main() {
 	// TODO could just modify path to take this data?
 	// setup path queue data
 	Path_Queue queue;
-	queue.area = ivec4(
-		first_tile.x,
-		first_tile.y,
-		last_tile.x,
-		last_tile.y
-	);
+	queue.x = first_tile.x;
+	queue.y = first_tile.y;
+	queue.tiles_x = tiles_x;
+	queue.tiles_y = tiles_y;
+
 	queue.tile_queue_index = tile_queue_index;
 	queue.index = path_index;
 	queue.pad1 = 0;

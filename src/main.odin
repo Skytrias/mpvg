@@ -13,16 +13,7 @@ import glm "core:math/linalg/glsl"
 import glfw "vendor:glfw"
 import gl "vendor:OpenGL"
 
-// COMPUTE PIPELINE
-// path setup ??? 
 
-// segment setup DONE
-// segment bin to tiles directly DONE
-
-// tile backprop DONE
-// tile merge
-
-// raster DONE
 
 length :: linalg.vector_length
 
@@ -131,6 +122,11 @@ points_write :: proc(p1, p2, p3: ^[2]f32) {
 	os.write_entire_file(POINTS_PATH, blob_result(blob))
 }
 
+print :: proc() {
+	def := cast(^runtime.Default_Temp_Allocator) context.temp_allocator.data
+	fmt.eprintln(def)		
+}
+
 main :: proc() {
 	glfw.Init()
 	defer glfw.Terminate()
@@ -220,11 +216,12 @@ main :: proc() {
 			// renderer_state_translate(&app.renderer, app.mouse.x, app.mouse.y)
 			// renderer_circle(&app.renderer, 0, 0, 100)
 			
-			renderer_move_to(&app.renderer, 300, 300)
+			// renderer_move_to(&app.renderer, 300, 300)
 			// renderer_line_to(&app.renderer, app.mouse.x, app.mouse.y)
 			// renderer_cubic_to(&app.renderer, p1.x, p1.y, p3.x, p3.y, p2.x, p2.y)
 			// renderer_arc_to(&app.renderer, 20, 20, 0, 1, 0, p2.x, p2.y)
 			// renderer_quadratic_to(&app.renderer, p3.x, p3.y, p2.x, p2.y)
+			renderer_move_to(&app.renderer, p1.x, p1.y)
 			renderer_line_to(&app.renderer, p2.x, p2.y)
 			renderer_close(&app.renderer)
 

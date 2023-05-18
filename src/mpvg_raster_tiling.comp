@@ -4,6 +4,9 @@ void main() {
 	ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
 	vec2 px = gl_GlobalInvocationID.xy;
 
+	// OLD
+	// uint tile_index = gl_WorkGroupID.x + gl_WorkGroupID.y * indices.tiles_x;
+
 	ivec2 tile_coord = ivec2(gl_GlobalInvocationID.xy);
 	uint tile_index = tile_coord.y * gl_NumWorkGroups.x + tile_coord.x;
 

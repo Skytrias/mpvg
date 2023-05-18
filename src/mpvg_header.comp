@@ -71,7 +71,12 @@ struct Path {
 };
 
 struct Path_Queue {
-	ivec4 area;
+	// tile start
+	int x;
+	int y;
+	// tile counts
+	int tiles_x;
+	int tiles_y;
 
 	int tile_queue_index;
 	int index;
@@ -95,11 +100,11 @@ layout(std140, binding = 1) readonly buffer Input_Curves {
 	Curve data[];
 } curves;
 
-layout(std140, binding = 2) coherent buffer Output_Implicit_Curves {
+layout(std140, binding = 2) buffer Output_Implicit_Curves {
 	Implicit_Curve data[];
 } implicit_curves;
 
-layout(std140, binding = 3) coherent buffer Tile_Queues {
+layout(std140, binding = 3) buffer Tile_Queues {
 	Tile_Queue data[];
 } tile_queues;
 
