@@ -1,4 +1,5 @@
 #define TILE_SIZE 32
+#define TILE_OPERATION_COUNT 50
 
 // kind of curve
 #define C_LINE 0
@@ -22,8 +23,6 @@ struct Curve {
 	vec2 p3;
 	int count;
 	int path_index;
-	int pad1;
-	int pad2;
 };
 
 struct Implicit_Curve {
@@ -41,23 +40,17 @@ struct Implicit_Curve {
 };
 
 struct Tile_Queue {
-	int op_first;
-	int op_last;
+	int tile_operation_start;
+	int tile_operation_count;
 	int winding_offset;
-	int pad1;
 };
 
 // TODO winding offset included here?
 struct Tile_Operation {
 	int kind;
-	int op_next;
 	int path_index;
 	int curve_index;
-
 	int cross_right;
-	int pad1;
-	int pad2;
-	int pad3;
 };
 
 struct Path {
@@ -66,61 +59,57 @@ struct Path {
 	vec4 clip;
 
 	float xform[6];
-	int pad1;
-	int pad2;
+	float pad1;
+	float pad2;
 };
 
 struct Path_Queue {
 	// tile start
 	int x;
 	int y;
+
 	// tile counts
 	int tiles_x;
 	int tiles_y;
 
 	int tile_queue_index;
 	int index;
-	int pad1;
-	int pad2;
 };
 
-layout(std140, binding = 0) coherent buffer Input_Indices {
+layout(std430, binding = 0) coherent buffer Input_Indices {
 	int implicit_curves;
 	int tile_operations;
 	int tile_queues;
-	int pad1;
 
 	int tiles_x;
 	int tiles_y;
-	int pad2;
-	int pad3;
 } indices;
 
-layout(std140, binding = 1) readonly buffer Input_Curves {
+layout(std430, binding = 1) readonly buffer Input_Curves {
 	Curve data[];
 } curves;
 
-layout(std140, binding = 2) buffer Output_Implicit_Curves {
+layout(std430, binding = 2) coherent buffer Output_Implicit_Curves {
 	Implicit_Curve data[];
 } implicit_curves;
 
-layout(std140, binding = 3) buffer Tile_Queues {
+layout(std430, binding = 3) coherent buffer Tile_Queues {
 	Tile_Queue data[];
 } tile_queues;
 
-layout(std140, binding = 4) coherent buffer Tile_Operations {
+layout(std430, binding = 4) coherent buffer Tile_Operations {
 	Tile_Operation data[];
 } tile_operations;
 
-layout(std140, binding = 5) buffer Paths {
+layout(std430, binding = 5) coherent buffer Paths {
 	Path data[];
 } paths;
 
-layout(std140, binding = 6) buffer Path_Queues {
+layout(std430, binding = 6) coherent buffer Path_Queues {
 	Path_Queue data[];
 } path_queues;
 
-layout(std140, binding = 7) buffer Screen_Tiles {
+layout(std430, binding = 7) buffer Screen_Tiles {
 	int data[];
 } screen_tiles;
 
@@ -187,7 +176,7 @@ int curve_side(Implicit_Curve curve, vec2 pt) {
 			side = (curve.orientation == C_BL || curve.orientation == C_TL) ? -1 : 1;
 		}	else {
 			// inside curve hull
-			switch(curve.kind) {
+			switch(curve.kind) {	
 				case C_LINE:
 					side = 1;
 					break;

@@ -42,12 +42,12 @@ void main() {
 			}
 		}
 		
-		// op_index = -1;
-		op_index = op.op_next;
+		op_index = -1;
+		// op_index = op.op_next;
 	}
 
 	Path path = paths.data[path_index];
-	vec4 color = vec4(1);
+	vec4 color = vec4(1, 1, 1, 1);
 	vec4 clip = path.clip;
 
 	// TODO fill / stroke?

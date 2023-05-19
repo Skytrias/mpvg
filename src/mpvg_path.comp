@@ -16,6 +16,7 @@ void main() {
 	int tile_count = tiles_x * tiles_y;
 
 	int tile_queue_index = atomicAdd(indices.tile_queues, tile_count);
+	int tile_operation_index = atomicAdd(indices.tile_operations, tile_count * TILE_OPERATION_COUNT);
 
 	// TODO could just modify path to take this data?
 	// setup path queue data
@@ -27,15 +28,13 @@ void main() {
 
 	queue.tile_queue_index = tile_queue_index;
 	queue.index = path_index;
-	queue.pad1 = 0;
-	queue.pad2 = 0;
 	path_queues.data[path_index] = queue;
 
 	// init all tiles per path
 	for (int i = tile_queue_index; i < tile_queue_index + tile_count; i += 1) {
 		Tile_Queue tile;
-		tile.op_first = -1;
-		tile.op_last = -1;
+		tile.tile_operation_start = tile_operation_index + i * TILE_OPERATION_COUNT;
+		tile.tile_operation_count = 0;
 		tile.winding_offset = 0;
 		tile_queues.data[i] = tile;
 	}

@@ -45,19 +45,15 @@ Vertex :: struct {
 
 KAPPA90 :: 0.5522847493
 
-// glsl std140 layout
 // indices that will get advanced in compute shaders!
 Indices :: struct #packed {
 	implicit_curves: i32,
 	tile_operations: i32,
 	tile_queues: i32,
-	pad1: i32,
 
 	// data used throughout
 	tiles_x: i32,
 	tiles_y: i32,
-	pad2: i32,
-	pad3: i32,
 }
 
 Renderer :: struct {
@@ -72,9 +68,6 @@ Renderer :: struct {
 	// paths per curve shape
 	paths: []Path,
 	path_index: int,
-
-	tile_operations: []Tile_Operation,
-	tile_operation_count_last_frame: i32,
 
 	// tiling temp
 	tile_index: int,
@@ -125,27 +118,21 @@ Renderer_GL :: struct {
 	tile_queues_ssbo: u32,
 	tile_operations_ssbo: u32,
 	paths_ssbo: u32,
-	path_queue_ssbo: u32,
+	path_queues_ssbo: u32,
 	screen_tiles_ssbo: u32,
 }
 
 Tile_Queue :: struct #packed {
-	op_first: i32,
-	op_last: i32,
+	tile_operation_start: i32,
+	tile_operation_count: i32,
 	winding_offset: i32,
-	pad1: i32,
 }
 
 Tile_Operation :: struct #packed {
 	kind: i32,
-	op_next: i32,	// next command index
 	path_index: i32, // which path this belongs to
 	curve_index: i32, // which implicit curve this belongs to
-
 	cross_right: b32,
-	pad1: i32,
-	pad2: i32,
-	pad3: i32,
 }
 
 Path :: struct #packed {
@@ -154,17 +141,19 @@ Path :: struct #packed {
 	clip: [4]f32,
 
 	xform: Xform, // transformation used throughout vertice creation
-	pad1: i32,
-	pad2: i32,
+	pad1: f32,
+	pad2: f32,
 }
 
 Path_Queue :: struct #packed {
-	area: [4]i32,
-
-	tile_queues: i32,
-	pad1: i32,
-	pad2: i32,
-	pad3: i32,
+	x: i32,
+	y: i32,
+	
+	tiles_x: i32,
+	tiles_y: i32,
+	
+	tile_queues_index: i32,
+	index: i32,
 }
 
 Implicit_Curve_Kind :: enum i32 {
@@ -209,16 +198,13 @@ Curve :: struct #packed {
 	B: [4][2]f32,
 	count: i32, // 0-2 + 1
 	path_index: i32,
-	pad1: i32,
-	pad2: i32,
 }
 
 renderer_init :: proc(renderer: ^Renderer) {
 	renderer.curves = make([]Curve, MAX_CURVES)
 	renderer.paths = make([]Path, MAX_PATHS)
-	renderer.tile_operations = make([]Tile_Operation, MAX_TILE_OPERATIONS)
+	
 	pool_clear(&renderer.font_pool)
-
 	renderer_gpu_gl_init(&renderer.gpu)
 
 	renderer.tiles_size = TILE_SIZE
@@ -232,8 +218,6 @@ renderer_make :: proc() -> (res: Renderer) {
 renderer_destroy :: proc(renderer: ^Renderer) {
 	delete(renderer.curves)
 	delete(renderer.paths)
-	delete(renderer.tile_operations)
-
 	renderer_gpu_gl_destroy(&renderer.gpu)
 	// TODO destroy fonts
 }
@@ -253,6 +237,8 @@ renderer_start :: proc(renderer: ^Renderer, width, height: int) {
 	renderer.indices.tile_operations = 0
 	renderer.path_index = 0
 	path_init(&renderer.paths[0])
+
+	// for i in =
 
 	renderer_gpu_gl_start(renderer)
 }
@@ -315,6 +301,7 @@ renderer_gpu_shader_compute :: proc(
 
 	// write header
 	strings.write_bytes(builder, header)
+	strings.write_byte(builder, '\n')
 
 	// write rest of the data
 	strings.write_bytes(builder, data)
@@ -395,7 +382,7 @@ renderer_gpu_gl_init :: proc(using gpu: ^Renderer_GL) {
 	tile_queues_ssbo = create(3, MAX_TILE_QUEUES * size_of(Tile_Queue))
 	tile_operations_ssbo = create(4, MAX_TILE_OPERATIONS * size_of(Tile_Operation))
 	paths_ssbo = create(5, MAX_PATHS * size_of(Path))
-	path_queue_ssbo = create(6, MAX_PATH_QUEUES * size_of(Path_Queue))
+	path_queues_ssbo = create(6, MAX_PATH_QUEUES * size_of(Path_Queue))
 	screen_tiles_ssbo = create(7, MAX_SCREEN_TILES * size_of(i32))
 }
 
@@ -405,6 +392,29 @@ renderer_gpu_gl_destroy :: proc(using gpu: ^Renderer_GL) {
 
 renderer_gpu_gl_start :: proc(renderer: ^Renderer) {
 
+}
+
+renderer_output_path_results :: proc(renderer: ^Renderer) {
+	gpu := &renderer.gpu
+	using gpu
+
+	gl.GetNamedBufferSubData(indices_ssbo, 0, 1 * size_of(Indices), &renderer.indices)
+	fmt.eprintln(renderer.indices)
+
+	path_count := renderer.path_index + 1
+	temp_path_queues := make([]Path_Queue, path_count, context.temp_allocator)
+	gl.GetNamedBufferSubData(path_queues_ssbo, 0, path_count * size_of(Path_Queue), raw_data(temp_path_queues))
+
+	temp_tile_queues := make([]Tile_Queue, renderer.indices.tile_queues, context.temp_allocator)
+	gl.GetNamedBufferSubData(tile_queues_ssbo, 0, int(renderer.indices.tile_queues) * size_of(Tile_Queue), raw_data(temp_tile_queues))
+
+	fmt.eprintln("~~~ PATH QUEUES ~~~")
+	for i in 0..<path_count {
+		path := temp_path_queues[i]
+		fmt.eprintln("\t", path)
+		tile_count := path.tiles_x  * path.tiles_y
+		fmt.eprintln("\t\t", temp_tile_queues[path.tile_queues_index:tile_count])
+	}		
 }
 
 renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
@@ -434,59 +444,54 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 		gl.DispatchCompute(u32(renderer.curve_index), 1, 1)
 
 		gl.GetNamedBufferSubData(indices_ssbo, 0, 1 * size_of(Indices), &renderer.indices)
-		// fmt.eprintln(renderer.indices)
+		// fmt.eprintln(renderer.indices.tile_operations)
+
 		temp := make([]Tile_Operation, renderer.indices.tile_operations, context.temp_allocator)
 		gl.GetNamedBufferSubData(tile_operations_ssbo, 0, size_of(Tile_Operation) * len(temp), raw_data(temp))
 		
-		was_different := mem.compare(
-			mem.slice_to_bytes(renderer.tile_operations[:renderer.tile_operation_count_last_frame]), 
-			mem.slice_to_bytes(temp),
-		)
+		temp_tile_queues := make([]Tile_Queue, renderer.indices.tile_queues, context.temp_allocator)
+		gl.GetNamedBufferSubData(tile_queues_ssbo, 0, int(renderer.indices.tile_queues) * size_of(Tile_Queue), raw_data(temp_tile_queues))
 
-		fmt.eprintln("~~~", was_different != 0)
-		for i in 0..<renderer.indices.tile_operations {
-			op := temp[i]
-			fmt.eprintf("%+d\t\t", op.op_next)
-		}
-		fmt.eprintln()
+		// fmt.eprintln("TILE QUEUES", renderer.indices.tile_queues)
+		// for i in 0..<renderer.indices.tile_queues {
+		// 	tile_queue := temp_tile_queues[i]
+		// 	fmt.eprintln("\t", tile_queue)
 
-		copy(renderer.tile_operations, temp)
-		renderer.tile_operation_count_last_frame = renderer.indices.tile_operations
+		// 	for j in 0..<tile_queue.tile_operation_count {
+		// 		fmt.eprintln("\t\t", temp[tile_queue.tile_operation_start + j])
+		// 	}
+		// }
 	}
 
-	// fmt.eprintln("yo0")
+	// tile backprop stage go by 0->tiles_y
+	{
+		gl.UseProgram(backprop.program)
+		// gl.DispatchCompute(u32(renderer.tiles_y), 1, 1)
+		gl.DispatchCompute(u32(renderer.path_index + 1), 1, 1)
+		gl.MemoryBarrier(gl.SHADER_STORAGE_BARRIER_BIT)
+	}
 
-	// // tile backprop stage go by 0->tiles_y
-	// {
-	// 	gl.UseProgram(backprop.program)
-	// 	// gl.DispatchCompute(u32(renderer.tiles_y), 1, 1)
-	// 	gl.DispatchCompute(u32(renderer.path_index + 1), 1, 1)
-	// 	gl.MemoryBarrier(gl.SHADER_STORAGE_BARRIER_BIT)
-	// }
+	// tile merging to screen tiles
+	{
+		gl.UseProgram(merge.program)
+		gl.DispatchCompute(u32(renderer.tiles_x), u32(renderer.tiles_y), 1)
+		gl.MemoryBarrier(gl.SHADER_STORAGE_BARRIER_BIT)
+	}
 
-	// fmt.eprintln("yo1")
+	// fmt.eprintln("yo2")
 
-	// // tile merging to screen tiles
-	// {
-	// 	gl.UseProgram(merge.program)
-	// 	gl.DispatchCompute(u32(renderer.tiles_x), u32(renderer.tiles_y), 1)
-	// 	gl.MemoryBarrier(gl.SHADER_STORAGE_BARRIER_BIT)
-	// }
+	// raster stage
+	{
+		gl.UseProgram(raster.program)
 
-	// // fmt.eprintln("yo2")
+		when USE_TILING {
+			gl.DispatchCompute(u32(renderer.tiles_x), u32(renderer.tiles_y), 1)
+		} else {
+			gl.DispatchCompute(u32(width), u32(height), 1)
+		}
 
-	// // raster stage
-	// {
-	// 	gl.UseProgram(raster.program)
-
-	// 	when USE_TILING {
-	// 		gl.DispatchCompute(u32(renderer.tiles_x), u32(renderer.tiles_y), 1)
-	// 	} else {
-	// 		gl.DispatchCompute(u32(width), u32(height), 1)
-	// 	}
-
-	// 	gl.MemoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT)
-	// }
+		gl.MemoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT)
+	}
 
 	// fill texture
 	gl.Enable(gl.BLEND)

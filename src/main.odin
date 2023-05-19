@@ -221,6 +221,7 @@ main :: proc() {
 			// renderer_cubic_to(&app.renderer, p1.x, p1.y, p3.x, p3.y, p2.x, p2.y)
 			// renderer_arc_to(&app.renderer, 20, 20, 0, 1, 0, p2.x, p2.y)
 			// renderer_quadratic_to(&app.renderer, p3.x, p3.y, p2.x, p2.y)
+
 			renderer_move_to(&app.renderer, p1.x, p1.y)
 			renderer_line_to(&app.renderer, p2.x, p2.y)
 			renderer_close(&app.renderer)
