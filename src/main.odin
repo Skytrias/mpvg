@@ -154,7 +154,7 @@ main :: proc() {
 	renderer_init(&app.renderer)
 	defer renderer_destroy(&app.renderer)
 
-	// renderer_font_push(&app.renderer, "Lato-Regular.ttf")
+	renderer_font_push(&app.renderer, "Lato-Regular.ttf")
 
 	p1, p2, p3: [2]f32
 	points_read(&p1, &p2, &p3)
@@ -162,8 +162,13 @@ main :: proc() {
 	scale: [2]f32
 	offset: [2]f32
 
-	svg_curves := svg_gen_temp(svg_shield_path)
+	// svg_curves := svg_gen_temp(svg_shield_path)
 	// svg_curves := svg_gen_temp(svg_test)
+	// svg_curves := svg_gen_temp(svg_aws)
+	// svg_curves := svg_gen_temp(svg_angular)
+	// svg_curves := svg_gen_temp(svg_debian)
+	// svg_curves := svg_gen_temp(svg_firefox)
+	svg_curves := svg_gen_temp(svg_rust)
 	defer delete(svg_curves)
 
 	count: f32
@@ -230,7 +235,9 @@ main :: proc() {
 
 			renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
 			// renderer_path_translate(&app.renderer, 100, 100)
-			renderer_path_scale(&app.renderer, 10, 10)
+			// renderer_path_scale(&app.renderer, 5, 5)
+			// renderer_path_scale(&app.renderer, 10, 10)
+			renderer_path_scale(&app.renderer, 20, 20)
 			renderer_svg(&app.renderer, svg_curves)
 		}
 

@@ -3,9 +3,6 @@ layout(rgba8, binding = 0) uniform image2D img_output;
 #define MAX_SAMPLES 8
 
 void main() {
-	ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
-	// vec2 px = gl_GlobalInvocationID.xy;
-
 	// screen tile index
 	ivec2 tile_coord = ivec2(gl_GlobalInvocationID.xy);
 	uint screen_tile_index = gl_WorkGroupID.x + gl_WorkGroupID.y * indices.tiles_x;
@@ -27,8 +24,18 @@ void main() {
 		center_coord + vec2(7, 7) / 16
 	);
 
-	vec4 color[MAX_SAMPLES];
-	int winding[MAX_SAMPLES];
+	vec4 color[MAX_SAMPLES] = vec4[MAX_SAMPLES](
+		vec4(0, 0, 0, 0),
+		vec4(0, 0, 0, 0),
+		vec4(0, 0, 0, 0),
+		vec4(0, 0, 0, 0),
+		
+		vec4(0, 0, 0, 0),
+		vec4(0, 0, 0, 0),
+		vec4(0, 0, 0, 0),
+		vec4(0, 0, 0, 0)
+	);
+	int winding[MAX_SAMPLES] = int[MAX_SAMPLES](0, 0, 0, 0, 0, 0, 0, 0);
 
 	// iterate first tile queue
 	while (tile_queue_offset != -1) {
@@ -93,9 +100,12 @@ void main() {
 	}
 	pixel_color /= MAX_SAMPLES;
 
-	// if (pixel_coords.x % TILE_SIZE == 0 || pixel_coords.y % TILE_SIZE == 0) {
-	// 	color = vec4(1, 1, 1, 1);
-	// }
 
+	ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
+	if (pixel_coords.x % TILE_SIZE == 0 || pixel_coords.y % TILE_SIZE == 0) {
+		// for (int sample_index = 0; sample_index < MAX_SAMPLES; sample_index += 1) {
+			pixel_color = vec4(0, 0, 0, 1);
+		// }
+	}
 	imageStore(img_output, pixel_coords, pixel_color);
 }

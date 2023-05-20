@@ -13,10 +13,10 @@ import gl "vendor:OpenGL"
 
 TILE_SIZE :: 32 // has to match compute header
 MAX_STATES :: 32
-MAX_CURVES :: 256
-MAX_IMPLICIT_CURVES :: 256
+MAX_CURVES :: 512
+MAX_IMPLICIT_CURVES :: 512
 MAX_TILE_QUEUES :: 1028
-MAX_TILE_OPERATIONS :: 1028 * 2
+MAX_TILE_OPERATIONS :: 1028 * 40
 MAX_PATHS :: 1028
 MAX_PATH_QUEUES :: MAX_PATHS
 MAX_SCREEN_TILES :: 1028 * 2
@@ -543,11 +543,6 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 
 renderer_move_to :: proc(renderer: ^Renderer, x, y: f32) {
 	path := renderer_path_get(renderer)
-
-	// if renderer.curve_index > 0 {
-	// 	renderer_close(renderer)
-	// }
-
 	renderer.curve_last = { x, y }
 }
 
@@ -661,18 +656,18 @@ renderer_cubic_to_rel :: proc(using renderer: ^Renderer, c1x, c1y, c2x, c2y, x, 
 
 renderer_close :: proc(using renderer: ^Renderer) {
 	if curve_index > 0 {
-		path := renderer_path_get(renderer)
-		start := curves[0].B[0]
+		// path := renderer_path_get(renderer)
+		// start := curves[0].B[0]
 
-		// curve_linear_init(
-		// 	&curves[curve_index],
-		// 	path_xform_v2(path, curve_last),
-		// 	{ start.x, start.y },
-		// 	renderer.path_index,
-		// )
+		// // curve_linear_init(
+		// // 	&curves[curve_index],
+		// // 	path_xform_v2(path, curve_last),
+		// // 	{ start.x, start.y },
+		// // 	renderer.path_index,
+		// // )
 
-		curve_index += 1
-		curve_last = { start.x, start.y }
+		// curve_index += 1
+		// curve_last = { start.x, start.y }
 	}
 }
 

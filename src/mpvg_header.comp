@@ -1,5 +1,5 @@
 #define TILE_SIZE 32
-#define OPERATION_COUNT 20
+#define OPERATION_COUNT 200
 
 // kind of curve
 #define C_LINE 0
