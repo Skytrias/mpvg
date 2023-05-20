@@ -5,7 +5,7 @@ void main() {
 	if (gl_LocalInvocationIndex == 0) {
 		next_row_index = 0;
 	}
-	barrier();
+	// barrier();
 
 	int path_index = int(gl_WorkGroupID.x);
 	

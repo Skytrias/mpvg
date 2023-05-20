@@ -477,21 +477,21 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 		gl.DispatchCompute(u32(renderer.tiles_x), u32(renderer.tiles_y), 1)
 		gl.MemoryBarrier(gl.SHADER_STORAGE_BARRIER_BIT)
 
-		gl.GetNamedBufferSubData(indices_ssbo, 0, 1 * size_of(Indices), &renderer.indices)
-		// fmt.eprintln(renderer.indices.tile_operations)
+		// gl.GetNamedBufferSubData(indices_ssbo, 0, 1 * size_of(Indices), &renderer.indices)
+		// // fmt.eprintln(renderer.indices.tile_operations)
 
-		temp := make([]Screen_Tile, renderer.tiles_x * renderer.tiles_y, context.temp_allocator)
-		gl.GetNamedBufferSubData(screen_tiles_ssbo, 0, len(temp) * size_of(Screen_Tile), raw_data(temp))
+		// temp := make([]Screen_Tile, renderer.tiles_x * renderer.tiles_y, context.temp_allocator)
+		// gl.GetNamedBufferSubData(screen_tiles_ssbo, 0, len(temp) * size_of(Screen_Tile), raw_data(temp))
 
-		fmt.eprintln("SCREEN TILES")
-		count: int
-		for i in 0..<len(temp) {
-			if temp[i].offset != -1 {
-				fmt.eprintln("\t", i, temp[i])
-				count += 1
-			}
-		}
-		fmt.eprintln("COUNT:", count)
+		// fmt.eprintln("SCREEN TILES")
+		// count: int
+		// for i in 0..<len(temp) {
+		// 	if temp[i].offset != -1 {
+		// 		fmt.eprintln("\t", i, temp[i])
+		// 		count += 1
+		// 	}
+		// }
+		// fmt.eprintln("COUNT:", count)
 	}
 
 	// raster stage
@@ -664,12 +664,12 @@ renderer_close :: proc(using renderer: ^Renderer) {
 		path := renderer_path_get(renderer)
 		start := curves[0].B[0]
 
-		curve_linear_init(
-			&curves[curve_index],
-			path_xform_v2(path, curve_last),
-			{ start.x, start.y },
-			renderer.path_index,
-		)
+		// curve_linear_init(
+		// 	&curves[curve_index],
+		// 	path_xform_v2(path, curve_last),
+		// 	{ start.x, start.y },
+		// 	renderer.path_index,
+		// )
 
 		curve_index += 1
 		curve_last = { start.x, start.y }

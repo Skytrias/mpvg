@@ -7,16 +7,18 @@ import "core:strconv"
 import "core:unicode"
 
 // svg_shield_path := "M12,1L3,5V11C3,16.55 6.84,21.74 12,23C17.16,21.74 21,16.55 21,11V5L12,1M12,5A3,3 0 0,1 15,8A3,3 0 0,1 12,11A3,3 0 0,1 9,8A3,3 0 0,1 12,5M17.13,17C15.92,18.85 14.11,20.24 12,20.92C9.89,20.24 8.08,18.85 6.87,17C6.53,16.5 6.24,16 6,15.47C6,13.82 8.71,12.47 12,12.47C15.29,12.47 18,13.79 18,15.47C17.76,16 17.47,16.5 17.13,17Z"
-// svg_shield_path := "M12,1L3,5V11C3,16.55 6.84,21.74 12,23C17.16,21.74 21,16.55 21,11V5L12,1M12,5A3,3 0 0,1 15,8A3,3 0 0,1 12,11A3,3 0 0,1 9,8A3,3 0 0,1 12,5M17.13,17C15.92,18.85 14.11,20.24 12,20.92C9.89,20.24 8.08,18.85 6.87,17C6.53,16.5 6.24,16 6,15.47C6,13.82 8.71,12.47 12,12.47C15.29,12.47 18,13.79 18,15.47C17.76,16 17.47,16.5 17.13,17Z"
+svg_shield_path := "M12,1L3,5V11C3,16.55 6.84,21.74 12,23C17.16,21.74 21,16.55 21,11V5L12,1M12,5A3,3 0 0,1 15,8A3,3 0 0,1 12,11A3,3 0 0,1 9,8A3,3 0 0,1 12,5M17.13,17C15.92,18.85 14.11,20.24 12,20.92C9.89,20.24 8.08,18.85 6.87,17C6.53,16.5 6.24,16 6,15.47C6,13.82 8.71,12.47 12,12.47C15.29,12.47 18,13.79 18,15.47C17.76,16 17.47,16.5 17.13,17Z"
 
 // shield
 // svg_shield_path := "M12,1L3,5V11C3,16.55 6.84,21.74 12,23C17.16,21.74 21,16.55 21,11V5L12,1Z"
 
 // mid
-svg_shield_path := "M12,5A3,3 0 0,1 15,8A3,3 0 0,1 12,11A3,3 0 0,1 9,8A3,3 0 0,1 12,5Z"
+// svg_shield_path := "M12,5A3,3 0 0,1 15,8A3,3 0 0,1 12,11A3,3 0 0,1 9,8A3,3 0 0,1 12,5Z"
 
 // head
 // svg_shield_path := "M17.13,17C15.92,18.85 14.11,20.24 12,20.92C9.89,20.24 8.08,18.85 6.87,17C6.53,16.5 6.24,16 6,15.47C6,13.82 8.71,12.47 12,12.47C15.29,12.47 18,13.79 18,15.47C17.76,16 17.47,16.5 17.13,17Z"
+
+svg_test := "M9,7V17H11V13H14V11H11V9H15V7H9M5,3H19A2,2 0 0,1 21,5V19A2,2 0 0,1 19,21H5A2,2 0 0,1 3,19V5A2,2 0 0,1 5,3Z"
 
 SVG_Path_Command_Type :: enum {
 	Move_To_Absolute,
@@ -136,8 +138,12 @@ svg_gen_temp :: proc(svg: string, allocator := context.allocator) -> []SVG_Path_
 renderer_svg :: proc(using renderer: ^Renderer, svg: []SVG_Path_Command) {
 	for cmd in svg {
 		#partial switch cmd.type {
-		case .Move_To_Absolute: renderer_move_to(renderer, cmd.points[0], cmd.points[1])
-		case .Move_To_Relative: renderer_move_to_rel(renderer, cmd.points[0], cmd.points[1])
+		case .Move_To_Absolute: 
+			renderer_close(renderer)
+			renderer_move_to(renderer, cmd.points[0], cmd.points[1])
+
+		case .Move_To_Relative: 
+			renderer_move_to_rel(renderer, cmd.points[0], cmd.points[1])
 
 		case .Line_To_Absolute: renderer_line_to(renderer, cmd.points[0], cmd.points[1])
 		case .Line_To_Relative: renderer_line_to_rel(renderer, cmd.points[0], cmd.points[1])

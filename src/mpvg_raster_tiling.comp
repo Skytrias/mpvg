@@ -57,7 +57,7 @@ void main() {
 	}
 
 	if (pixel_coords.x % TILE_SIZE == 0 || pixel_coords.y % TILE_SIZE == 0) {
-		color = vec4(0, 0, 0, 1);
+		color = vec4(1, 1, 1, 1);
 	}
 
 	imageStore(img_output, pixel_coords, color);
