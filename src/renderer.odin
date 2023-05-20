@@ -367,7 +367,6 @@ renderer_gpu_gl_init :: proc(using gpu: ^Renderer_GL) {
 
 	implicitize.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_implicitize, 1, 1)
 	backprop.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_tile_backprop, 16, 1)
-	// backprop.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_tile_backprop, 1, 1)
 	path.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_path, 1, 1)
 	merge.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_merge, 1, 1)
 

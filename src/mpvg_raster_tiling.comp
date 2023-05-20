@@ -4,14 +4,12 @@ void main() {
 	ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
 	vec2 px = gl_GlobalInvocationID.xy;
 
-	// OLD
-	// uint tile_index = gl_WorkGroupID.x + gl_WorkGroupID.y * indices.tiles_x;
-
+	// screen tile index
 	ivec2 tile_coord = ivec2(gl_GlobalInvocationID.xy);
-	uint tile_index = tile_coord.y * gl_NumWorkGroups.x + tile_coord.x;
+	uint screen_tile_index = gl_WorkGroupID.x + gl_WorkGroupID.y * indices.tiles_x;
 
 	int path_index = 0;
-	Screen_Tile st = screen_tiles.data[tile_index];
+	Screen_Tile st = screen_tiles.data[screen_tile_index];
 	int winding = 0;
 	int tile_queue_offset = st.tile_queue_offset;
 
@@ -50,10 +48,6 @@ void main() {
 	Path path = paths.data[path_index];
 	vec4 color = vec4(1, 1, 1, 1);
 	vec4 clip = path.clip;
-	
-	if (pixel_coords.x % TILE_SIZE == 0 || pixel_coords.y % TILE_SIZE == 0) {
-		color = vec4(0, 0, 0, 1);
-	}
 
 	// TODO fill / stroke?
 	if (px.x >= clip.x && px.x < clip.z && px.y >= clip.y && px.y < clip.w) {
@@ -62,6 +56,9 @@ void main() {
 		}
 	}
 
+	if (pixel_coords.x % TILE_SIZE == 0 || pixel_coords.y % TILE_SIZE == 0) {
+		color = vec4(0, 0, 0, 1);
+	}
 
 	imageStore(img_output, pixel_coords, color);
 }

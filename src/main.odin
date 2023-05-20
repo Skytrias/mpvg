@@ -230,7 +230,7 @@ main :: proc() {
 			// renderer_path_translate(&app.renderer, 200, 200)
 			renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
 			renderer_path_rotate(&app.renderer, count * 0.01)
-			renderer_rect(&app.renderer, -100, -50, 100, 50)
+			renderer_rect(&app.renderer, -100, -50, 200, 100)
 
 			// // renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
 			// renderer_path_translate(&app.renderer, 100, 100)
