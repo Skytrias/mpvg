@@ -212,10 +212,7 @@ main :: proc() {
 				}
 			}
 
-			// renderer_state_translate(&app.renderer, app.mouse.x, app.mouse.y)
-			// renderer_circle(&app.renderer, 0, 0, 100)
-			
-			// renderer_move_to(&app.renderer, 300, 300)
+						// renderer_move_to(&app.renderer, 300, 300)
 			// renderer_line_to(&app.renderer, app.mouse.x, app.mouse.y)
 			// renderer_cubic_to(&app.renderer, p1.x, p1.y, p3.x, p3.y, p2.x, p2.y)
 			// renderer_arc_to(&app.renderer, 20, 20, 0, 1, 0, p2.x, p2.y)

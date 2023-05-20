@@ -917,7 +917,7 @@ path_init :: proc(using path: ^Path) {
 	}
 
 	xform_identity(&path.xform)
-	path.color = { 0, 1, 0, 1 }
+	path.color = { 0, 0, 1, 1 }
 }
 
 // add to bounding box
