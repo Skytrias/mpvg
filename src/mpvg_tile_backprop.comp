@@ -1,4 +1,4 @@
-// shared int next_row_index;
+shared int next_row_index;
 
 // backpropogate right to left and do prefix sum
 void main() {
@@ -11,8 +11,8 @@ void main() {
 	// int path_index = int(gl_GlobalInvocationID.x);
 	// Path_Queue path_queue = path_queues.data[path_index];
 	// int off = path_queue.tile_queue_index;
-	// int row_size = path_queue.area.z;
-	// int row_count = path_queue.area.w;
+	// int row_size = path_queue.tiles_x;
+	// int row_count = path_queue.tiles_y;
 	
 	// int row_index = atomicAdd(next_row_index, 1);
 	// while (row_index < row_count) {
@@ -28,12 +28,11 @@ void main() {
 	// 	row_index = atomicAdd(next_row_index, 1);
 	// }
 
-	
-	int sum = 0;
-	for (int x = indices.tiles_x - 1; x >= 0; x -= 1) {
-		int tile_index = int(gl_GlobalInvocationID.x) * indices.tiles_x + x;
-		int temp = tile_queues.data[tile_index].winding_offset;
-		tile_queues.data[tile_index].winding_offset = sum;
-		sum += temp;
-	}
+	// int sum = 0;
+	// for (int x = indices.tiles_x - 1; x >= 0; x -= 1) {
+	// 	int tile_index = int(gl_GlobalInvocationID.x) * indices.tiles_x + x;
+	// 	int temp = tile_queues.data[tile_index].winding_offset;
+	// 	tile_queues.data[tile_index].winding_offset = sum;
+	// 	sum += temp;
+	// }
 }

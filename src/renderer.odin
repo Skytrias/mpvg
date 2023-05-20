@@ -16,7 +16,7 @@ MAX_STATES :: 32
 MAX_CURVES :: 256
 MAX_IMPLICIT_CURVES :: 256
 MAX_TILE_QUEUES :: 1028
-MAX_TILE_OPERATIONS :: 1028
+MAX_TILE_OPERATIONS :: 1028 * 2
 MAX_PATHS :: 1028
 MAX_PATH_QUEUES :: MAX_PATHS
 MAX_SCREEN_TILES :: 1028 * 2
@@ -125,12 +125,12 @@ Renderer_GL :: struct {
 Tile_Queue :: struct #packed {
 	tile_operation_start: i32,
 	tile_operation_count: i32,
+	pad1: i32,
+	pad2: i32,
 	winding_offset: i32,
 }
 
 Tile_Operation :: struct #packed {
-	kind: i32,
-	path_index: i32, // which path this belongs to
 	curve_index: i32, // which implicit curve this belongs to
 	cross_right: b32,
 }
@@ -198,6 +198,10 @@ Curve :: struct #packed {
 	B: [4][2]f32,
 	count: i32, // 0-2 + 1
 	path_index: i32,
+}
+
+Screen_Tile :: struct #packed {
+	offset: i32,
 }
 
 renderer_init :: proc(renderer: ^Renderer) {
@@ -362,8 +366,8 @@ renderer_gpu_gl_init :: proc(using gpu: ^Renderer_GL) {
 	}
 
 	implicitize.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_implicitize, 1, 1)
-	// backprop.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_tile_backprop, 16, 1)
-	backprop.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_tile_backprop, 1, 1)
+	backprop.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_tile_backprop, 16, 1)
+	// backprop.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_tile_backprop, 1, 1)
 	path.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_path, 1, 1)
 	merge.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_merge, 1, 1)
 
@@ -383,7 +387,7 @@ renderer_gpu_gl_init :: proc(using gpu: ^Renderer_GL) {
 	tile_operations_ssbo = create(4, MAX_TILE_OPERATIONS * size_of(Tile_Operation))
 	paths_ssbo = create(5, MAX_PATHS * size_of(Path))
 	path_queues_ssbo = create(6, MAX_PATH_QUEUES * size_of(Path_Queue))
-	screen_tiles_ssbo = create(7, MAX_SCREEN_TILES * size_of(i32))
+	screen_tiles_ssbo = create(7, MAX_SCREEN_TILES * size_of(Screen_Tile))
 }
 
 renderer_gpu_gl_destroy :: proc(using gpu: ^Renderer_GL) {
@@ -448,6 +452,13 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 
 		temp := make([]Tile_Operation, renderer.indices.tile_operations, context.temp_allocator)
 		gl.GetNamedBufferSubData(tile_operations_ssbo, 0, size_of(Tile_Operation) * len(temp), raw_data(temp))
+
+		// fmt.eprintln("TILE OPS", len(temp))
+		// for i in 0..<len(temp) {
+		// 	// fmt.eprint("\t", temp[i].op_next)
+		// 	fmt.eprintln(temp[i])
+		// }
+		// fmt.eprintln()
 		
 		temp_tile_queues := make([]Tile_Queue, renderer.indices.tile_queues, context.temp_allocator)
 		gl.GetNamedBufferSubData(tile_queues_ssbo, 0, int(renderer.indices.tile_queues) * size_of(Tile_Queue), raw_data(temp_tile_queues))
@@ -457,9 +468,9 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 		// 	tile_queue := temp_tile_queues[i]
 		// 	fmt.eprintln("\t", tile_queue)
 
-		// 	for j in 0..<tile_queue.tile_operation_count {
-		// 		fmt.eprintln("\t\t", temp[tile_queue.tile_operation_start + j])
-		// 	}
+		// // 	for j in 0..<tile_queue.tile_operation_count {
+		// // 		fmt.eprintln("\t\t", temp[tile_queue.tile_operation_start + j])
+		// // 	}
 		// }
 	}
 

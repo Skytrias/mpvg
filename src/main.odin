@@ -222,15 +222,15 @@ main :: proc() {
 			// renderer_arc_to(&app.renderer, 20, 20, 0, 1, 0, p2.x, p2.y)
 			// renderer_quadratic_to(&app.renderer, p3.x, p3.y, p2.x, p2.y)
 
-			renderer_move_to(&app.renderer, p1.x, p1.y)
-			renderer_line_to(&app.renderer, p2.x, p2.y)
-			renderer_close(&app.renderer)
+			// renderer_move_to(&app.renderer, p1.x, p1.y)
+			// renderer_line_to(&app.renderer, p2.x, p2.y)
+			// renderer_close(&app.renderer)
 
 			// NOTE: NEW
-			// renderer_state_translate(&app.renderer, 200, 200)
-			// renderer_state_rotate(&app.renderer, count * 0.01)
-			// // renderer_state_translate(&app.renderer, app.mouse.x, app.mouse.y)
-			// renderer_rect(&app.renderer, -100, -50, 200, 100)
+			// renderer_path_translate(&app.renderer, 200, 200)
+			renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
+			renderer_path_rotate(&app.renderer, count * 0.01)
+			renderer_rect(&app.renderer, -100, -50, 100, 50)
 
 			// // renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
 			// renderer_path_translate(&app.renderer, 100, 100)

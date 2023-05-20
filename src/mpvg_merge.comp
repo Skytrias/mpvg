@@ -1,11 +1,15 @@
 void main() {
 	ivec2 tile_coord = ivec2(gl_GlobalInvocationID.xy);
-	uint tile_index = tile_coord.y * gl_NumWorkGroups.x + tile_coord.x;
+	uint screen_tile_index = tile_coord.y * gl_NumWorkGroups.x + tile_coord.x;
 
 	// set link
-	int last_tile_op_index = int(tile_index);
-	screen_tiles.data[last_tile_op_index] = -1;
+	Screen_Tile st;
+	st.tile_queue_offset = -1;
+	screen_tiles.data[screen_tile_index] = st;
 
+	int last_tile_queue = -1;
+
+	// iterate all paths
 	for (int path_index = 0; path_index < paths.data.length(); path_index += 1) {
 		Path_Queue path_queue = path_queues.data[path_index];
 		ivec2 path_tile_coord = tile_coord - ivec2(path_queue.x, path_queue.y);
@@ -15,96 +19,50 @@ void main() {
 		int tile_max = int(x_max / TILE_SIZE);
 		int path_tile_max = tile_max - path_queue.x;
 
+		// look for matching tile coordinates
 		if (path_tile_coord.x >= 0 && path_tile_coord.x <= path_tile_max && path_tile_coord.y >= 0 && path_tile_coord.y < path_queue.tiles_y) {
+			// get tile queue for the wanted tile index
 			int path_tile_index = path_tile_coord.y * path_queue.tiles_x + path_tile_coord.x;
-			Tile_Queue tile_queue = tile_queues.data[path_queue.tile_queue_index + path_tile_index];
+			int tile_queue_index = path_queue.tile_queue_index + path_tile_index;
+			Tile_Queue tile_queue = tile_queues.data[tile_queue_index];
 
-			// TODO atomic load?
 			int winding_offset = tile_queue.winding_offset;
-			// int first_op_index = tile_queue.op_first;
 
-			// if (tile_queue.tile_operation_start == 0) {
-			// 	if ((winding_offset & 1) == 1) {
-			// 		int tile_op_index = atomicAdd(indices.tile_operations, 1);
+			// no tile ops?
+			if (tile_queue.tile_operation_start == 0) {
+				if ((winding_offset & 1) == 1) {
+					vec4 clip = path.clip;
+					vec4 tile_box = vec4(tile_coord.x, tile_coord.y, tile_coord.x + 1, tile_coord.y + 1);
+					tile_box *= TILE_SIZE;
 
-			// 		Tile_Operation op;
-			// 		op.kind = OPERATION_START;
-			// 		op.path_index = path_index;
-			// 		op.cross_right = winding_offset;
-			// 		op.curve_index = 100;
+					// when correct add to screen tiles
+					if (path.color.a == 1 && tile_box.x >= clip.x && tile_box.z < clip.z && tile_box.y >= clip.y && tile_box.w < clip.w) {
+						st.tile_queue_offset = path_tile_index;
+						screen_tiles.data[screen_tile_index] = st;
+					} else {
+						// if (last_tile_queue == -1) {
+						// 	st.tile_queue_offset = tile_queue_index;
+						// 	screen_tiles.data[screen_tile_index] = st;
+						// } else {
+						// 	tile_queues.data[last_tile_queue].tile_queue_next = tile_queue_index;		
+						// }
+					}
 
-			// 		// add op to stack
-			// 		tile_operations.data[tile_op_index] = op;
+					last_tile_queue = tile_queue_index;
+				}
+				// else, tile is fully uncovered, skip path
+			} else {
+				if (last_tile_queue == -1) {
+					// set first tile queue to screen tile
+					st.tile_queue_offset = tile_queue_index;
+					screen_tiles.data[screen_tile_index] = st;
+				} else {
+					// link up previous tile queue to this current tile queue
+					// tile_queues.data[last_tile_queue].tile_queue_next = tile_queue_index;
+				}
 
-			// 		vec4 clip = path.clip;
-			// 		vec4 tile_box = vec4(tile_coord.x, tile_coord.y, tile_coord.x + 1, tile_coord.y + 1);
-			// 		tile_box *= TILE_SIZE;
-
-			// 		// when correct add to screen tiles
-			// 		if (path.color.a == 1 && tile_box.x >= clip.x && tile_box.z < clip.z && tile_box.y >= clip.y && tile_box.w < clip.w) {
-			// 			// TODO not called?
-			// 			screen_tiles.data[tile_index] = tile_op_index;
-			// 		} else {
-			// 			// delayed setter?
-			// 			// tile_operations.data[last_tile_op_index].op_next = tile_op_index;
-			// 		}
-
-			// 		// last_tile_op_index = tile_op_index;
-			// 	}
-			// }
-
-			// if (first_op_index == OPERATION_FIRST) {
-			// 	if ((winding_offset & 1) == 1) {
-			// 		//NOTE: tile is full covered. Add path start op (with winding offset).
-			// 		//      Additionally if color is opaque and tile is fully inside clip, trim tile list.
-			// 		int tile_op_index = atomicAdd(indices.tile_operations, 1);
-
-			// 		Tile_Operation op;
-			// 		op.kind = OPERATION_START;
-			// 		op.op_next = -1;
-			// 		op.path_index = path_index;
-			// 		op.cross_right = winding_offset;
-			// 		op.curve_index = 100;
-
-			// 		// add op to stack
-			// 		tile_operations.data[tile_op_index] = op;
-
-			// 		vec4 clip = path.clip;
-			// 		vec4 tile_box = vec4(tile_coord.x, tile_coord.y, tile_coord.x + 1, tile_coord.y + 1);
-			// 		tile_box *= TILE_SIZE;
-
-			// 		// when correct add to screen tiles
-			// 		if (path.color.a == 1 && tile_box.x >= clip.x && tile_box.z < clip.z && tile_box.y >= clip.y && tile_box.w < clip.w) {
-			// 			// TODO not called?
-			// 			screen_tiles.data[tile_index] = tile_op_index;
-			// 		} else {
-			// 			// delayed setter?
-			// 			tile_operations.data[last_tile_op_index].op_next = tile_op_index;
-			// 		}
-
-			// 		last_tile_op_index = tile_op_index;
-			// 	}
-			// 	// else, tile is fully uncovered, skip path
-			// } else {
-			// 	// NOTE: add path start op (with winding offset)
-			// 	int tile_op_index = atomicAdd(indices.tile_operations, 1);
-
-			// 	Tile_Operation op;
-			// 	op.kind = OPERATION_START;
-			// 	op.op_next = first_op_index; // first_op_index is set here
-			// 	op.path_index = path_index;
-			// 	op.cross_right = winding_offset;
-			// 	op.curve_index = 200;
-
-			// 	// add op to stack
-			// 	tile_operations.data[tile_op_index] = op;
-
-			// 	// set last
-			// 	tile_operations.data[last_tile_op_index].op_next = tile_op_index;
-				
-			// 	// set op_last to next
-			// 	last_tile_op_index = tile_queue.op_last;
-			// }
+				last_tile_queue = tile_queue_index;
+			}
 		}
 	}
 }

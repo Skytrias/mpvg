@@ -11,25 +11,26 @@ void main() {
 	uint tile_index = tile_coord.y * gl_NumWorkGroups.x + tile_coord.x;
 
 	int path_index = 0;
-	int op_index = screen_tiles.data[tile_index];
+	Screen_Tile st = screen_tiles.data[tile_index];
 	int winding = 0;
+	int tile_queue_offset = st.tile_queue_offset;
 
 	// iterate only added operations
-	while (op_index != -1) {
-		Tile_Operation op = tile_operations.data[op_index];
+	while (tile_queue_offset != -1) {
+		Tile_Queue tile_queue = tile_queues.data[tile_queue_offset];
 
-		if (op.kind == OPERATION_START) {
-			winding = op.cross_right;
-			path_index = op.path_index;
-		} else if (op.kind == OPERATION_SEGMENT) {
-			Implicit_Curve curve = implicit_curves.data[op.curve_index];
-	
+		// fetch info from tile queue instead
+		winding = tile_queue.winding_offset;
+		path_index = tile_queue.path_index;
+
+		for (int i = 0; i < tile_queue.tile_operation_count; i += 1) {
+			int tile_op_index = tile_queue.tile_operation_start + i;
+			Tile_Operation op = tile_operations.data[tile_op_index];
+
 			// normal curve winding 
-			int side = curve_side(curve, px);
-			if (px.y > curve.box.y && px.y <= curve.box.w) {
-				if (side < 0) {
-					winding += curve.winding_increment;
-				} 
+			Implicit_Curve curve = implicit_curves.data[op.curve_index];
+			if (px.y > curve.box.y && px.y <= curve.box.w && curve_side(curve, px) < 0) {
+				winding += curve.winding_increment;
 			}
 
 			// apply command crosses
@@ -40,15 +41,19 @@ void main() {
 					winding -= curve.winding_increment;
 				}
 			}
-		}
-		
-		op_index = -1;
-		// op_index = op.op_next;
+		}			
+
+		// link to other tile_queues if they are chained
+		tile_queue_offset = tile_queue.tile_queue_next;
 	}
 
 	Path path = paths.data[path_index];
 	vec4 color = vec4(1, 1, 1, 1);
 	vec4 clip = path.clip;
+	
+	if (pixel_coords.x % TILE_SIZE == 0 || pixel_coords.y % TILE_SIZE == 0) {
+		color = vec4(0, 0, 0, 1);
+	}
 
 	// TODO fill / stroke?
 	if (px.x >= clip.x && px.x < clip.z && px.y >= clip.y && px.y < clip.w) {
@@ -57,9 +62,6 @@ void main() {
 		}
 	}
 
-	if (pixel_coords.x % TILE_SIZE == 0 || pixel_coords.y % TILE_SIZE == 0) {
-		color = vec4(0, 0, 0, 1);
-	}
 
 	imageStore(img_output, pixel_coords, color);
 }
