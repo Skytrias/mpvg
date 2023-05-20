@@ -446,31 +446,21 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 		gl.UseProgram(implicitize.program)
 		gl.DispatchCompute(u32(renderer.curve_index), 1, 1)
 
-		gl.GetNamedBufferSubData(indices_ssbo, 0, 1 * size_of(Indices), &renderer.indices)
-		// fmt.eprintln(renderer.indices.tile_operations)
+		// gl.GetNamedBufferSubData(indices_ssbo, 0, 1 * size_of(Indices), &renderer.indices)
+		// // fmt.eprintln(renderer.indices.tile_operations)
 
-		temp := make([]Tile_Operation, renderer.indices.tile_operations, context.temp_allocator)
-		gl.GetNamedBufferSubData(tile_operations_ssbo, 0, size_of(Tile_Operation) * len(temp), raw_data(temp))
+		// temp := make([]Tile_Operation, renderer.indices.tile_operations, context.temp_allocator)
+		// gl.GetNamedBufferSubData(tile_operations_ssbo, 0, size_of(Tile_Operation) * len(temp), raw_data(temp))
 
-		// fmt.eprintln("TILE OPS", len(temp))
-		// for i in 0..<len(temp) {
-		// 	// fmt.eprint("\t", temp[i].op_next)
-		// 	fmt.eprintln(temp[i])
-		// }
-		// fmt.eprintln()
+		// // fmt.eprintln("TILE OPS", len(temp))
+		// // for i in 0..<len(temp) {
+		// // 	// fmt.eprint("\t", temp[i].op_next)
+		// // 	fmt.eprintln(temp[i])
+		// // }
+		// // fmt.eprintln()
 		
-		temp_tile_queues := make([]Tile_Queue, renderer.indices.tile_queues, context.temp_allocator)
-		gl.GetNamedBufferSubData(tile_queues_ssbo, 0, int(renderer.indices.tile_queues) * size_of(Tile_Queue), raw_data(temp_tile_queues))
-
-		// fmt.eprintln("TILE QUEUES", renderer.indices.tile_queues)
-		// for i in 0..<renderer.indices.tile_queues {
-		// 	tile_queue := temp_tile_queues[i]
-		// 	fmt.eprintln("\t", tile_queue)
-
-		// // 	for j in 0..<tile_queue.tile_operation_count {
-		// // 		fmt.eprintln("\t\t", temp[tile_queue.tile_operation_start + j])
-		// // 	}
-		// }
+		// temp_tile_queues := make([]Tile_Queue, renderer.indices.tile_queues, context.temp_allocator)
+		// gl.GetNamedBufferSubData(tile_queues_ssbo, 0, int(renderer.indices.tile_queues) * size_of(Tile_Queue), raw_data(temp_tile_queues))
 	}
 
 	// tile backprop stage go by 0->tiles_y
@@ -486,9 +476,23 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 		gl.UseProgram(merge.program)
 		gl.DispatchCompute(u32(renderer.tiles_x), u32(renderer.tiles_y), 1)
 		gl.MemoryBarrier(gl.SHADER_STORAGE_BARRIER_BIT)
-	}
 
-	// fmt.eprintln("yo2")
+		gl.GetNamedBufferSubData(indices_ssbo, 0, 1 * size_of(Indices), &renderer.indices)
+		// fmt.eprintln(renderer.indices.tile_operations)
+
+		temp := make([]Screen_Tile, renderer.tiles_x * renderer.tiles_y, context.temp_allocator)
+		gl.GetNamedBufferSubData(screen_tiles_ssbo, 0, len(temp) * size_of(Screen_Tile), raw_data(temp))
+
+		fmt.eprintln("SCREEN TILES")
+		count: int
+		for i in 0..<len(temp) {
+			if temp[i].offset != -1 {
+				fmt.eprintln("\t", i, temp[i])
+				count += 1
+			}
+		}
+		fmt.eprintln("COUNT:", count)
+	}
 
 	// raster stage
 	{

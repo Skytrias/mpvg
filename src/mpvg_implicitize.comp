@@ -56,17 +56,17 @@ void curve_bin_to_tiles(Path_Queue path, Implicit_Curve curve) {
 				Tile_Operation op;
 				op.curve_index = curve_index;
 
-				int tile_index = x + y * path.tiles_x;
-				int tile_op_offset = atomicAdd(tile_queues.data[OFF + tile_index].tile_operation_count, 1);
+				int tile_index = x + y * path.tiles_x + OFF;
+				int tile_op_offset = atomicAdd(tile_queues.data[tile_index].tile_operation_count, 1);
 
 				// note: if the segment crosses the tile's bottom boundary, update the tile's winding offset
 				if (cross_b) {
-					atomicAdd(tile_queues.data[OFF + tile_index].winding_offset, curve.winding_increment);
+					atomicAdd(tile_queues.data[tile_index].winding_offset, curve.winding_increment);
 				}
 				op.cross_right = int(cross_r);
 
 				// set operation
-				int tile_op_index = tile_queues.data[OFF + tile_index].tile_operation_start + tile_op_offset;
+				int tile_op_index = tile_queues.data[tile_index].tile_operation_start + tile_op_offset;
 				tile_operations.data[tile_op_index] = op;
 			}
 		}

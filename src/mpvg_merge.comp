@@ -16,7 +16,7 @@ void main() {
 
 		Path path = paths.data[path_index];
 		float x_max = min(path.box.z, path.clip.z);
-		int tile_max = int(x_max / TILE_SIZE);
+		int tile_max = int(x_max) / TILE_SIZE;
 		int path_tile_max = tile_max - path_queue.x;
 
 		// look for matching tile coordinates
@@ -29,7 +29,7 @@ void main() {
 			int winding_offset = tile_queue.winding_offset;
 
 			// no tile ops?
-			if (tile_queue.tile_operation_start == 0) {
+			if (tile_queue.tile_operation_count == 0) {
 				if ((winding_offset & 1) == 1) {
 					vec4 clip = path.clip;
 					vec4 tile_box = vec4(tile_coord.x, tile_coord.y, tile_coord.x + 1, tile_coord.y + 1);
@@ -40,12 +40,12 @@ void main() {
 						st.tile_queue_offset = path_tile_index;
 						screen_tiles.data[screen_tile_index] = st;
 					} else {
-						// if (last_tile_queue == -1) {
-						// 	st.tile_queue_offset = tile_queue_index;
-						// 	screen_tiles.data[screen_tile_index] = st;
-						// } else {
-						// 	tile_queues.data[last_tile_queue].tile_queue_next = tile_queue_index;		
-						// }
+						if (last_tile_queue == -1) {
+							st.tile_queue_offset = tile_queue_index;
+							screen_tiles.data[screen_tile_index] = st;
+						} else {
+							tile_queues.data[last_tile_queue].tile_queue_next = tile_queue_index;		
+						}
 					}
 
 					last_tile_queue = tile_queue_index;
@@ -58,7 +58,7 @@ void main() {
 					screen_tiles.data[screen_tile_index] = st;
 				} else {
 					// link up previous tile queue to this current tile queue
-					// tile_queues.data[last_tile_queue].tile_queue_next = tile_queue_index;
+					tile_queues.data[last_tile_queue].tile_queue_next = tile_queue_index;
 				}
 
 				last_tile_queue = tile_queue_index;

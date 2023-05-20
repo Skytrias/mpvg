@@ -13,8 +13,6 @@ import glm "core:math/linalg/glsl"
 import glfw "vendor:glfw"
 import gl "vendor:OpenGL"
 
-
-
 length :: linalg.vector_length
 
 App :: struct {
@@ -227,13 +225,13 @@ main :: proc() {
 			// renderer_close(&app.renderer)
 
 			// NOTE: NEW
-			// renderer_path_translate(&app.renderer, 200, 200)
+			// // renderer_path_translate(&app.renderer, 200, 200)
 			renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
 			renderer_path_rotate(&app.renderer, count * 0.01)
 			renderer_rect(&app.renderer, -100, -50, 200, 100)
 
-			// // renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
-			// renderer_path_translate(&app.renderer, 100, 100)
+			// renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
+			// // renderer_path_translate(&app.renderer, 100, 100)
 			// renderer_path_scale(&app.renderer, 10, 10)
 			// renderer_svg(&app.renderer, svg_curves)
 		}
