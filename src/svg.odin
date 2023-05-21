@@ -167,7 +167,9 @@ renderer_svg :: proc(using renderer: ^Renderer, svg: []SVG_Path_Command) {
 			p := cmd.points
 			renderer_cubic_to(renderer, p[0], p[1], p[2], p[3], p[4], p[5])
 
-		case .Close_Path: renderer_close(renderer)
+		case .Close_Path:
+			
+		// case .Close_Path: renderer_close(renderer)
 		}
 	}
 }

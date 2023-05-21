@@ -217,7 +217,7 @@ main :: proc() {
 				}
 			}
 
-						// renderer_move_to(&app.renderer, 300, 300)
+			// renderer_move_to(&app.renderer, 300, 300)
 			// renderer_line_to(&app.renderer, app.mouse.x, app.mouse.y)
 			// renderer_cubic_to(&app.renderer, p1.x, p1.y, p3.x, p3.y, p2.x, p2.y)
 			// renderer_arc_to(&app.renderer, 20, 20, 0, 1, 0, p2.x, p2.y)
@@ -228,17 +228,22 @@ main :: proc() {
 			// renderer_close(&app.renderer)
 
 			// NOTE: NEW
-			// // // renderer_path_translate(&app.renderer, 200, 200)
-			// renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
-			// renderer_path_rotate(&app.renderer, count * 0.01)
-			// renderer_rect(&app.renderer, -100, -50, 200, 100)
-
+			// // renderer_path_translate(&app.renderer, 200, 200)
 			renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
-			// renderer_path_translate(&app.renderer, 100, 100)
-			// renderer_path_scale(&app.renderer, 5, 5)
-			// renderer_path_scale(&app.renderer, 10, 10)
-			renderer_path_scale(&app.renderer, 20, 20)
-			renderer_svg(&app.renderer, svg_curves)
+			renderer_path_rotate(&app.renderer, count * 0.01)
+			renderer_rect(&app.renderer, -100, -50, 200, 100)
+
+			// renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
+			// // renderer_path_translate(&app.renderer, 100, 100)
+			// // renderer_path_scale(&app.renderer, 5, 5)
+			// // renderer_path_scale(&app.renderer, 10, 10)
+			// renderer_path_scale(&app.renderer, 20, 20)
+			// renderer_svg(&app.renderer, svg_curves)
+
+			// renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
+			// renderer_path_scale(&app.renderer, 1, 1)
+			// renderer_text_push(&app.renderer, "tes", 0, 0, math.sin(count * 0.05) * 20 + 20)
+			// fmt.eprintln(app.renderer.paths[0].box)
 		}
 
 		glfw.SwapBuffers(window)

@@ -24,6 +24,7 @@ void main() {
 		center_coord + vec2(7, 7) / 16
 	);
 
+	// TODO is this necessary?
 	vec4 color[MAX_SAMPLES] = vec4[MAX_SAMPLES](
 		vec4(0, 0, 0, 0),
 		vec4(0, 0, 0, 0),

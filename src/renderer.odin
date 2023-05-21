@@ -242,8 +242,6 @@ renderer_start :: proc(renderer: ^Renderer, width, height: int) {
 	renderer.path_index = 0
 	path_init(&renderer.paths[0])
 
-	// for i in =
-
 	renderer_gpu_gl_start(renderer)
 }
 
@@ -253,33 +251,45 @@ renderer_end :: proc(using renderer: ^Renderer, width, height: int) {
 
 renderer_glyph_push :: proc(
 	using renderer: ^Renderer,
-	glyph: rune,
-	scale: f32,
+	codepoint: rune,
 	x, y: f32,
 ) -> f32 {
 	// TODO allow font selection
 	font := pool_at(&font_pool, 1)
-	glyph := font_get_glyph(font, glyph)
+	glyph := font_get_glyph(font, codepoint)
+	path := renderer_path_get(renderer)
+	fmt.eprintln("LEN", codepoint, len(glyph.curves))
 
-	// // TODO
-	// for c in glyph.curves {
-	// 	temp := illustration_to_image(c, scale, { x, y })
-	// 	renderer.curves[renderer.curve_index] = c
-	// 	renderer.curve_index += 1
-	// }
+	for c in glyph.curves {
+		c := c
 
+		for i in 0..=c.count {
+			c.B[i] = path_xform_v2(path, c.B[i])
+		}
+
+		c.path_index = i32(renderer.path_index)
+		renderer.curves[renderer.curve_index] = c
+		renderer.curve_index += 1
+	}
+
+	// TODO use proper scale
+	scale := path.xform[0]
 	return glyph.advance * scale
 }
 
 renderer_text_push :: proc(
 	using renderer: ^Renderer,
 	text: string,
-	scale: f32,
 	x, y: f32,
+	size: f32,
 ) {
+	font := pool_at(&font_pool, 1)
+	
 	x := x
 	for codepoint in text {
-		x += renderer_glyph_push(renderer, codepoint, scale, x, y)
+		// x += renderer_glyph_push(renderer, codepoint, x, y)
+		x += renderer_font_glyph(renderer, font, codepoint, x, y, size)
+		x += 20
 	}
 }
 
@@ -397,29 +407,6 @@ renderer_gpu_gl_start :: proc(renderer: ^Renderer) {
 
 }
 
-renderer_output_path_results :: proc(renderer: ^Renderer) {
-	gpu := &renderer.gpu
-	using gpu
-
-	gl.GetNamedBufferSubData(indices_ssbo, 0, 1 * size_of(Indices), &renderer.indices)
-	fmt.eprintln(renderer.indices)
-
-	path_count := renderer.path_index + 1
-	temp_path_queues := make([]Path_Queue, path_count, context.temp_allocator)
-	gl.GetNamedBufferSubData(path_queues_ssbo, 0, path_count * size_of(Path_Queue), raw_data(temp_path_queues))
-
-	temp_tile_queues := make([]Tile_Queue, renderer.indices.tile_queues, context.temp_allocator)
-	gl.GetNamedBufferSubData(tile_queues_ssbo, 0, int(renderer.indices.tile_queues) * size_of(Tile_Queue), raw_data(temp_tile_queues))
-
-	fmt.eprintln("~~~ PATH QUEUES ~~~")
-	for i in 0..<path_count {
-		path := temp_path_queues[i]
-		fmt.eprintln("\t", path)
-		tile_count := path.tiles_x  * path.tiles_y
-		fmt.eprintln("\t\t", temp_tile_queues[path.tile_queues_index:tile_count])
-	}		
-}
-
 renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 	gpu := &renderer.gpu
 	using gpu
@@ -445,28 +432,11 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 	{
 		gl.UseProgram(implicitize.program)
 		gl.DispatchCompute(u32(renderer.curve_index), 1, 1)
-
-		// gl.GetNamedBufferSubData(indices_ssbo, 0, 1 * size_of(Indices), &renderer.indices)
-		// // fmt.eprintln(renderer.indices.tile_operations)
-
-		// temp := make([]Tile_Operation, renderer.indices.tile_operations, context.temp_allocator)
-		// gl.GetNamedBufferSubData(tile_operations_ssbo, 0, size_of(Tile_Operation) * len(temp), raw_data(temp))
-
-		// // fmt.eprintln("TILE OPS", len(temp))
-		// // for i in 0..<len(temp) {
-		// // 	// fmt.eprint("\t", temp[i].op_next)
-		// // 	fmt.eprintln(temp[i])
-		// // }
-		// // fmt.eprintln()
-		
-		// temp_tile_queues := make([]Tile_Queue, renderer.indices.tile_queues, context.temp_allocator)
-		// gl.GetNamedBufferSubData(tile_queues_ssbo, 0, int(renderer.indices.tile_queues) * size_of(Tile_Queue), raw_data(temp_tile_queues))
 	}
 
 	// tile backprop stage go by 0->tiles_y
 	{
 		gl.UseProgram(backprop.program)
-		// gl.DispatchCompute(u32(renderer.tiles_y), 1, 1)
 		gl.DispatchCompute(u32(renderer.path_index + 1), 1, 1)
 		gl.MemoryBarrier(gl.SHADER_STORAGE_BARRIER_BIT)
 	}
@@ -476,22 +446,6 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 		gl.UseProgram(merge.program)
 		gl.DispatchCompute(u32(renderer.tiles_x), u32(renderer.tiles_y), 1)
 		gl.MemoryBarrier(gl.SHADER_STORAGE_BARRIER_BIT)
-
-		// gl.GetNamedBufferSubData(indices_ssbo, 0, 1 * size_of(Indices), &renderer.indices)
-		// // fmt.eprintln(renderer.indices.tile_operations)
-
-		// temp := make([]Screen_Tile, renderer.tiles_x * renderer.tiles_y, context.temp_allocator)
-		// gl.GetNamedBufferSubData(screen_tiles_ssbo, 0, len(temp) * size_of(Screen_Tile), raw_data(temp))
-
-		// fmt.eprintln("SCREEN TILES")
-		// count: int
-		// for i in 0..<len(temp) {
-		// 	if temp[i].offset != -1 {
-		// 		fmt.eprintln("\t", i, temp[i])
-		// 		count += 1
-		// 	}
-		// }
-		// fmt.eprintln("COUNT:", count)
 	}
 
 	// raster stage
@@ -656,18 +610,18 @@ renderer_cubic_to_rel :: proc(using renderer: ^Renderer, c1x, c1y, c2x, c2y, x, 
 
 renderer_close :: proc(using renderer: ^Renderer) {
 	if curve_index > 0 {
-		// path := renderer_path_get(renderer)
-		// start := curves[0].B[0]
+		path := renderer_path_get(renderer)
+		start := curves[0].B[0]
 
-		// // curve_linear_init(
-		// // 	&curves[curve_index],
-		// // 	path_xform_v2(path, curve_last),
-		// // 	{ start.x, start.y },
-		// // 	renderer.path_index,
-		// // )
+		curve_linear_init(
+			&curves[curve_index],
+			path_xform_v2(path, curve_last),
+			{ start.x, start.y },
+			renderer.path_index,
+		)
 
-		// curve_index += 1
-		// curve_last = { start.x, start.y }
+		curve_index += 1
+		curve_last = { start.x, start.y }
 	}
 }
 
@@ -904,6 +858,8 @@ path_init :: proc(using path: ^Path) {
 		-max(f32),
 		-max(f32),
 	}
+
+	// TODO do window size?
 	path.clip = {
 		-100,
 		-100,
@@ -958,6 +914,13 @@ curve_cubic_init :: proc(curve: ^Curve, a, b, c, d: [2]f32, path_index: int) {
 
 renderer_path_get :: #force_inline proc(renderer: ^Renderer) -> ^Path #no_bounds_check {
 	return &renderer.paths[renderer.path_index]
+}
+
+renderer_path_push :: #force_inline proc(renderer: ^Renderer) -> (res: ^Path) #no_bounds_check {
+	renderer.path_index += 1
+	res = &renderer.paths[renderer.path_index]
+	path_init(res)
+	return res
 }
 
 renderer_path_reset_transform :: proc(using renderer: ^Renderer) {
