@@ -3,9 +3,7 @@ void main() {
 	uint screen_tile_index = tile_coord.y * gl_NumWorkGroups.x + tile_coord.x;
 
 	// set link
-	Screen_Tile st;
-	st.tile_queue_offset = -1;
-	screen_tiles.data[screen_tile_index] = st;
+	screen_tiles.data[screen_tile_index] = -1;
 
 	int last_tile_queue = -1;
 
@@ -29,7 +27,7 @@ void main() {
 			int winding_offset = tile_queue.winding_offset;
 
 			// no tile ops?
-			if (tile_queue.tile_operation_count == 0) {
+			if (tile_queue.op_head == -1) {
 				if ((winding_offset & 1) == 1) {
 					vec4 clip = path.clip;
 					vec4 tile_box = vec4(tile_coord.x, tile_coord.y, tile_coord.x + 1, tile_coord.y + 1);
@@ -37,12 +35,10 @@ void main() {
 
 					// when correct add to screen tiles
 					if (path.color.a == 1 && tile_box.x >= clip.x && tile_box.z < clip.z && tile_box.y >= clip.y && tile_box.w < clip.w) {
-						st.tile_queue_offset = path_tile_index;
-						screen_tiles.data[screen_tile_index] = st;
+						screen_tiles.data[screen_tile_index] = path_tile_index;
 					} else {
 						if (last_tile_queue == -1) {
-							st.tile_queue_offset = tile_queue_index;
-							screen_tiles.data[screen_tile_index] = st;
+							screen_tiles.data[screen_tile_index] = tile_queue_index;
 						} else {
 							tile_queues.data[last_tile_queue].tile_queue_next = tile_queue_index;		
 						}
@@ -54,8 +50,7 @@ void main() {
 			} else {
 				if (last_tile_queue == -1) {
 					// set first tile queue to screen tile
-					st.tile_queue_offset = tile_queue_index;
-					screen_tiles.data[screen_tile_index] = st;
+					screen_tiles.data[screen_tile_index] = tile_queue_index;
 				} else {
 					// link up previous tile queue to this current tile queue
 					tile_queues.data[last_tile_queue].tile_queue_next = tile_queue_index;

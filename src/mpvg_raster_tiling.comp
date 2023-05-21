@@ -8,8 +8,7 @@ void main() {
 	uint screen_tile_index = gl_WorkGroupID.x + gl_WorkGroupID.y * indices.tiles_x;
 
 	int path_index = 0;
-	Screen_Tile st = screen_tiles.data[screen_tile_index];
-	int tile_queue_offset = st.tile_queue_offset;
+	int tile_queue_offset = screen_tiles.data[screen_tile_index];
 
 	// prepare anti aliasing
 	vec2 center_coord = gl_GlobalInvocationID.xy + vec2(0.5, 0.5);
@@ -43,14 +42,15 @@ void main() {
 		Tile_Queue tile_queue = tile_queues.data[tile_queue_offset];
 
 		// fetch info from tile queue instead
-		path_index = tile_queue.path_index;
+		// ADD MULTI PATHS AGAIN
+		// path_index = tile_queue.path_index;
 		for (int sample_index = 0; sample_index < MAX_SAMPLES; sample_index += 1) {
 			// TODO do path color stuf here too
 			winding[sample_index] = tile_queue.winding_offset;
 		}
 
-		for (int i = 0; i < tile_queue.tile_operation_count; i += 1) {
-			int tile_op_index = tile_queue.tile_operation_start + i;
+		int tile_op_index = tile_queue.op_head;
+		while (tile_op_index != -1) {
 			Tile_Operation op = tile_operations.data[tile_op_index];
 
 			// run through samples
@@ -72,6 +72,9 @@ void main() {
 					}
 				}
 			}
+
+			// link to other op
+			tile_op_index = op.op_next;
 		}			
 
 		// link to other tile_queues if they are chained

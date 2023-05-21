@@ -1,0 +1,35 @@
+void main() {
+	int tile_queue_index = int(gl_GlobalInvocationID.x);
+	Tile_Queue tile;
+	tile.op_head = -1;
+	tile.op_tail = -1;
+	tile.winding_offset = 0;
+	tile.tile_queue_next = -1;
+	int op_last = -1; 
+
+	for (int i = 0; i < indices.tile_operations; i += 1)	{
+		Tile_Operation op = tile_operations.data[i];
+
+		// might be expensive
+		if (op.tile_queue_index == tile_queue_index) {
+			// set head
+			if (tile.op_head == -1) {
+				tile.op_head = i;
+			}
+
+			// set tail
+			tile.op_tail = i;
+
+			// offset
+			tile.winding_offset += op.cross_bottom;
+
+			// chain operations together
+			if (op_last	!= -1) {
+				tile_operations.data[op_last].op_next = i;
+			}
+			op_last = i;
+		}
+	}
+
+	tile_queues.data[tile_queue_index] = tile;
+}

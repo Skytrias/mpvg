@@ -28,6 +28,7 @@ shader_compute_path := #load("mpvg_path.comp")
 shader_compute_implicitize := #load("mpvg_implicitize.comp")
 shader_compute_tile_backprop := #load("mpvg_tile_backprop.comp")
 shader_compute_merge := #load("mpvg_merge.comp")
+shader_compute_tile_queue := #load("mpvg_tile_queue.comp")
 
 USE_TILING :: true
 when USE_TILING {
@@ -112,6 +113,10 @@ Renderer_GL :: struct {
 		program: u32,
 	},
 
+	tile_queue: struct {
+		program: u32,
+	},
+
 	indices_ssbo: u32,
 	curves_ssbo: u32,
 	implicit_curves_ssbo: u32,
@@ -123,16 +128,19 @@ Renderer_GL :: struct {
 }
 
 Tile_Queue :: struct #packed {
-	tile_operation_start: i32,
-	tile_operation_count: i32,
-	pad1: i32,
-	pad2: i32,
+	op_head: i32,
+	op_tail: i32,
+	
+	tile_queue_next: i32,
+
 	winding_offset: i32,
+	path_index: i32,
 }
 
 Tile_Operation :: struct #packed {
 	curve_index: i32, // which implicit curve this belongs to
 	cross_right: b32,
+	op_next: i32,
 }
 
 Path :: struct #packed {
@@ -200,9 +208,7 @@ Curve :: struct #packed {
 	path_index: i32,
 }
 
-Screen_Tile :: struct #packed {
-	offset: i32,
-}
+Screen_Tile :: i32
 
 renderer_init :: proc(renderer: ^Renderer) {
 	renderer.curves = make([]Curve, MAX_CURVES)
@@ -379,6 +385,7 @@ renderer_gpu_gl_init :: proc(using gpu: ^Renderer_GL) {
 	backprop.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_tile_backprop, 16, 1)
 	path.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_path, 1, 1)
 	merge.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_merge, 1, 1)
+	tile_queue.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_tile_queue, 1, 1)
 
 	// TODO revisit STREAM/STATIC?
 	create :: proc(base: u32, size: int) -> (index: u32) {
@@ -432,6 +439,13 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 	{
 		gl.UseProgram(implicitize.program)
 		gl.DispatchCompute(u32(renderer.curve_index), 1, 1)
+	}
+
+	// find head/tail of tile queues, set op nexts per tile queue
+	{
+		gl.GetNamedBufferSubData(indices_ssbo, 0, size_of(Indices), &renderer.indices)
+		gl.UseProgram(tile_queue.program)
+		gl.DispatchCompute(u32(renderer.indices.tile_queues), 1, 1)
 	}
 
 	// tile backprop stage go by 0->tiles_y
