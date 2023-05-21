@@ -64,8 +64,11 @@ struct Path {
 	vec4 clip;
 
 	float xform[6];
-	float pad1;
-	float pad2;
+	// float pad1;
+	// float pad2;
+
+	int curve_index_start;
+	int curve_index_current;
 };
 
 struct Path_Queue {

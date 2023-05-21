@@ -93,30 +93,14 @@ Renderer_GL :: struct {
 		loc_projection: i32,
 	},
 
-	implicitize: struct {
-		program: u32,
-	},
+	implicitize_program: u32,
+	raster_program: u32,
+	raster_texture_id: u32,
 
-	raster: struct {
-		program: u32,
-		texture_id: u32,
-	},
-
-	backprop: struct {
-		program: u32,
-	},
-
-	path: struct {
-		program: u32,
-	},
-
-	merge: struct {
-		program: u32,
-	},
-
-	tile_queue: struct {
-		program: u32,
-	},
+	backprop_program: u32,
+	path_program: u32,
+	merge_program: u32,
+	tile_queue_program: u32,
 
 	indices_ssbo: u32,
 	curves_ssbo: u32,
@@ -154,8 +138,11 @@ Path :: struct #packed {
 	clip: [4]f32,
 
 	xform: Xform, // transformation used throughout vertice creation
-	pad1: f32,
-	pad2: f32,
+	// pad1: f32,
+	// pad2: f32,
+
+	curve_index_start: i32,
+	curve_index_current: i32,
 }
 
 Path_Queue :: struct #packed {
@@ -367,15 +354,15 @@ renderer_gpu_gl_init :: proc(using gpu: ^Renderer_GL) {
 	builder := strings.builder_make(mem.Kilobyte * 4, context.temp_allocator)
 
 	{
-		raster.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_raster, TILE_SIZE, TILE_SIZE)
+		raster_program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_raster, TILE_SIZE, TILE_SIZE)
 
-		gl.GenTextures(1, &raster.texture_id)
-		gl.BindTexture(gl.TEXTURE_2D, raster.texture_id)
+		gl.GenTextures(1, &raster_texture_id)
+		gl.BindTexture(gl.TEXTURE_2D, raster_texture_id)
 		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
 		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
 		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
 		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-		gl.BindImageTexture(0, raster.texture_id, 0, gl.FALSE, 0, gl.WRITE_ONLY, gl.RGBA8)
+		gl.BindImageTexture(0, raster_texture_id, 0, gl.FALSE, 0, gl.WRITE_ONLY, gl.RGBA8)
 
 		{
 			// TODO dynamic width/height or finite big one
@@ -386,11 +373,11 @@ renderer_gpu_gl_init :: proc(using gpu: ^Renderer_GL) {
 		gl.BindTexture(gl.TEXTURE_2D, 0)
 	}
 
-	implicitize.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_implicitize, 1, 1)
-	backprop.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_tile_backprop, 16, 1)
-	path.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_path, 1, 1)
-	merge.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_merge, 1, 1)
-	tile_queue.program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_tile_queue, 1, 1)
+	implicitize_program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_implicitize, 1, 1)
+	backprop_program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_tile_backprop, 16, 1)
+	path_program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_path, 1, 1)
+	merge_program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_merge, 1, 1)
+	tile_queue_program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_tile_queue, 1, 1)
 
 	// TODO revisit STREAM/STATIC?
 	create :: proc(base: u32, size: int) -> (index: u32) {
@@ -425,19 +412,16 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 
 	// check path count or unfinished path we might have pushed
 	path_count := renderer.path_index + 1
+	fmt.eprintln("PATHS", path_count, renderer.path_index)
 	path := renderer.paths[renderer.path_index]
-	if path.curve_index > 0 {
-		if renderer.path_index == 1 {
-			unimplemented("do nothing?")
-			return
-		} else {
-			path_count -= 1
-		}
+	if path.curve_index_start == path.curve_index_current {
+		fmt.eprintln("SUB")
+		path_count -= 1
 	}
 
 	// path setup
 	{
-		gl.UseProgram(path.program)
+		gl.UseProgram(path_program)
 
 		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, indices_ssbo)
 		gl.NamedBufferSubData(indices_ssbo, 0, size_of(Indices), &renderer.indices)
@@ -454,34 +438,34 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 
 	// implicitize stage
 	{
-		gl.UseProgram(implicitize.program)
+		gl.UseProgram(implicitize_program)
 		gl.DispatchCompute(u32(renderer.curve_index), 1, 1)
 	}
 
 	// find head/tail of tile queues, set op nexts per tile queue
 	{
 		gl.GetNamedBufferSubData(indices_ssbo, 0, size_of(Indices), &renderer.indices)
-		gl.UseProgram(tile_queue.program)
+		gl.UseProgram(tile_queue_program)
 		gl.DispatchCompute(u32(renderer.indices.tile_queues), 1, 1)
 	}
 
 	// tile backprop stage go by 0->tiles_y
 	{
-		gl.UseProgram(backprop.program)
+		gl.UseProgram(backprop_program)
 		gl.DispatchCompute(u32(path_count), 1, 1)
 		gl.MemoryBarrier(gl.SHADER_STORAGE_BARRIER_BIT)
 	}
 
 	// tile merging to screen tiles
 	{
-		gl.UseProgram(merge.program)
+		gl.UseProgram(merge_program)
 		gl.DispatchCompute(u32(renderer.tiles_x), u32(renderer.tiles_y), 1)
 		gl.MemoryBarrier(gl.SHADER_STORAGE_BARRIER_BIT)
 	}
 
 	// raster stage
 	{
-		gl.UseProgram(raster.program)
+		gl.UseProgram(raster_program)
 
 		when USE_TILING {
 			gl.DispatchCompute(u32(renderer.tiles_x), u32(renderer.tiles_y), 1)
@@ -503,7 +487,7 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 	projection := glm.mat4Ortho3d(0, f32(width), f32(height), 0, 0, 1)
 	gl.UniformMatrix4fv(fill.loc_projection, 1, gl.FALSE, &projection[0][0])
 
-	gl.BindTexture(gl.TEXTURE_2D, raster.texture_id)
+	gl.BindTexture(gl.TEXTURE_2D, raster_texture_id)
 	gl.BindBuffer(gl.ARRAY_BUFFER, fill.vbo)
 
 	{
@@ -527,14 +511,18 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 ///////////////////////////////////////////////////////////
 
 renderer_move_to :: proc(renderer: ^Renderer, x, y: f32) {
-	// if renderer.curve_index > 0 {
-	// 	renderer_path_transition(renderer)
-	// }
+	path := renderer_path_get(renderer)
+	if path.curve_index_current > path.curve_index_start {
+		renderer_path_transition(renderer)
+	}
 
+	fmt.eprintln("MOVE START", renderer.curve_index, renderer.path_index)
 	renderer.curve_last = { x, y }
 }
 
 renderer_move_to_rel :: proc(renderer: ^Renderer, x, y: f32) {
+	path := renderer_path_get(renderer)
+	// TODO add path transition
 	renderer.curve_last = renderer.curve_last + { x, y }
 }
 
@@ -547,6 +535,7 @@ renderer_line_to :: proc(using renderer: ^Renderer, x, y: f32) {
 		renderer.path_index,
 	)
 	curve_index += 1
+	path.curve_index_current = i32(curve_index)
 	curve_last = { x, y }
 }
 
@@ -559,6 +548,7 @@ renderer_line_to_rel :: proc(using renderer: ^Renderer, x, y: f32) {
 		renderer.path_index,
 	)
 	curve_index += 1
+	path.curve_index_current = i32(curve_index)
 	curve_last = curve_last + { x, y }
 }
 
@@ -571,6 +561,7 @@ renderer_vertical_line_to :: proc(using renderer: ^Renderer, y: f32) {
 		renderer.path_index,
 	)
 	curve_index += 1
+	path.curve_index_current = i32(curve_index)
 	curve_last = { curve_last.x, y }
 }
 
@@ -583,6 +574,7 @@ renderer_horizontal_line_to :: proc(using renderer: ^Renderer, x: f32) {
 		renderer.path_index,
 	)
 	curve_index += 1
+	path.curve_index_current = i32(curve_index)
 	curve_last = { x, curve_last.y }
 }
 
@@ -596,6 +588,7 @@ renderer_quadratic_to :: proc(using renderer: ^Renderer, cx, cy, x, y: f32) {
 		renderer.path_index,
 	)
 	curve_index += 1
+	path.curve_index_current = i32(curve_index)
 	curve_last = { x, y }
 }
 
@@ -609,6 +602,7 @@ renderer_quadratic_to_rel :: proc(using renderer: ^Renderer, cx, cy, x, y: f32) 
 		renderer.path_index,
 	)
 	curve_index += 1
+	path.curve_index_current = i32(curve_index)
 	curve_last = curve_last + { x, y }
 }
 
@@ -623,6 +617,7 @@ renderer_cubic_to :: proc(using renderer: ^Renderer, c1x, c1y, c2x, c2y, x, y: f
 		renderer.path_index,
 	)
 	curve_index += 1
+	path.curve_index_current = i32(curve_index)
 	curve_last = { x, y }
 	curve_last_control = { c2x, c2y }
 }
@@ -638,6 +633,7 @@ renderer_cubic_to_rel :: proc(using renderer: ^Renderer, c1x, c1y, c2x, c2y, x, 
 		renderer.path_index,
 	)
 	curve_index += 1
+	path.curve_index_current = i32(curve_index)
 	curve_last = curve_last + { x, y }
 }
 
@@ -645,16 +641,16 @@ renderer_close :: proc(using renderer: ^Renderer) {
 	if curve_index > 0 {
 		path := renderer_path_get(renderer)
 		curve_start := curves[0].B[0]
+		curve_final := path_xform_v2(path, curve_last)
 
-		res := path_xform_v2(path, curve_last)
-		fmt.eprintln("SAME ENDPOINT", curve_start, res, curve_start == res)
-
-		curve_linear_init(
-			&curves[curve_index],
-			path_xform_v2(path, curve_last),
-			curve_start,
-			renderer.path_index,
-		)
+		if curve_start != curve_final {
+			curve_linear_init(
+				&curves[curve_index],
+				curve_final,
+				curve_start,
+				renderer.path_index,
+			)
+		}
 
 		curve_index += 1
 		curve_last = { curve_start.x, curve_start.y }
@@ -915,6 +911,8 @@ path_init :: proc(using path: ^Path) {
 
 	xform_identity(&path.xform)
 	path.color = { 0, 0, 1, 1 }
+	path.curve_index_start = 0
+	path.curve_index_current = 0
 }
 
 // add to bounding box
@@ -976,8 +974,11 @@ renderer_path_push :: proc(renderer: ^Renderer) -> (res: ^Path) #no_bounds_check
 renderer_path_transition :: proc(renderer: ^Renderer) {
 	old := renderer_path_get(renderer)
 	next := renderer_path_push(renderer)
+	next.curve_index_start = i32(renderer.curve_index)
+	next.curve_index_current = i32(renderer.curve_index)
 	next.xform = old.xform
 	next.color = old.color
+	next.color = { 0, 1, 0, 1 }
 }
 
 renderer_path_reset_transform :: proc(using renderer: ^Renderer) {
