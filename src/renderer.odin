@@ -19,7 +19,7 @@ MAX_TILE_QUEUES :: 1024 * 2
 MAX_TILE_OPERATIONS :: 1024 * 16
 MAX_PATHS :: 1028
 MAX_PATH_QUEUES :: MAX_PATHS
-MAX_SCREEN_TILES :: 1028 * 2
+MAX_SCREEN_TILES :: 1028 * 4
 
 shader_vert := #load("vertex.glsl")
 shader_frag := #load("fragment.glsl")
@@ -29,13 +29,7 @@ shader_compute_implicitize := #load("mpvg_implicitize.comp")
 shader_compute_tile_backprop := #load("mpvg_tile_backprop.comp")
 shader_compute_merge := #load("mpvg_merge.comp")
 shader_compute_tile_queue := #load("mpvg_tile_queue.comp")
-
-USE_TILING :: true
-when USE_TILING {
-	shader_compute_raster := #load("mpvg_raster_tiling.comp")
-} else {
-	shader_compute_raster := #load("mpvg_raster_non_tiling.comp")
-}
+shader_compute_raster := #load("mpvg_raster_tiling.comp")
 
 Xform :: [6]f32
 
@@ -83,6 +77,9 @@ Renderer :: struct {
 
 	// platform dependent implementation
 	gpu: Renderer_GL,
+
+	window_width: int,
+	window_height: int,
 }
 
 Renderer_GL :: struct {
@@ -96,6 +93,8 @@ Renderer_GL :: struct {
 	implicitize_program: u32,
 	raster_program: u32,
 	raster_texture_id: u32,
+	raster_texture_width: int,
+	raster_texture_height: int,
 
 	backprop_program: u32,
 	path_program: u32,
@@ -238,42 +237,16 @@ renderer_start :: proc(renderer: ^Renderer, width, height: int) {
 	renderer.indices.tile_queues = 0
 	renderer.indices.tile_operations = 0
 	renderer.path_index = 0
-	path_init(&renderer.paths[0])
+	path_init(&renderer.paths[0], f32(width), f32(height))
 
+	renderer.window_width = width
+	renderer.window_height = height
 	renderer_gpu_gl_start(renderer)
 }
 
-renderer_end :: proc(using renderer: ^Renderer, width, height: int) {
-	renderer_gpu_gl_end(renderer, width, height)
+renderer_end :: proc(using renderer: ^Renderer) {
+	renderer_gpu_gl_end(renderer)
 }
-
-// renderer_glyph_push :: proc(
-// 	using renderer: ^Renderer,
-// 	codepoint: rune,
-// 	x, y: f32,
-// ) -> f32 {
-// 	// TODO allow font selection
-// 	font := pool_at(&font_pool, 1)
-// 	glyph := font_get_glyph(font, codepoint)
-// 	path := renderer_path_get(renderer)
-// 	fmt.eprintln("LEN", codepoint, len(glyph.curves))
-
-// 	for c in glyph.curves {
-// 		c := c
-
-// 		for i in 0..=c.count {
-// 			c.B[i] = path_xform_v2(path, c.B[i])
-// 		}
-
-// 		c.path_index = i32(renderer.path_index)
-// 		renderer.curves[renderer.curve_index] = c
-// 		renderer.curve_index += 1
-// 	}
-
-// 	// TODO use proper scale
-// 	scale := path.xform[0]
-// 	return glyph.advance * scale
-// }
 
 renderer_text_push :: proc(
 	using renderer: ^Renderer,
@@ -283,10 +256,16 @@ renderer_text_push :: proc(
 ) {
 	font := pool_at(&font_pool, 1)
 	
+	x_start := x
 	x := x
+	y := y
 	for codepoint in text {
 		x += renderer_font_glyph(renderer, font, codepoint, x, y, size)
 		renderer_path_transition(renderer)
+		// if x > 500 {
+		// 	x = x_start
+		// 	y += size
+		// }
 	}
 }
 
@@ -365,10 +344,11 @@ renderer_gpu_gl_init :: proc(using gpu: ^Renderer_GL) {
 
 		{
 			// TODO dynamic width/height or finite big one
-			w := 800
-			h := 800
-			gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, i32(w), i32(h), 0, gl.RGBA, gl.UNSIGNED_BYTE, nil)
+			raster_texture_width = 2560
+			raster_texture_height = 1080
+			gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, i32(raster_texture_width), i32(raster_texture_height), 0, gl.RGBA, gl.UNSIGNED_BYTE, nil)
 		}
+
 		gl.BindTexture(gl.TEXTURE_2D, 0)
 	}
 
@@ -405,7 +385,7 @@ renderer_gpu_gl_start :: proc(renderer: ^Renderer) {
 
 }
 
-renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
+renderer_gpu_gl_end :: proc(renderer: ^Renderer) {
 	gpu := &renderer.gpu
 	using gpu
 
@@ -463,13 +443,7 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 	// raster stage
 	{
 		gl.UseProgram(raster_program)
-
-		when USE_TILING {
-			gl.DispatchCompute(u32(renderer.tiles_x), u32(renderer.tiles_y), 1)
-		} else {
-			gl.DispatchCompute(u32(width), u32(height), 1)
-		}
-
+		gl.DispatchCompute(u32(renderer.tiles_x), u32(renderer.tiles_y), 1)
 		gl.MemoryBarrier(gl.SHADER_IMAGE_ACCESS_BARRIER_BIT)
 	}
 
@@ -481,22 +455,25 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 	gl.BindVertexArray(fill.vao)
 	gl.UseProgram(fill.program)
 
-	projection := glm.mat4Ortho3d(0, f32(width), f32(height), 0, 0, 1)
+	projection := glm.mat4Ortho3d(0, f32(renderer.window_width), f32(renderer.window_height), 0, 0, 1)
 	gl.UniformMatrix4fv(fill.loc_projection, 1, gl.FALSE, &projection[0][0])
 
 	gl.BindTexture(gl.TEXTURE_2D, raster_texture_id)
 	gl.BindBuffer(gl.ARRAY_BUFFER, fill.vbo)
 
 	{
-		w := f32(width)
-		h := f32(height)
+		w := f32(renderer.window_width)
+		h := f32(renderer.window_height)
+		u := w / f32(raster_texture_width)
+		v := h / f32(raster_texture_height)
+
 		data := [6]Vertex {
 			{{ 0, 0 }, { 0, 0 }},
-			{{ 0, h }, { 0, 1 }},
-			{{ w, 0 }, { 1, 0 }},
-			{{ 0, h }, { 0, 1 }},
-			{{ w, 0 }, { 1, 0 }},
-			{{ w, h }, { 1, 1 }},
+			{{ 0, h }, { 0, v }},
+			{{ w, 0 }, { u, 0 }},
+			{{ 0, h }, { 0, v }},
+			{{ w, 0 }, { u, 0 }},
+			{{ w, h }, { u, v }},
 		}
 		gl.BufferData(gl.ARRAY_BUFFER, size_of(data), &data[0], gl.STREAM_DRAW)
 		gl.DrawArrays(gl.TRIANGLES, 0, 6)
@@ -509,12 +486,13 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 
 renderer_move_to :: proc(renderer: ^Renderer, x, y: f32) {
 	path := renderer_path_get(renderer)
+	
 	// if path.curve_index_current > path.curve_index_start {
 	// 	renderer_path_transition(renderer)
 	// }
 
-	// fmt.eprintln("MOVE START", renderer.curve_index, renderer.path_index)
 	renderer.curve_last = { x, y }
+	renderer.curve_last_control = renderer.curve_last
 }
 
 renderer_move_to_rel :: proc(renderer: ^Renderer, x, y: f32) {
@@ -890,7 +868,7 @@ pool_at :: proc(p: ^Pool($N, $T), slot_index: u32, loc := #caller_location) -> ^
 // PATH
 ///////////////////////////////////////////////////////////
 
-path_init :: proc(using path: ^Path) {
+path_init :: proc(using path: ^Path, width, height: f32) {
 	path.box = {
 		max(f32),
 		max(f32),
@@ -898,12 +876,11 @@ path_init :: proc(using path: ^Path) {
 		-max(f32),
 	}
 
-	// TODO do window size?
 	path.clip = {
-		-100,
-		-100,
-		1100,
-		1100,
+		0,
+		0,
+		width,
+		height,
 	}
 
 	xform_identity(&path.xform)
@@ -964,7 +941,7 @@ renderer_path_get :: #force_inline proc(renderer: ^Renderer) -> ^Path {
 renderer_path_push :: proc(renderer: ^Renderer) -> (res: ^Path) {
 	renderer.path_index += 1
 	res = &renderer.paths[renderer.path_index]
-	path_init(res)
+	path_init(res, f32(renderer.window_width), f32(renderer.window_height))
 	return res
 }
 

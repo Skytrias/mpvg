@@ -20,6 +20,10 @@ App :: struct {
 	renderer: Renderer,
 	ctrl: bool,
 	shift: bool,
+
+	window: glfw.WindowHandle,
+	window_width: int,
+	window_height: int,
 }
 app: App
 
@@ -88,6 +92,11 @@ window_key_callback :: proc "c" (handle: glfw.WindowHandle, key, scancode, actio
 	// }
 }
 
+window_size_callback :: proc "c" (handle: glfw.WindowHandle, width, height: i32) {
+	app.window_width = int(width)
+	app.window_height = int(height)
+}
+
 POINTS_PATH :: "test.points"
 
 points_read :: proc(p1, p2, p3: ^[2]f32) {
@@ -138,17 +147,20 @@ main :: proc() {
 	glfw.WindowHint(glfw.CONTEXT_VERSION_MAJOR, 4)
 	glfw.WindowHint(glfw.CONTEXT_VERSION_MINOR, 5)
 
-	window := glfw.CreateWindow(800, 800, "mpvg", nil, nil)
-	defer glfw.DestroyWindow(window)
-	if window == nil {
+	app.window_width = 800
+	app.window_height = 800
+	app.window = glfw.CreateWindow(i32(app.window_width), i32(app.window_height), "mpvg", nil, nil)
+	defer glfw.DestroyWindow(app.window)
+	if app.window == nil {
 		return
 	}
 
-	glfw.SetCursorPosCallback(window, window_cursor_pos_callback)
-	glfw.SetMouseButtonCallback(window, window_mouse_button_callback)
-	glfw.SetKeyCallback(window, window_key_callback)
+	glfw.SetCursorPosCallback(app.window, window_cursor_pos_callback)
+	glfw.SetMouseButtonCallback(app.window, window_mouse_button_callback)
+	glfw.SetKeyCallback(app.window, window_key_callback)
+	glfw.SetWindowSizeCallback(app.window, window_size_callback)
 
-	glfw.MakeContextCurrent(window)
+	glfw.MakeContextCurrent(app.window)
 	gl.load_up_to(4, 5, glfw.gl_set_proc_address)
 
 	renderer_init(&app.renderer)
@@ -168,21 +180,18 @@ main :: proc() {
 	// svg_curves := svg_gen_temp(svg_aws)
 	// svg_curves := svg_gen_temp(svg_angular)
 	// svg_curves := svg_gen_temp(svg_debian)
-	svg_curves := svg_gen_temp(svg_firefox)
-	// svg_curves := svg_gen_temp(svg_rust)
-	// svg_curves := svg_gen_temp(svg_AB)
+	// svg_curves := svg_gen_temp(svg_firefox)
+	svg_curves := svg_gen_temp(svg_AB)
 	defer delete(svg_curves)
 
 	count: f32
 	duration: time.Duration
-	for !glfw.WindowShouldClose(window) {
+	for !glfw.WindowShouldClose(app.window) {
 		time.SCOPED_TICK_DURATION(&duration)
 		free_all(context.temp_allocator)
-		width := 800
-		height := 800
 
-		mouse_tile_x := clamp(int(app.mouse.x), 0, width) / app.renderer.tiles_size
-		mouse_tile_y := clamp(int(app.mouse.y), 0, height) / app.renderer.tiles_size
+		mouse_tile_x := clamp(int(app.mouse.x), 0, app.window_width) / app.renderer.tiles_size
+		mouse_tile_y := clamp(int(app.mouse.y), 0, app.window_height) / app.renderer.tiles_size
 		window_text := fmt.ctprintf(
 			"mpvg %fms, tilex: %d, tiley: %d, tileid: %d, mousex: %d, mousey: %d", 
 			time.duration_milliseconds(duration),
@@ -192,15 +201,15 @@ main :: proc() {
 			int(app.mouse.x),
 			int(app.mouse.y),
 		)
-		glfw.SetWindowTitle(window, window_text)
+		glfw.SetWindowTitle(app.window, window_text)
 
-		gl.Viewport(0, 0, i32(width), i32(height))
+		gl.Viewport(0, 0, i32(app.window_width), i32(app.window_height))
 		gl.ClearColor(1, 1, 1, 1)
 		gl.Clear(gl.COLOR_BUFFER_BIT)
 
 		{
-			renderer_start(&app.renderer, width, height)
-			defer renderer_end(&app.renderer, width, height)
+			renderer_start(&app.renderer, app.window_width, app.window_height)
+			defer renderer_end(&app.renderer)
 
 			if app.mouse.left {
 				p := app.ctrl ? &p1 : &p2
@@ -229,13 +238,12 @@ main :: proc() {
 			// renderer_line_to(&app.renderer, p2.x, p2.y)
 			// renderer_close(&app.renderer)
 
-			// // NOTE: NEW
-			// // renderer_path_translate(&app.renderer, 200, 200)
-			// renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
-			// renderer_path_rotate(&app.renderer, count * 0.01)
-			// renderer_rect(&app.renderer, -100, -50, 200, 100)
+			// NOTE: NEW
+			// renderer_path_translate(&app.renderer, 200, 200)
+			renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
+			renderer_path_rotate(&app.renderer, count * 0.01)
+			renderer_rect(&app.renderer, -100, -50, 200, 100)
 
-			// fmt.eprintln("RENDER")
 			// renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
 			// // renderer_path_translate(&app.renderer, 100, 100)
 			// // renderer_path_scale(&app.renderer, 5, 5)
@@ -244,14 +252,14 @@ main :: proc() {
 			// // renderer_path_scale(&app.renderer, 50, 50)
 			// renderer_svg(&app.renderer, svg_curves)
 
-			renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
-			renderer_path_scale(&app.renderer, 1, 1)
-			// renderer_text_push(&app.renderer, "xyzlp", 0, 0, math.sin(count * 0.05) * 20 + 200)
-			// renderer_text_push(&app.renderer, "text works", 0, 0, math.sin(count * 0.05) * 20 + 100)
-			renderer_text_push(&app.renderer, "Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna ", 0, 0, math.sin(count * 0.05) * 10 + 40)
+			// renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
+			// renderer_path_scale(&app.renderer, 1, 1)
+			// // renderer_text_push(&app.renderer, "xyzlp", 0, 0, math.sin(count * 0.05) * 20 + 200)
+			// // renderer_text_push(&app.renderer, "text works", 0, 0, math.sin(count * 0.05) * 20 + 100)
+			// renderer_text_push(&app.renderer, "Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna ", 0, 0, math.sin(count * 0.05) * 10 + 40)
 		}
 
-		glfw.SwapBuffers(window)
+		glfw.SwapBuffers(app.window)
 		glfw.PollEvents()
 		count += 1
 	}
