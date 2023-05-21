@@ -219,10 +219,7 @@ renderer_font_glyph :: proc(
 	scaling := font.scaling * size
 
 	if renderer.curve_index != 0 {
-		old := renderer_path_get(renderer)
-		next := renderer_path_push(renderer)
-		next.xform = old.xform
-		next.color = old.color
+		renderer_path_transition(renderer)
 	}
 	fmt.eprintln("VERTS", number_of_vertices)
 
@@ -259,6 +256,6 @@ renderer_font_glyph :: proc(
 		}
 	}
 
-	renderer_close(renderer)
+	// renderer_close(renderer)
 	return f32(advance) * scaling
 }

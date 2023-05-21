@@ -40,12 +40,26 @@ void main() {
 	// iterate first tile queue
 	while (tile_queue_offset != -1) {
 		Tile_Queue tile_queue = tile_queues.data[tile_queue_offset];
+		vec4 path_color = paths.data[path_index].color;
+		path_color.rgb *= path_color.a;
 
 		// fetch info from tile queue instead
-		// ADD MULTI PATHS AGAIN
-		// path_index = tile_queue.path_index;
 		for (int sample_index = 0; sample_index < MAX_SAMPLES; sample_index += 1) {
-			// TODO do path color stuf here too
+			vec2 sample_coord = sample_coords[sample_index];
+			vec4 clip = paths.data[path_index].clip;
+
+			if (sample_coord.x >= clip.x && sample_coord.x < clip.z && sample_coord.y >= clip.y && sample_coord.y < clip.w) {
+				bool filled = (winding[sample_index] & 1) == 1;
+
+				if (filled) {
+					vec4 next_color = path_color;
+					// TODO add texturing
+					color[sample_index] = color[sample_index] * (1 - next_color.a) + next_color;
+				}
+			}
+
+			// do proper op path
+			path_index = tile_queue.path_index;
 			winding[sample_index] = tile_queue.winding_offset;
 		}
 
@@ -83,18 +97,18 @@ void main() {
 
 	Path path = paths.data[path_index];
 	vec4 pixel_color = vec4(0, 0, 0, 0);
-	// vec4 pixel_color = vec4(0, 0, 0, 1);
-	// vec4 pixel_color = vec4(1, 1, 1, 1);
 	vec4 path_color = path.color;
 	path_color.rgb *= path_color.a;
 	vec4 clip = path.clip;
 
-	// TODO fill / stroke?
 	for (int sample_index = 0; sample_index < MAX_SAMPLES; sample_index += 1) {
 		vec2 sample_coord = sample_coords[sample_index];
 
 		if (sample_coord.x >= clip.x && sample_coord.x < clip.z && sample_coord.y >= clip.y && sample_coord.y < clip.w) {
-			if ((winding[sample_index] & 1) == 1) {
+			// TODO fill / stroke?
+			bool filled = (winding[sample_index] & 1) == 1;
+
+			if (filled) {
 				vec4 next_color = path_color;
 				color[sample_index] = color[sample_index] * (1 - next_color.a) + next_color;
 			}

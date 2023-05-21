@@ -44,6 +44,7 @@ struct Tile_Queue {
 	int tile_queue_next;
 
 	// info
+	int path_index;
 	int winding_offset;
 };
 
@@ -53,6 +54,7 @@ struct Tile_Operation {
 	int cross_bottom;
 	
 	int tile_queue_index;
+	int path_index;
 	int op_next; // link to next op
 };
 

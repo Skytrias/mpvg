@@ -62,6 +62,7 @@ Renderer :: struct {
 	curves: []Curve,
 	curve_index: int,
 	curve_last: [2]f32, // temp last point in path creation
+	curve_last_control: [2]f32, // temp last point in path creation
 
 	// indices that will get advanced on the gpu
 	indices: Indices,
@@ -133,13 +134,17 @@ Tile_Queue :: struct #packed {
 	
 	tile_queue_next: i32,
 
-	winding_offset: i32,
 	path_index: i32,
+	winding_offset: i32,
 }
 
 Tile_Operation :: struct #packed {
 	curve_index: i32, // which implicit curve this belongs to
 	cross_right: b32,
+	cross_bottom: i32,
+
+	tile_queue_index: i32,
+	path_index: i32,
 	op_next: i32,
 }
 
@@ -418,6 +423,18 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 	gpu := &renderer.gpu
 	using gpu
 
+	// check path count or unfinished path we might have pushed
+	path_count := renderer.path_index + 1
+	path := renderer.paths[renderer.path_index]
+	if path.curve_index > 0 {
+		if renderer.path_index == 1 {
+			unimplemented("do nothing?")
+			return
+		} else {
+			path_count -= 1
+		}
+	}
+
 	// path setup
 	{
 		gl.UseProgram(path.program)
@@ -426,12 +443,12 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 		gl.NamedBufferSubData(indices_ssbo, 0, size_of(Indices), &renderer.indices)
 
 		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, paths_ssbo)
-		gl.NamedBufferSubData(paths_ssbo, 0, (renderer.path_index + 1) * size_of(Path), raw_data(renderer.paths))
+		gl.NamedBufferSubData(paths_ssbo, 0, path_count * size_of(Path), raw_data(renderer.paths))
 
 		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, curves_ssbo)
 		gl.NamedBufferSubData(curves_ssbo, 0, renderer.curve_index * size_of(Curve), raw_data(renderer.curves))
 
-		gl.DispatchCompute(u32(renderer.path_index + 1), 1, 1)
+		gl.DispatchCompute(u32(path_count), 1, 1)
 		gl.MemoryBarrier(gl.SHADER_STORAGE_BARRIER_BIT)
 	}
 
@@ -451,7 +468,7 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 	// tile backprop stage go by 0->tiles_y
 	{
 		gl.UseProgram(backprop.program)
-		gl.DispatchCompute(u32(renderer.path_index + 1), 1, 1)
+		gl.DispatchCompute(u32(path_count), 1, 1)
 		gl.MemoryBarrier(gl.SHADER_STORAGE_BARRIER_BIT)
 	}
 
@@ -510,18 +527,19 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 ///////////////////////////////////////////////////////////
 
 renderer_move_to :: proc(renderer: ^Renderer, x, y: f32) {
-	path := renderer_path_get(renderer)
+	// if renderer.curve_index > 0 {
+	// 	renderer_path_transition(renderer)
+	// }
+
 	renderer.curve_last = { x, y }
 }
 
 renderer_move_to_rel :: proc(renderer: ^Renderer, x, y: f32) {
-	path := renderer_path_get(renderer)
 	renderer.curve_last = renderer.curve_last + { x, y }
 }
 
 renderer_line_to :: proc(using renderer: ^Renderer, x, y: f32) {
 	path := renderer_path_get(renderer)
-
 	curve_linear_init(
 		&curves[curve_index],
 		path_xform_v2(path, curve_last),
@@ -606,6 +624,7 @@ renderer_cubic_to :: proc(using renderer: ^Renderer, c1x, c1y, c2x, c2y, x, y: f
 	)
 	curve_index += 1
 	curve_last = { x, y }
+	curve_last_control = { c2x, c2y }
 }
 
 renderer_cubic_to_rel :: proc(using renderer: ^Renderer, c1x, c1y, c2x, c2y, x, y: f32) {
@@ -625,18 +644,25 @@ renderer_cubic_to_rel :: proc(using renderer: ^Renderer, c1x, c1y, c2x, c2y, x, 
 renderer_close :: proc(using renderer: ^Renderer) {
 	if curve_index > 0 {
 		path := renderer_path_get(renderer)
-		start := curves[0].B[0]
+		curve_start := curves[0].B[0]
+
+		res := path_xform_v2(path, curve_last)
+		fmt.eprintln("SAME ENDPOINT", curve_start, res, curve_start == res)
 
 		curve_linear_init(
 			&curves[curve_index],
 			path_xform_v2(path, curve_last),
-			{ start.x, start.y },
+			curve_start,
 			renderer.path_index,
 		)
 
 		curve_index += 1
-		curve_last = { start.x, start.y }
+		curve_last = { curve_start.x, curve_start.y }
+		curve_last_control = curve_last
 	}
+
+	// renderer_path_transition(renderer)
+	// renderer_move_to(renderer, curve_last.x, curve_last.y)
 }
 
 renderer_triangle :: proc(renderer: ^Renderer, x, y, r: f32) {
@@ -677,6 +703,8 @@ renderer_arc_to :: proc(
 	sweep_direction: f32,
 	x2, y2: f32,
 ) {
+	PI :: 3.14159265358979323846264338327
+
 	square :: #force_inline proc(a: f32) -> f32 {
 		return a * a
 	}
@@ -692,11 +720,11 @@ renderer_arc_to :: proc(
 	vecang :: proc(ux, uy, vx, vy: f32) -> f32 {
 		r := vecrat(ux,uy, vx,vy)
 
-		if r < -1 {
+		if r < -1.0 {
 			r = -1
 		}
 
-		if r > 1 {
+		if r > 1.0 {
 			r = 1
 		}
 
@@ -706,9 +734,11 @@ renderer_arc_to :: proc(
 	// Ported from canvg (https://code.google.com/p/canvg/)
 	rx := abs(rx)				// y radius
 	ry := abs(ry)				// x radius
-	rotx := rotation / 180 * math.PI		// x rotation angle
+	rotx := rotation / 180.0 * PI		// x rotation angle
 	fa := abs(large_arc) > 1e-6 ? 1 : 0	// Large arc
 	fs := abs(sweep_direction) > 1e-6 ? 1 : 0	// Sweep direction
+	// fs = 1
+	// fa = 0
 	x1 := renderer.curve_last.x // start point
 	y1 := renderer.curve_last.y
 
@@ -727,8 +757,8 @@ renderer_arc_to :: proc(
 	// Convert to center point parameterization.
 	// http://www.w3.org/TR/SVG11/implnote.html#ArcImplementationNotes
 	// 1) Compute x1', y1'
-	x1p := cosrx * dx / 2 + sinrx * dy / 2
-	y1p := -sinrx * dx / 2 + cosrx * dy / 2
+	x1p := cosrx * dx / 2.0 + sinrx * dy / 2.0
+	y1p := -sinrx * dx / 2.0 + cosrx * dy / 2.0
 	d = square(x1p)/square(rx) + square(y1p)/square(ry)
 	if d > 1 {
 		d = math.sqrt(d)
@@ -739,10 +769,10 @@ renderer_arc_to :: proc(
 	s := f32(0)
 	sa := square(rx)*square(ry) - square(rx)*square(y1p) - square(ry)*square(x1p)
 	sb := square(rx)*square(y1p) + square(ry)*square(x1p)
-	if sa < 0 {
+	if sa < 0.0 {
 		sa = 0
 	}
-	if sb > 0 {
+	if sb > 0.0 {
 		s = math.sqrt(sa / sb)
 	}
 	if fa == fs {
@@ -752,22 +782,24 @@ renderer_arc_to :: proc(
 	cyp := s * -ry * x1p / rx
 
 	// 3) Compute cx,cy from cx',cy'
-	cx := (x1 + x2)/2 + cosrx*cxp - sinrx*cyp
-	cy := (y1 + y2)/2 + sinrx*cxp + cosrx*cyp
+	cx := (x1 + x2)/2.0 + cosrx*cxp - sinrx*cyp
+	cy := (y1 + y2)/2.0 + sinrx*cxp + cosrx*cyp
 
 	// 4) Calculate theta1, and delta theta.
 	ux := (x1p - cxp) / rx
 	uy := (y1p - cyp) / ry
 	vx := (-x1p - cxp) / rx
 	vy := (-y1p - cyp) / ry
-	a1 := vecang(1,0, ux,uy)	// Initial angle
-	da := vecang(ux,uy, vx,vy)		// Delta angle
+	a1 := vecang(1, 0, ux, uy)	// Initial angle
+	da := vecang(ux, uy, vx, vy)		// Delta angle
 
-	if fs == 0 && da > 0 {
-		da -= 2 * math.PI
-	} else if fs == 1 && da < 0 {
-		da += 2 * math.PI
+	if fs == 0 && da > 0.0 {
+		da -= 2 * PI
+	} else if fs == 1.0 && da < 0.0 {
+		da += 2 * PI
 	}
+
+	// cosrx += 0.1
 
 	// Approximate the arc using cubic spline segments.
 	t := Xform {
@@ -778,8 +810,8 @@ renderer_arc_to :: proc(
 
 	// Split arc into max 90 degree segments.
 	// The loop assumes an iteration per end point (including start and end), this +1.
-	ndivs := int(abs(da) / (math.PI*0.5) + 1)
-	hda := (da / f32(ndivs)) / 2
+	ndivs := int(abs(da) / (PI*0.5) + 1)
+	hda := (da / f32(ndivs)) / 2.0
 	// Fix for ticket #179: division by 0: avoid cotangens around 0 (infinite)
 	if hda < 1e-3 && hda > -1e-3 {
 		hda *= 0.5
@@ -794,7 +826,7 @@ renderer_arc_to :: proc(
 
 	path := renderer_path_get(renderer)
 	p, ptan: [2]f32
-	for i in 0..=ndivs {
+	for i := 0; i <= ndivs; i += 1 {
 		a := a1 + da * (f32(i)/f32(ndivs))
 		dx = math.cos(a)
 		dy = math.sin(a)
@@ -926,15 +958,26 @@ curve_cubic_init :: proc(curve: ^Curve, a, b, c, d: [2]f32, path_index: int) {
 	curve.path_index = i32(path_index)
 }
 
+curve_set_endpoint :: proc(curve: ^Curve, to: [2]f32) {
+	curve.B[curve.count + 1] = to
+}
+
 renderer_path_get :: #force_inline proc(renderer: ^Renderer) -> ^Path #no_bounds_check {
 	return &renderer.paths[renderer.path_index]
 }
 
-renderer_path_push :: #force_inline proc(renderer: ^Renderer) -> (res: ^Path) #no_bounds_check {
+renderer_path_push :: proc(renderer: ^Renderer) -> (res: ^Path) #no_bounds_check {
 	renderer.path_index += 1
 	res = &renderer.paths[renderer.path_index]
 	path_init(res)
 	return res
+}
+
+renderer_path_transition :: proc(renderer: ^Renderer) {
+	old := renderer_path_get(renderer)
+	next := renderer_path_push(renderer)
+	next.xform = old.xform
+	next.color = old.color
 }
 
 renderer_path_reset_transform :: proc(using renderer: ^Renderer) {

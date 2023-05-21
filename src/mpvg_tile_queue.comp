@@ -5,6 +5,7 @@ void main() {
 	tile.op_tail = -1;
 	tile.winding_offset = 0;
 	tile.tile_queue_next = -1;
+	tile.path_index = 0;
 	int op_last = -1; 
 
 	for (int i = 0; i < indices.tile_operations; i += 1)	{
@@ -22,6 +23,9 @@ void main() {
 
 			// offset
 			tile.winding_offset += op.cross_bottom;
+
+			// set atleast once
+			tile.path_index = op.path_index;
 
 			// chain operations together
 			if (op_last	!= -1) {

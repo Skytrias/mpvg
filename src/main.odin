@@ -163,12 +163,14 @@ main :: proc() {
 	offset: [2]f32
 
 	// svg_curves := svg_gen_temp(svg_shield_path)
+	// svg_curves := svg_gen_temp(svg_F)
 	// svg_curves := svg_gen_temp(svg_test)
 	// svg_curves := svg_gen_temp(svg_aws)
 	// svg_curves := svg_gen_temp(svg_angular)
 	// svg_curves := svg_gen_temp(svg_debian)
-	// svg_curves := svg_gen_temp(svg_firefox)
-	svg_curves := svg_gen_temp(svg_rust)
+	svg_curves := svg_gen_temp(svg_firefox)
+	// svg_curves := svg_gen_temp(svg_rust)
+	// svg_curves := svg_gen_temp(svg_AB)
 	defer delete(svg_curves)
 
 	count: f32
@@ -228,17 +230,19 @@ main :: proc() {
 			// renderer_close(&app.renderer)
 
 			// NOTE: NEW
-			// // renderer_path_translate(&app.renderer, 200, 200)
-			// renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
-			// renderer_path_rotate(&app.renderer, count * 0.01)
-			// renderer_rect(&app.renderer, -100, -50, 200, 100)
-
+			// renderer_path_translate(&app.renderer, 200, 200)
 			renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
-			// renderer_path_translate(&app.renderer, 100, 100)
-			renderer_path_scale(&app.renderer, 5, 5)
-			// renderer_path_scale(&app.renderer, 10, 10)
+			renderer_path_rotate(&app.renderer, count * 0.01)
+			renderer_rect(&app.renderer, -100, -50, 200, 100)
+
+			// fmt.eprintln("RENDER")
+			// renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
+			// // renderer_path_translate(&app.renderer, 100, 100)
+			// // renderer_path_scale(&app.renderer, 5, 5)
+			// // renderer_path_scale(&app.renderer, 10, 10)
 			// renderer_path_scale(&app.renderer, 20, 20)
-			renderer_svg(&app.renderer, svg_curves)
+			// // renderer_path_scale(&app.renderer, 50, 50)
+			// renderer_svg(&app.renderer, svg_curves)
 
 			// renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
 			// renderer_path_scale(&app.renderer, 1, 1)
