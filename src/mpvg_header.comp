@@ -38,7 +38,6 @@ struct Implicit_Curve {
 struct Tile_Queue {
 	// op linked list
 	int op_head;
-	int op_tail;
 	
 	// link to next tile to process
 	int tile_queue_next;

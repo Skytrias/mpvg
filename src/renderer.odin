@@ -115,8 +115,6 @@ Indices :: struct #packed {
 
 Tile_Queue :: struct #packed {
 	op_head: i32,
-	op_tail: i32,
-	
 	tile_queue_next: i32,
 
 	path_index: i32,
@@ -399,7 +397,7 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer) {
 	}
 	
 	// write in the final path count
-	fmt.eprintln("PATH COUNT", path_count, size_of(Path))
+	// fmt.eprintln("PATH COUNT", path_count, size_of(Path))
 	renderer.indices.paths = i32(path_count)
 
 	// path setup
@@ -416,7 +414,7 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer) {
 		gl.NamedBufferSubData(curves_ssbo, 0, renderer.curve_index * size_of(Curve), raw_data(renderer.curves))
 
 		gl.DispatchCompute(u32(path_count), 1, 1)
-		gl.MemoryBarrier(gl.SHADER_STORAGE_BARRIER_BIT)
+		gl.GetNamedBufferSubData(indices_ssbo, 0, size_of(Indices), &renderer.indices)
 	}
 
 	// implicitize stage
@@ -427,23 +425,21 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer) {
 
 	// find head/tail of tile queues, set op nexts per tile queue
 	{
-		gl.GetNamedBufferSubData(indices_ssbo, 0, size_of(Indices), &renderer.indices)
 		gl.UseProgram(tile_queue_program)
 		gl.DispatchCompute(u32(renderer.indices.tile_queues), 1, 1)
+		// gl.DispatchCompute(u32(renderer.indices.tile_operations), 1, 1)
 	}
 
 	// tile backprop stage go by 0->tiles_y
 	{
 		gl.UseProgram(backprop_program)
 		gl.DispatchCompute(u32(path_count), 1, 1)
-		gl.MemoryBarrier(gl.SHADER_STORAGE_BARRIER_BIT)
 	}
 
 	// tile merging to screen tiles
 	{
 		gl.UseProgram(merge_program)
 		gl.DispatchCompute(u32(renderer.tiles_x), u32(renderer.tiles_y), 1)
-		gl.MemoryBarrier(gl.SHADER_STORAGE_BARRIER_BIT)
 	}
 
 	// raster stage
