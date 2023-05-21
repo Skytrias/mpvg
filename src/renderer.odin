@@ -16,8 +16,9 @@ MAX_STATES :: 32
 MAX_CURVES :: 4048
 MAX_IMPLICIT_CURVES :: MAX_CURVES * 4
 MAX_TILE_QUEUES :: 1024 * 2
-MAX_TILE_OPERATIONS :: 1024 * 16
-MAX_PATHS :: 1028
+MAX_TILE_OPERATIONS :: 1024 * 32
+// TODO WEIRD if this is resized the CPU takes longer
+MAX_PATHS :: 1028 * 8
 MAX_PATH_QUEUES :: MAX_PATHS
 MAX_SCREEN_TILES :: 1028 * 4
 
@@ -39,17 +40,6 @@ Vertex :: struct {
 }
 
 KAPPA90 :: 0.5522847493
-
-// indices that will get advanced in compute shaders!
-Indices :: struct #packed {
-	implicit_curves: i32,
-	tile_operations: i32,
-	tile_queues: i32,
-
-	// data used throughout
-	tiles_x: i32,
-	tiles_y: i32,
-}
 
 Renderer :: struct {
 	// raw curves that were inserted by the user
@@ -111,6 +101,18 @@ Renderer_GL :: struct {
 	screen_tiles_ssbo: u32,
 }
 
+// indices that will get advanced in compute shaders!
+Indices :: struct #packed {
+	implicit_curves: i32,
+	paths: i32,
+	tile_operations: i32,
+	tile_queues: i32,
+
+	// data used throughout
+	tiles_x: i32,
+	tiles_y: i32,
+}
+
 Tile_Queue :: struct #packed {
 	op_head: i32,
 	op_tail: i32,
@@ -137,8 +139,6 @@ Path :: struct #packed {
 	clip: [4]f32,
 
 	xform: Xform, // transformation used throughout vertice creation
-	// pad1: f32,
-	// pad2: f32,
 
 	curve_index_start: i32,
 	curve_index_current: i32,
@@ -236,6 +236,7 @@ renderer_start :: proc(renderer: ^Renderer, width, height: int) {
 	renderer.indices.tiles_y = i32(renderer.tiles_y)
 	renderer.indices.tile_queues = 0
 	renderer.indices.tile_operations = 0
+	renderer.indices.paths = 0
 	renderer.path_index = 0
 	path_init(&renderer.paths[0], f32(width), f32(height))
 
@@ -364,6 +365,7 @@ renderer_gpu_gl_init :: proc(using gpu: ^Renderer_GL) {
 		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, index)
 		gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, base, index)
 		gl.NamedBufferData(index, size, nil, gl.STREAM_DRAW)
+		fmt.eprintln("SSBO", base, size, size / mem.Kilobyte, size / mem.Megabyte)
 		return index
 	}
 
@@ -395,6 +397,10 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer) {
 	if path.curve_index_start == path.curve_index_current {
 		path_count -= 1
 	}
+	
+	// write in the final path count
+	fmt.eprintln("PATH COUNT", path_count, size_of(Path))
+	renderer.indices.paths = i32(path_count)
 
 	// path setup
 	{

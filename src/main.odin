@@ -97,43 +97,6 @@ window_size_callback :: proc "c" (handle: glfw.WindowHandle, width, height: i32)
 	app.window_height = int(height)
 }
 
-POINTS_PATH :: "test.points"
-
-points_read :: proc(p1, p2, p3: ^[2]f32) {
-	content, ok := os.read_entire_file(POINTS_PATH, context.temp_allocator)
-
-	if !ok {
-		p1^ = { 0, 0 }
-		p2^ = { -50, 100 }
-		p3^ = { +50, 100 }
-		return
-	} 
-
-	read := read_make(content[:])
-	size := size_of([2]f32)
-	read_ptr(&read, p1, size)
-	read_ptr(&read, p2, size)
-	read_ptr(&read, p3, size)
-}
-
-points_write :: proc(p1, p2, p3: ^[2]f32) {
-	fixed: [512]u8
-	blob: Blob
-	blob.data_buffer = fixed[:]
-
-	size := size_of([2]f32)
-	blob_write_ptr(&blob, p1, size)
-	blob_write_ptr(&blob, p2, size)
-	blob_write_ptr(&blob, p3, size)
-
-	os.write_entire_file(POINTS_PATH, blob_result(blob))
-}
-
-print :: proc() {
-	def := cast(^runtime.Default_Temp_Allocator) context.temp_allocator.data
-	fmt.eprintln(def)		
-}
-
 main :: proc() {
 	glfw.Init()
 	defer glfw.Terminate()
@@ -167,12 +130,6 @@ main :: proc() {
 	defer renderer_destroy(&app.renderer)
 
 	renderer_font_push(&app.renderer, "Lato-Regular.ttf")
-
-	p1, p2, p3: [2]f32
-	points_read(&p1, &p2, &p3)
-	defer points_write(&p1, &p2, &p3)
-	scale: [2]f32
-	offset: [2]f32
 
 	// svg_curves := svg_gen_temp(svg_shield_path)
 	// svg_curves := svg_gen_temp(svg_F)
@@ -211,23 +168,6 @@ main :: proc() {
 			renderer_start(&app.renderer, app.window_width, app.window_height)
 			defer renderer_end(&app.renderer)
 
-			if app.mouse.left {
-				p := app.ctrl ? &p1 : &p2
-				p.x = app.mouse.x - offset.x
-				
-				if !app.shift {
-					p.y = app.mouse.y - offset.y
-				}
-			}
-
-			if app.mouse.right {
-				p3.x = app.mouse.x - offset.x
-
-				if !app.shift {
-					p3.y = app.mouse.y - offset.y
-				}
-			}
-
 			// renderer_move_to(&app.renderer, 300, 300)
 			// renderer_line_to(&app.renderer, app.mouse.x, app.mouse.y)
 			// renderer_cubic_to(&app.renderer, p1.x, p1.y, p3.x, p3.y, p2.x, p2.y)
@@ -238,11 +178,11 @@ main :: proc() {
 			// renderer_line_to(&app.renderer, p2.x, p2.y)
 			// renderer_close(&app.renderer)
 
-			// NOTE: NEW
-			// renderer_path_translate(&app.renderer, 200, 200)
-			renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
-			renderer_path_rotate(&app.renderer, count * 0.01)
-			renderer_rect(&app.renderer, -100, -50, 200, 100)
+			// // NOTE: NEW
+			// // renderer_path_translate(&app.renderer, 200, 200)
+			// renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
+			// renderer_path_rotate(&app.renderer, count * 0.01)
+			// renderer_rect(&app.renderer, -100, -50, 200, 100)
 
 			// renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
 			// // renderer_path_translate(&app.renderer, 100, 100)
@@ -252,11 +192,11 @@ main :: proc() {
 			// // renderer_path_scale(&app.renderer, 50, 50)
 			// renderer_svg(&app.renderer, svg_curves)
 
-			// renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
-			// renderer_path_scale(&app.renderer, 1, 1)
-			// // renderer_text_push(&app.renderer, "xyzlp", 0, 0, math.sin(count * 0.05) * 20 + 200)
-			// // renderer_text_push(&app.renderer, "text works", 0, 0, math.sin(count * 0.05) * 20 + 100)
-			// renderer_text_push(&app.renderer, "Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna ", 0, 0, math.sin(count * 0.05) * 10 + 40)
+			renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
+			renderer_path_scale(&app.renderer, 1, 1)
+			// renderer_text_push(&app.renderer, "xyzlp", 0, 0, math.sin(count * 0.05) * 20 + 200)
+			// renderer_text_push(&app.renderer, "text works", 0, 0, math.sin(count * 0.05) * 20 + 100)
+			renderer_text_push(&app.renderer, "Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna ", 0, 0, math.sin(count * 0.05) * 10 + 40)
 		}
 
 		glfw.SwapBuffers(app.window)

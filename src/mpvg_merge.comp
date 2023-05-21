@@ -8,7 +8,7 @@ void main() {
 	int last_tile_queue = -1;
 
 	// iterate all paths
-	for (int path_index = 0; path_index < paths.data.length(); path_index += 1) {
+	for (int path_index = 0; path_index < indices.paths; path_index += 1) {
 		Path_Queue path_queue = path_queues.data[path_index];
 		ivec2 path_tile_coord = tile_coord - ivec2(path_queue.x, path_queue.y);
 

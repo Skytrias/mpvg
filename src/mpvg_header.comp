@@ -64,8 +64,6 @@ struct Path {
 	vec4 clip;
 
 	float xform[6];
-	// float pad1;
-	// float pad2;
 
 	int curve_index_start;
 	int curve_index_current;
@@ -84,8 +82,9 @@ struct Path_Queue {
 	int index;
 };
 
-layout(std430, binding = 0) coherent buffer Input_Indices {
+layout(std430, binding = 0) buffer Input_Indices {
 	int implicit_curves;
+	int paths;
 	int tile_operations;
 	int tile_queues;
 
@@ -97,23 +96,23 @@ layout(std430, binding = 1) readonly buffer Input_Curves {
 	Curve data[];
 } curves;
 
-layout(std430, binding = 2) coherent buffer Output_Implicit_Curves {
+layout(std430, binding = 2) buffer Output_Implicit_Curves {
 	Implicit_Curve data[];
 } implicit_curves;
 
-layout(std430, binding = 3) coherent buffer Tile_Queues {
+layout(std430, binding = 3) buffer Tile_Queues {
 	Tile_Queue data[];
 } tile_queues;
 
-layout(std430, binding = 4) coherent buffer Tile_Operations {
+layout(std430, binding = 4) buffer Tile_Operations {
 	Tile_Operation data[];
 } tile_operations;
 
-layout(std430, binding = 5) coherent buffer Paths {
+layout(std430, binding = 5) buffer Paths {
 	Path data[];
 } paths;
 
-layout(std430, binding = 6) coherent buffer Path_Queues {
+layout(std430, binding = 6) buffer Path_Queues {
 	Path_Queue data[];
 } path_queues;
 

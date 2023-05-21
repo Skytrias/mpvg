@@ -118,12 +118,13 @@ void main() {
 	}
 	pixel_color /= MAX_SAMPLES;
 
-
 	ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
-	if (pixel_coords.x % TILE_SIZE == 0 || pixel_coords.y % TILE_SIZE == 0) {
-		// for (int sample_index = 0; sample_index < MAX_SAMPLES; sample_index += 1) {
-			pixel_color = vec4(0, 0, 0, 1);
-		// }
-	}
+
+	// if (pixel_coords.x % TILE_SIZE == 0 || pixel_coords.y % TILE_SIZE == 0) {
+	// 	// for (int sample_index = 0; sample_index < MAX_SAMPLES; sample_index += 1) {
+	// 		pixel_color = vec4(0, 0, 0, 1);
+	// 	// }
+	// }
+
 	imageStore(img_output, pixel_coords, pixel_color);
 }
