@@ -13,10 +13,10 @@ import gl "vendor:OpenGL"
 
 TILE_SIZE :: 32 // has to match compute header
 MAX_STATES :: 32
-MAX_CURVES :: 512
-MAX_IMPLICIT_CURVES :: 512
-MAX_TILE_QUEUES :: 1028
-MAX_TILE_OPERATIONS :: 1028 * 40
+MAX_CURVES :: 4048
+MAX_IMPLICIT_CURVES :: MAX_CURVES * 4
+MAX_TILE_QUEUES :: 1024 * 2
+MAX_TILE_OPERATIONS :: 1024 * 16
 MAX_PATHS :: 1028
 MAX_PATH_QUEUES :: MAX_PATHS
 MAX_SCREEN_TILES :: 1028 * 2
@@ -247,33 +247,33 @@ renderer_end :: proc(using renderer: ^Renderer, width, height: int) {
 	renderer_gpu_gl_end(renderer, width, height)
 }
 
-renderer_glyph_push :: proc(
-	using renderer: ^Renderer,
-	codepoint: rune,
-	x, y: f32,
-) -> f32 {
-	// TODO allow font selection
-	font := pool_at(&font_pool, 1)
-	glyph := font_get_glyph(font, codepoint)
-	path := renderer_path_get(renderer)
-	fmt.eprintln("LEN", codepoint, len(glyph.curves))
+// renderer_glyph_push :: proc(
+// 	using renderer: ^Renderer,
+// 	codepoint: rune,
+// 	x, y: f32,
+// ) -> f32 {
+// 	// TODO allow font selection
+// 	font := pool_at(&font_pool, 1)
+// 	glyph := font_get_glyph(font, codepoint)
+// 	path := renderer_path_get(renderer)
+// 	fmt.eprintln("LEN", codepoint, len(glyph.curves))
 
-	for c in glyph.curves {
-		c := c
+// 	for c in glyph.curves {
+// 		c := c
 
-		for i in 0..=c.count {
-			c.B[i] = path_xform_v2(path, c.B[i])
-		}
+// 		for i in 0..=c.count {
+// 			c.B[i] = path_xform_v2(path, c.B[i])
+// 		}
 
-		c.path_index = i32(renderer.path_index)
-		renderer.curves[renderer.curve_index] = c
-		renderer.curve_index += 1
-	}
+// 		c.path_index = i32(renderer.path_index)
+// 		renderer.curves[renderer.curve_index] = c
+// 		renderer.curve_index += 1
+// 	}
 
-	// TODO use proper scale
-	scale := path.xform[0]
-	return glyph.advance * scale
-}
+// 	// TODO use proper scale
+// 	scale := path.xform[0]
+// 	return glyph.advance * scale
+// }
 
 renderer_text_push :: proc(
 	using renderer: ^Renderer,
@@ -285,9 +285,8 @@ renderer_text_push :: proc(
 	
 	x := x
 	for codepoint in text {
-		// x += renderer_glyph_push(renderer, codepoint, x, y)
 		x += renderer_font_glyph(renderer, font, codepoint, x, y, size)
-		x += 20
+		renderer_path_transition(renderer)
 	}
 }
 
@@ -412,10 +411,8 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 
 	// check path count or unfinished path we might have pushed
 	path_count := renderer.path_index + 1
-	fmt.eprintln("PATHS", path_count, renderer.path_index)
 	path := renderer.paths[renderer.path_index]
 	if path.curve_index_start == path.curve_index_current {
-		fmt.eprintln("SUB")
 		path_count -= 1
 	}
 
@@ -512,11 +509,11 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer, width, height: int) {
 
 renderer_move_to :: proc(renderer: ^Renderer, x, y: f32) {
 	path := renderer_path_get(renderer)
-	if path.curve_index_current > path.curve_index_start {
-		renderer_path_transition(renderer)
-	}
+	// if path.curve_index_current > path.curve_index_start {
+	// 	renderer_path_transition(renderer)
+	// }
 
-	fmt.eprintln("MOVE START", renderer.curve_index, renderer.path_index)
+	// fmt.eprintln("MOVE START", renderer.curve_index, renderer.path_index)
 	renderer.curve_last = { x, y }
 }
 
@@ -960,11 +957,11 @@ curve_set_endpoint :: proc(curve: ^Curve, to: [2]f32) {
 	curve.B[curve.count + 1] = to
 }
 
-renderer_path_get :: #force_inline proc(renderer: ^Renderer) -> ^Path #no_bounds_check {
+renderer_path_get :: #force_inline proc(renderer: ^Renderer) -> ^Path {
 	return &renderer.paths[renderer.path_index]
 }
 
-renderer_path_push :: proc(renderer: ^Renderer) -> (res: ^Path) #no_bounds_check {
+renderer_path_push :: proc(renderer: ^Renderer) -> (res: ^Path) {
 	renderer.path_index += 1
 	res = &renderer.paths[renderer.path_index]
 	path_init(res)
@@ -978,7 +975,7 @@ renderer_path_transition :: proc(renderer: ^Renderer) {
 	next.curve_index_current = i32(renderer.curve_index)
 	next.xform = old.xform
 	next.color = old.color
-	next.color = { 0, 1, 0, 1 }
+	// next.color = { 0, 1, 0, 1 }
 }
 
 renderer_path_reset_transform :: proc(using renderer: ^Renderer) {

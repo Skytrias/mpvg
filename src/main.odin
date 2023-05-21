@@ -247,8 +247,8 @@ main :: proc() {
 			renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
 			renderer_path_scale(&app.renderer, 1, 1)
 			// renderer_text_push(&app.renderer, "xyzlp", 0, 0, math.sin(count * 0.05) * 20 + 200)
-			renderer_text_push(&app.renderer, "e", 0, 0, math.sin(count * 0.05) * 20 + 400)
-			fmt.eprintln(app.renderer.paths[0].box)
+			// renderer_text_push(&app.renderer, "text works", 0, 0, math.sin(count * 0.05) * 20 + 100)
+			renderer_text_push(&app.renderer, "Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna ", 0, 0, math.sin(count * 0.05) * 10 + 40)
 		}
 
 		glfw.SwapBuffers(window)

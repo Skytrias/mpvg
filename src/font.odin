@@ -192,21 +192,6 @@ glyph_compiler_end :: proc(using gc: ^Glyph_Compiler) {
 	copy(glyph.curves, curves[:curve_index])
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // retrieve cached or generate the wanted glyph vertices and its bounding box
 renderer_font_glyph :: proc(
 	renderer: ^Renderer, 
@@ -232,11 +217,6 @@ renderer_font_glyph :: proc(
 	gc := &font.gc
 	assert(gc.curves != nil)
 	scaling := font.scaling * size
-
-	// if renderer.curve_index != 0 {
-	// 	renderer_path_transition(renderer)
-	// }
-	fmt.eprintln("VERTS", number_of_vertices)
 
 	for i := i32(0); i < number_of_vertices; i += 1 {
 		v := codepoint_vertices[i]
@@ -270,6 +250,6 @@ renderer_font_glyph :: proc(
 		}
 	}
 
-	// renderer_close(renderer)
+	// NOTE: NO CLOSING
 	return f32(advance) * scaling
 }
