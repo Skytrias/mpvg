@@ -1,8 +1,12 @@
 package src
 
-import "core:fmt"
 import "core:os"
+import "core:fmt"
+import "core:slice"
 import stbtt "vendor:stb/truetype"
+
+GLYPH_LUT_SIZE :: 256
+GLYPH_COUNT :: 1028
 
 // font state storing scaling information
 // simple map to retrieve already created glyphs, could do a LUT
@@ -15,25 +19,16 @@ Font :: struct {
 	descender: f32,
 	line_height: f32,
 
-	gc: Glyph_Compiler,
-	glyph_map: map[rune]Glyph,
+	glyphs: []Glyph,
+	glyph_index: int,
+	lut: [GLYPH_LUT_SIZE]int,
 }
 
-// builds vertices for a wanted glyph
-Glyph_Compiler :: struct {
-	curves: []Curve,
-	curve_index: int,
-	current_x: f32,
-	current_y: f32,
-	contour_count: int,
-	glyph: ^Glyph, // glyph that gets modified
-}
-
-// glyph storing its vertices that have to be copied to the renderer
 Glyph :: struct {
-	curves: []Curve, // copied from glyph_compiler
-	index: i32,
+	vertices: []stbtt.vertex,
 	advance: f32,
+	codepoint: rune,
+	next: int,
 }
 
 font_make :: proc(path: string) -> (res: Font) {
@@ -57,139 +52,74 @@ font_init :: proc(font: ^Font, path: string) {
 	font.line_height = f32(l) / fh
 	font.scaling = 1.0 / fh
 
-	font.glyph_map = make(map[rune]Glyph, 128)
-	glyph_compiler_init(&font.gc, 1028)
-}
-
-font_destroy :: proc(using font: Font) {
-	delete(info_data)
-	
-	// for _, glyph in glyph_map {
-	// 	delete(glyph.vertices)
-	// }
-	delete(glyph_map)
-
-	glyph_compiler_destroy(gc)
-}
-
-// retrieve cached or generate the wanted glyph vertices and its bounding box
-font_get_glyph :: proc(font: ^Font, codepoint: rune) -> (res: ^Glyph) {
-	if glyph, ok := &font.glyph_map[codepoint]; ok {
-		res = glyph
-	} else {
-		glyph_index := stbtt.FindGlyphIndex(&font.info, codepoint)
-
-		if glyph_index == 0 {
-			return
-		}
-
-		font.glyph_map[codepoint] = {}
-		res = &font.glyph_map[codepoint]
-		res.index = glyph_index
-
-		// retrieve vertice info
-		codepoint_vertices: [^]stbtt.vertex
-		number_of_vertices := stbtt.GetGlyphShape(&font.info, glyph_index, &codepoint_vertices)
-		defer stbtt.FreeShape(&font.info, codepoint_vertices)
-
-		// push glyph properties from stbtt
-		advance, lsb: i32
-		stbtt.GetGlyphHMetrics(&font.info, glyph_index, &advance, &lsb)
-		res.advance = f32(advance) * font.scaling
-
-		gc := &font.gc
-		assert(gc.curves != nil)
-		glyph_compiler_begin(gc, res)
-
-		for i := i32(0); i < number_of_vertices; i += 1 {
-			v := codepoint_vertices[i]
-
-			if v.type == u8(stbtt.vmove.vmove) {
-				glyph_compiler_move_to(
-					gc, 
-					f32(v.x) * font.scaling, 
-					-f32(v.y) * font.scaling + font.ascender * font.scaling,
-				)
-			} else if v.type == u8(stbtt.vmove.vline) {
-				glyph_compiler_line_to(
-					gc, 
-					f32(v.x) * font.scaling, 
-					-f32(v.y) * font.scaling + font.ascender * font.scaling,
-				)
-			} else if v.type == u8(stbtt.vmove.vcurve) {
-				glyph_compiler_curve_to(
-					gc, 
-					f32(v.cx) * font.scaling,
-					-f32(v.cy) * font.scaling + font.ascender * font.scaling,
-					f32(v.x) * font.scaling, 
-					-f32(v.y) * font.scaling + font.ascender * font.scaling,
-				)
-			}
-		}
-
-		glyph_compiler_end(gc)
+	// set lut
+	for i in 0..<GLYPH_LUT_SIZE {
+		font.lut[i] = -1
 	}
 
-	return	
+	font.glyphs = make([]Glyph, GLYPH_COUNT)
+	font.glyph_index = 0
 }
 
-// could just be in font_init :)
-glyph_compiler_init :: proc(gc: ^Glyph_Compiler, cap: int) {
-	gc.curves = make([]Curve, cap)
-	gc.current_x = 0
-	gc.current_y = 0
+font_destroy :: proc(font: Font) {
+	delete(font.info_data)
+	delete(font.glyphs)
+
+	for i in 0..<font.glyph_index {
+		delete(font.glyphs[i].vertices)
+	}
 }
 
-glyph_compiler_destroy :: proc(gc: Glyph_Compiler) {
-	delete(gc.curves)
-}
+font_glyph_get :: proc(font: ^Font, codepoint: rune) -> ^Glyph {
+	hash_int :: proc(a: u32) -> u32 {
+		a := a
+		a += ~(a << 15)
+		a ~=  (a >> 10)
+		a +=  (a << 3)
+		a ~=  (a >> 6)
+		a +=  (a << 11)
+		a ~=  (a >> 16)
+		return a
+	}
 
-// begin vertex building
-glyph_compiler_begin :: proc(using gc: ^Glyph_Compiler, glyph_modify: ^Glyph) {
-	curve_index = 0
-	glyph = glyph_modify
-}
+	// check for preexisting glyph 
+	hash_value := hash_int(u32(codepoint)) & (GLYPH_LUT_SIZE - 1)
+	i := font.lut[hash_value]
+	for i != -1 {
+		glyph := &font.glyphs[i]
 
-glyph_compiler_move_to :: proc(using gc: ^Glyph_Compiler, x, y: f32) {
-	current_x = x
-	current_y = y
-	contour_count = 0
-}
+		if glyph.codepoint == codepoint {
+			return glyph
+		}
 
-glyph_compiler_line_to :: proc(using gc: ^Glyph_Compiler, x, y: f32) {
-	contour_count += 1
+		i = glyph.next
+	}
 
-	curve_linear_init(
-		&gc.curves[gc.curve_index], 
-		{ current_x, current_y }, 
-		{ x, y },
-		0,
-	)
+	glyph_index := stbtt.FindGlyphIndex(&font.info, codepoint)
+	if glyph_index == 0 {
+		return nil
+	}
 
-	gc.curve_index += 1
-	current_x = x
-	current_y = y
-}
+	// retrieve vertice info
+	codepoint_vertices: [^]stbtt.vertex
+	number_of_vertices := stbtt.GetGlyphShape(&font.info, glyph_index, &codepoint_vertices)
+	defer stbtt.FreeShape(&font.info, codepoint_vertices)
 
-glyph_compiler_curve_to :: proc(using gc: ^Glyph_Compiler, cx, cy, x, y: f32) {
-	contour_count += 1
+	// push glyph properties from stbtt
+	advance, lsb: i32
+	stbtt.GetGlyphHMetrics(&font.info, glyph_index, &advance, &lsb)	
 
-	curve_linear_init(&gc.curves[gc.curve_index], { current_x, current_y }, { x, y }, 0)
-	gc.curve_index += 1
+	// push glyph
+	glyph := &font.glyphs[font.glyph_index]
+	assert(font.glyph_index < GLYPH_COUNT)
+	glyph.vertices = slice.clone(codepoint_vertices[:number_of_vertices])
+	glyph.codepoint = codepoint
+	glyph.advance = f32(advance)
+	glyph.next = font.lut[hash_value]
 
-	curve_quadratic_init(&gc.curves[gc.curve_index], { current_x, current_y }, { cx, cy }, { x, y }, 0)
-	gc.curve_index += 1
-	
-	current_x = x
-	current_y = y
-}
-
-// NOTE could just have giant glyph storage instead of seperate ones, or offset the glyph_compiler
-// copy data over to glyph
-glyph_compiler_end :: proc(using gc: ^Glyph_Compiler) {
-	assert(glyph.curves == nil)
-	glyph.curves = make([]Curve, curve_index)
-	copy(glyph.curves, curves[:curve_index])
+	font.lut[hash_value] = font.glyph_index
+	font.glyph_index += 1
+	return glyph
 }
 
 // retrieve cached or generate the wanted glyph vertices and its bounding box
@@ -200,26 +130,11 @@ renderer_font_glyph :: proc(
 	offset_x, offset_y: f32,
 	size: f32,
 ) -> f32 {
-	glyph_index := stbtt.FindGlyphIndex(&font.info, codepoint)
-	if glyph_index == 0 {
-		return 0
-	}
-
-	// retrieve vertice info
-	codepoint_vertices: [^]stbtt.vertex
-	number_of_vertices := stbtt.GetGlyphShape(&font.info, glyph_index, &codepoint_vertices)
-	defer stbtt.FreeShape(&font.info, codepoint_vertices)
-
-	// push glyph properties from stbtt
-	advance, lsb: i32
-	stbtt.GetGlyphHMetrics(&font.info, glyph_index, &advance, &lsb)
-	
-	gc := &font.gc
-	assert(gc.curves != nil)
+	glyph := font_glyph_get(font, codepoint)
 	scaling := font.scaling * size
 
-	for i := i32(0); i < number_of_vertices; i += 1 {
-		v := codepoint_vertices[i]
+	for i := 0; i < len(glyph.vertices); i += 1 {
+		v := glyph.vertices[i]
 
 		switch v.type {
 		case u8(stbtt.vmove.vmove): 
@@ -251,5 +166,5 @@ renderer_font_glyph :: proc(
 	}
 
 	// NOTE: NO CLOSING
-	return f32(advance) * scaling
+	return glyph.advance * scaling
 }

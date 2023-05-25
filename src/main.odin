@@ -74,22 +74,6 @@ window_key_callback :: proc "c" (handle: glfw.WindowHandle, key, scancode, actio
 	if key == glfw.KEY_LEFT_SHIFT {
 		app.shift = down
 	}
-
-	// if down {
-	// 	switch key {
-	// 	case glfw.KEY_1: app.renderer.color_mode = 0
-	// 	case glfw.KEY_2: app.renderer.color_mode = 1
-	// 	case glfw.KEY_3: app.renderer.color_mode = 2
-	// 	case glfw.KEY_4: app.renderer.color_mode = 3
-
-	// 	case glfw.KEY_Q: app.renderer.fill_rule = 0
-	// 	case glfw.KEY_W: app.renderer.fill_rule = 1
-	// 	case glfw.KEY_E: app.renderer.fill_rule = 2
-	// 	case glfw.KEY_R: app.renderer.fill_rule = 3
-
-	// 	case glfw.KEY_SPACE: app.renderer.ignore_temp = app.renderer.ignore_temp == 0 ? 1 : 0
-	// 	}
-	// }
 }
 
 window_size_callback :: proc "c" (handle: glfw.WindowHandle, width, height: i32) {
@@ -131,13 +115,6 @@ main :: proc() {
 
 	renderer_font_push(&app.renderer, "Lato-Regular.ttf")
 
-	// svg_curves := svg_gen_temp(svg_shield_path)
-	// svg_curves := svg_gen_temp(svg_F)
-	// svg_curves := svg_gen_temp(svg_test)
-	// svg_curves := svg_gen_temp(svg_aws)
-	// svg_curves := svg_gen_temp(svg_angular)
-	// svg_curves := svg_gen_temp(svg_debian)
-	// svg_curves := svg_gen_temp(svg_firefox)
 	svg_curves := svg_gen_temp(svg_AB)
 	defer delete(svg_curves)
 
@@ -168,21 +145,13 @@ main :: proc() {
 			renderer_start(&app.renderer, app.window_width, app.window_height)
 			defer renderer_end(&app.renderer)
 
-			// renderer_move_to(&app.renderer, 300, 300)
-			// renderer_line_to(&app.renderer, app.mouse.x, app.mouse.y)
-			// renderer_cubic_to(&app.renderer, p1.x, p1.y, p3.x, p3.y, p2.x, p2.y)
-			// renderer_arc_to(&app.renderer, 20, 20, 0, 1, 0, p2.x, p2.y)
-			// renderer_quadratic_to(&app.renderer, p3.x, p3.y, p2.x, p2.y)
-
-			// renderer_move_to(&app.renderer, p1.x, p1.y)
-			// renderer_line_to(&app.renderer, p2.x, p2.y)
-			// renderer_close(&app.renderer)
-
-			// // NOTE: NEW
-			// // renderer_path_translate(&app.renderer, 200, 200)
-			// renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
-			// renderer_path_rotate(&app.renderer, count * 0.01)
-			// renderer_rect(&app.renderer, -100, -50, 200, 100)
+			// NOTE: NEW
+			// renderer_path_translate(&app.renderer, 200, 200)
+			renderer_path_color(&app.renderer, { 1, 0, 0, 1 })
+			renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
+			renderer_path_rotate(&app.renderer, count * 0.01)
+			renderer_rect(&app.renderer, -100, -50, 200, 100)
+			renderer_path_push(&app.renderer)
 
 			// renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
 			// // renderer_path_translate(&app.renderer, 100, 100)
@@ -192,11 +161,12 @@ main :: proc() {
 			// // renderer_path_scale(&app.renderer, 50, 50)
 			// renderer_svg(&app.renderer, svg_curves)
 
+			renderer_path_color(&app.renderer, { 0, 0, 0, 1 })
 			renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
 			renderer_path_scale(&app.renderer, 1, 1)
 			// renderer_text_push(&app.renderer, "xyzlp", 0, 0, math.sin(count * 0.05) * 20 + 200)
-			// renderer_text_push(&app.renderer, "text works", 0, 0, math.sin(count * 0.05) * 20 + 100)
-			renderer_text_push(&app.renderer, "Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna ", 0, 0, math.sin(count * 0.05) * 10 + 40)
+			renderer_text_push(&app.renderer, "text works", 0, 0, math.sin(count * 0.05) * 20 + 100)
+			// renderer_text_push(&app.renderer, "Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna ", 0, 0, math.sin(count * 0.05) * 10 + 40)
 		}
 
 		glfw.SwapBuffers(app.window)

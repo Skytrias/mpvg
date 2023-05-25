@@ -12,25 +12,23 @@ import sa "core:container/small_array"
 import gl "vendor:OpenGL"
 
 TILE_SIZE :: 32 // has to match compute header
-MAX_STATES :: 32
 MAX_CURVES :: 4048
-MAX_IMPLICIT_CURVES :: MAX_CURVES * 4
-MAX_TILE_QUEUES :: 1024 * 2
-MAX_TILE_OPERATIONS :: 1024 * 32
-// TODO WEIRD if this is resized the CPU takes longer
 MAX_PATHS :: 1028 * 8
-MAX_PATH_QUEUES :: MAX_PATHS
-MAX_SCREEN_TILES :: 1028 * 4
+SIZE_IMPLICIT_CURVES :: mem.Megabyte
+SIZE_TILE_QUEUES :: mem.Megabyte
+SIZE_TILE_OPERATIONS :: mem.Megabyte * 4
+SIZE_SCREEN_TILES :: mem.Megabyte
 
-shader_vert := #load("vertex.glsl")
-shader_frag := #load("fragment.glsl")
-shader_compute_header := #load("mpvg_header.comp")
-shader_compute_path := #load("mpvg_path.comp")
-shader_compute_implicitize := #load("mpvg_implicitize.comp")
-shader_compute_tile_backprop := #load("mpvg_tile_backprop.comp")
-shader_compute_merge := #load("mpvg_merge.comp")
-shader_compute_tile_queue := #load("mpvg_tile_queue.comp")
-shader_compute_raster := #load("mpvg_raster_tiling.comp")
+shader_vert := #load("shaders/vertex.glsl")
+shader_frag := #load("shaders/fragment.glsl")
+compute_header := #load("shaders/compute/header.comp")
+compute_path_setup := #load("shaders/compute/path_setup.comp")
+compute_curve_implicitize := #load("shaders/compute/curve_implicitize.comp")
+compute_curve_transform := #load("shaders/compute/curve_transform.comp")
+compute_tile_backprop := #load("shaders/compute/tile_backprop.comp")
+compute_tile_merge := #load("shaders/compute/tile_merge.comp")
+compute_tile_queue := #load("shaders/compute/tile_queue.comp")
+compute_raster := #load("shaders/compute/raster.comp")
 
 Xform :: [6]f32
 
@@ -80,16 +78,17 @@ Renderer_GL :: struct {
 		loc_projection: i32,
 	},
 
-	implicitize_program: u32,
 	raster_program: u32,
 	raster_texture_id: u32,
 	raster_texture_width: int,
 	raster_texture_height: int,
 
-	backprop_program: u32,
-	path_program: u32,
-	merge_program: u32,
+	curve_implicitize_program: u32,
+	curve_transform_program: u32,
+	tile_backprop_program: u32,
+	tile_merge_program: u32,
 	tile_queue_program: u32,
+	path_setup_program: u32,
 
 	indices_ssbo: u32,
 	curves_ssbo: u32,
@@ -113,83 +112,13 @@ Indices :: struct #packed {
 	tiles_y: i32,
 }
 
-Tile_Queue :: struct #packed {
-	op_head: i32,
-	op_tail: i32,
-	
-	tile_queue_next: i32,
-
-	path_index: i32,
-	winding_offset: i32,
-}
-
-Tile_Operation :: struct #packed {
-	curve_index: i32, // which implicit curve this belongs to
-	cross_right: b32,
-	cross_bottom: i32,
-
-	tile_queue_index: i32,
-	path_index: i32,
-	op_next: i32,
-}
-
 Path :: struct #packed {
 	color: [4]f32,
-	box: [4]f32, // bounding box for all inserted vertices,
 	clip: [4]f32,
-
 	xform: Xform, // transformation used throughout vertice creation
 
 	curve_index_start: i32,
 	curve_index_current: i32,
-}
-
-Path_Queue :: struct #packed {
-	x: i32,
-	y: i32,
-	
-	tiles_x: i32,
-	tiles_y: i32,
-	
-	tile_queues_index: i32,
-	index: i32,
-}
-
-Implicit_Curve_Kind :: enum i32 {
-	LINE,
-	QUADRATIC,
-	CUBIC,
-}
-
-Implicit_Curve_Cubic_Type :: enum i32 {
-	ERROR = 0,
-	SERPENTINE,
-	CUSP,
-	CUSP_INFINITY,
-	LOOP,
-	DEGENERATE_QUADRATIC,
-	DEGENERATE_LINE,
-}
-
-Implicit_Curve_Orientation :: enum i32 {
-	BL,
-	BR,
-	TL,
-	TR,
-}
-
-Implicit_Curve :: struct {
-	box: [4]f32, // bounding box
-
-	hull_vertex: [2]f32,
-	hull_padding: [2]f32,
-
-	kind: Implicit_Curve_Kind,
-	orientation: Implicit_Curve_Orientation,
-	sign: i32,
-	winding_increment: i32,
-
-	implicit_matrix: [12]f32,
 }
 
 // curve Linear, Quadratic, Cubic in flat structure
@@ -262,7 +191,6 @@ renderer_text_push :: proc(
 	y := y
 	for codepoint in text {
 		x += renderer_font_glyph(renderer, font, codepoint, x, y, size)
-		renderer_path_transition(renderer)
 		// if x > 500 {
 		// 	x = x_start
 		// 	y += size
@@ -333,7 +261,7 @@ renderer_gpu_gl_init :: proc(using gpu: ^Renderer_GL) {
 	builder := strings.builder_make(mem.Kilobyte * 4, context.temp_allocator)
 
 	{
-		raster_program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_raster, TILE_SIZE, TILE_SIZE)
+		raster_program = renderer_gpu_shader_compute(&builder, compute_header, compute_raster, TILE_SIZE, TILE_SIZE)
 
 		gl.GenTextures(1, &raster_texture_id)
 		gl.BindTexture(gl.TEXTURE_2D, raster_texture_id)
@@ -353,11 +281,12 @@ renderer_gpu_gl_init :: proc(using gpu: ^Renderer_GL) {
 		gl.BindTexture(gl.TEXTURE_2D, 0)
 	}
 
-	implicitize_program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_implicitize, 1, 1)
-	backprop_program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_tile_backprop, 16, 1)
-	path_program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_path, 1, 1)
-	merge_program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_merge, 1, 1)
-	tile_queue_program = renderer_gpu_shader_compute(&builder, shader_compute_header, shader_compute_tile_queue, 1, 1)
+	curve_implicitize_program = renderer_gpu_shader_compute(&builder, compute_header, compute_curve_implicitize, 1, 1)
+	curve_transform_program = renderer_gpu_shader_compute(&builder, compute_header, compute_curve_transform, 1, 1)
+	tile_backprop_program = renderer_gpu_shader_compute(&builder, compute_header, compute_tile_backprop, 16, 1)
+	path_setup_program = renderer_gpu_shader_compute(&builder, compute_header, compute_path_setup, 1, 1)
+	tile_merge_program = renderer_gpu_shader_compute(&builder, compute_header, compute_tile_merge, 1, 1)
+	tile_queue_program = renderer_gpu_shader_compute(&builder, compute_header, compute_tile_queue, 1, 1)
 
 	// TODO revisit STREAM/STATIC?
 	create :: proc(base: u32, size: int) -> (index: u32) {
@@ -371,12 +300,12 @@ renderer_gpu_gl_init :: proc(using gpu: ^Renderer_GL) {
 
 	indices_ssbo = create(0, 1 * size_of(Indices))
 	curves_ssbo = create(1, MAX_CURVES * size_of(Curve))
-	implicit_curves_ssbo = create(2, MAX_IMPLICIT_CURVES * size_of(Implicit_Curve))
-	tile_queues_ssbo = create(3, MAX_TILE_QUEUES * size_of(Tile_Queue))
-	tile_operations_ssbo = create(4, MAX_TILE_OPERATIONS * size_of(Tile_Operation))
+	implicit_curves_ssbo = create(2, SIZE_IMPLICIT_CURVES)
+	tile_queues_ssbo = create(3, SIZE_TILE_QUEUES)
+	tile_operations_ssbo = create(4, SIZE_TILE_OPERATIONS)
 	paths_ssbo = create(5, MAX_PATHS * size_of(Path))
-	path_queues_ssbo = create(6, MAX_PATH_QUEUES * size_of(Path_Queue))
-	screen_tiles_ssbo = create(7, MAX_SCREEN_TILES * size_of(Screen_Tile))
+	path_queues_ssbo = create(6, MAX_PATHS * size_of(Path))
+	screen_tiles_ssbo = create(7, SIZE_SCREEN_TILES)
 }
 
 renderer_gpu_gl_destroy :: proc(using gpu: ^Renderer_GL) {
@@ -399,13 +328,11 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer) {
 	}
 	
 	// write in the final path count
-	fmt.eprintln("PATH COUNT", path_count, size_of(Path))
+	// fmt.eprintln("PATH COUNT", path_count, size_of(Path))
 	renderer.indices.paths = i32(path_count)
 
-	// path setup
+	// bind
 	{
-		gl.UseProgram(path_program)
-
 		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, indices_ssbo)
 		gl.NamedBufferSubData(indices_ssbo, 0, size_of(Indices), &renderer.indices)
 
@@ -414,14 +341,23 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer) {
 
 		gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, curves_ssbo)
 		gl.NamedBufferSubData(curves_ssbo, 0, renderer.curve_index * size_of(Curve), raw_data(renderer.curves))
+	}
 
+	// curve transforming stage
+	{
+		gl.UseProgram(curve_transform_program)
+		gl.DispatchCompute(u32(renderer.curve_index), 1, 1)
+	}
+
+	// path setup
+	{
+		gl.UseProgram(path_setup_program)
 		gl.DispatchCompute(u32(path_count), 1, 1)
-		gl.MemoryBarrier(gl.SHADER_STORAGE_BARRIER_BIT)
 	}
 
 	// implicitize stage
 	{
-		gl.UseProgram(implicitize_program)
+		gl.UseProgram(curve_implicitize_program)
 		gl.DispatchCompute(u32(renderer.curve_index), 1, 1)
 	}
 
@@ -434,16 +370,14 @@ renderer_gpu_gl_end :: proc(renderer: ^Renderer) {
 
 	// tile backprop stage go by 0->tiles_y
 	{
-		gl.UseProgram(backprop_program)
+		gl.UseProgram(tile_backprop_program)
 		gl.DispatchCompute(u32(path_count), 1, 1)
-		gl.MemoryBarrier(gl.SHADER_STORAGE_BARRIER_BIT)
 	}
 
 	// tile merging to screen tiles
 	{
-		gl.UseProgram(merge_program)
+		gl.UseProgram(tile_merge_program)
 		gl.DispatchCompute(u32(renderer.tiles_x), u32(renderer.tiles_y), 1)
-		gl.MemoryBarrier(gl.SHADER_STORAGE_BARRIER_BIT)
 	}
 
 	// raster stage
@@ -511,8 +445,8 @@ renderer_line_to :: proc(using renderer: ^Renderer, x, y: f32) {
 	path := renderer_path_get(renderer)
 	curve_linear_init(
 		&curves[curve_index],
-		path_xform_v2(path, curve_last),
-		path_xform_v2(path, { x, y }),
+		curve_last,
+		{ x, y },
 		renderer.path_index,
 	)
 	curve_index += 1
@@ -524,8 +458,8 @@ renderer_line_to_rel :: proc(using renderer: ^Renderer, x, y: f32) {
 	path := renderer_path_get(renderer)
 	curve_linear_init(
 		&curves[curve_index],
-		path_xform_v2(path, curve_last),
-		path_xform_v2(path, curve_last + { x, y }),
+		curve_last,
+		curve_last + { x, y },
 		renderer.path_index,
 	)
 	curve_index += 1
@@ -537,8 +471,8 @@ renderer_vertical_line_to :: proc(using renderer: ^Renderer, y: f32) {
 	path := renderer_path_get(renderer)
 	curve_linear_init(
 		&curves[curve_index],
-		path_xform_v2(path, curve_last),
-		path_xform_v2(path, { curve_last.x, y }),
+		curve_last,
+		{ curve_last.x, y },
 		renderer.path_index,
 	)
 	curve_index += 1
@@ -550,8 +484,8 @@ renderer_horizontal_line_to :: proc(using renderer: ^Renderer, x: f32) {
 	path := renderer_path_get(renderer)
 	curve_linear_init(
 		&curves[curve_index],
-		path_xform_v2(path, curve_last),
-		path_xform_v2(path, { x, curve_last.y }),
+		curve_last,
+		{ x, curve_last.y },
 		renderer.path_index,
 	)
 	curve_index += 1
@@ -563,9 +497,9 @@ renderer_quadratic_to :: proc(using renderer: ^Renderer, cx, cy, x, y: f32) {
 	path := renderer_path_get(renderer)
 	curve_quadratic_init(
 		&curves[curve_index],
-		path_xform_v2(path, curve_last),
-		path_xform_v2(path, { cx, cy }),
-		path_xform_v2(path, { x, y }),
+		curve_last,
+		{ cx, cy },
+		{ x, y },
 		renderer.path_index,
 	)
 	curve_index += 1
@@ -577,9 +511,9 @@ renderer_quadratic_to_rel :: proc(using renderer: ^Renderer, cx, cy, x, y: f32) 
 	path := renderer_path_get(renderer)
 	curve_quadratic_init(
 		&curves[curve_index],
-		path_xform_v2(path, curve_last),
-		path_xform_v2(path, curve_last + { cx, cy }),
-		path_xform_v2(path, curve_last + { x, y }),
+		curve_last,
+		curve_last + { cx, cy },
+		curve_last + { x, y },
 		renderer.path_index,
 	)
 	curve_index += 1
@@ -591,10 +525,10 @@ renderer_cubic_to :: proc(using renderer: ^Renderer, c1x, c1y, c2x, c2y, x, y: f
 	path := renderer_path_get(renderer)
 	curve_cubic_init(
 		&curves[curve_index],
-		path_xform_v2(path, curve_last),
-		path_xform_v2(path, { c1x, c1y }),
-		path_xform_v2(path, { c2x, c2y }),
-		path_xform_v2(path, { x, y }),
+		curve_last,
+		{ c1x, c1y },
+		{ c2x, c2y },
+		{ x, y },
 		renderer.path_index,
 	)
 	curve_index += 1
@@ -607,10 +541,10 @@ renderer_cubic_to_rel :: proc(using renderer: ^Renderer, c1x, c1y, c2x, c2y, x, 
 	path := renderer_path_get(renderer)
 	curve_cubic_init(
 		&curves[curve_index],
-		path_xform_v2(path, curve_last),
-		path_xform_v2(path, curve_last + { c1x, c1y }),
-		path_xform_v2(path, curve_last + { c2x, c2y }),
-		path_xform_v2(path, curve_last + { x, y }),
+		curve_last,
+		curve_last + { c1x, c1y },
+		curve_last + { c2x, c2y },
+		curve_last + { x, y },
 		renderer.path_index,
 	)
 	curve_index += 1
@@ -622,7 +556,7 @@ renderer_close :: proc(using renderer: ^Renderer) {
 	if curve_index > 0 {
 		path := renderer_path_get(renderer)
 		curve_start := curves[0].B[0]
-		curve_final := path_xform_v2(path, curve_last)
+		curve_final := curve_last
 
 		if curve_start != curve_final {
 			curve_linear_init(
@@ -875,13 +809,6 @@ pool_at :: proc(p: ^Pool($N, $T), slot_index: u32, loc := #caller_location) -> ^
 ///////////////////////////////////////////////////////////
 
 path_init :: proc(using path: ^Path, width, height: f32) {
-	path.box = {
-		max(f32),
-		max(f32),
-		-max(f32),
-		-max(f32),
-	}
-
 	path.clip = {
 		0,
 		0,
@@ -893,23 +820,6 @@ path_init :: proc(using path: ^Path, width, height: f32) {
 	path.color = { 0, 0, 1, 1 }
 	path.curve_index_start = 0
 	path.curve_index_current = 0
-}
-
-// add to bounding box
-path_box_push :: proc(path: ^Path, output: [2]f32) {
-	path.box.x = min(path.box.x, output.x)
-	path.box.z = max(path.box.z, output.x)
-	path.box.y = min(path.box.y, output.y)
-	path.box.w = max(path.box.w, output.y)
-}
-
-path_xform_v2 :: proc(path: ^Path, input: [2]f32) -> (res: [2]f32) {
-	res = {
-		input.x * path.xform[0] + input.y * path.xform[2] + path.xform[4],
-		input.x * path.xform[1] + input.y * path.xform[3] + path.xform[5],
-	}
-	path_box_push(path, res)
-	return
 }
 
 curve_linear_init :: proc(curve: ^Curve, a, b: [2]f32, path_index: int) {
@@ -958,7 +868,6 @@ renderer_path_transition :: proc(renderer: ^Renderer) {
 	next.curve_index_current = i32(renderer.curve_index)
 	next.xform = old.xform
 	next.color = old.color
-	// next.color = { 0, 1, 0, 1 }
 }
 
 renderer_path_reset_transform :: proc(using renderer: ^Renderer) {
@@ -982,6 +891,11 @@ renderer_path_scale :: proc(using renderer: ^Renderer, x, y: f32) {
 	path := renderer_path_get(renderer)
 	temp := xform_scale(x, y)
 	xform_premultiply(&path.xform, temp)
+}
+
+renderer_path_color :: proc(using renderer: ^Renderer, color: [4]f32) {
+	path := renderer_path_get(renderer)
+	path.color = color
 }
 
 xform_point_v2 :: proc(xform: Xform, input: [2]f32) -> [2]f32 {

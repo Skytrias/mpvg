@@ -452,9 +452,9 @@ Cubic_Info cubic_classify(vec2 c[4]) {
 }
 
 vec2 cubic_blossom(Curve curve, float u, float v, float w) {
-	vec2 b10 = u*curve.p1 + (1-u)*curve.p0;
-	vec2 b11 = u*curve.p2 + (1-u)*curve.p1;
-	vec2 b12 = u*curve.p3 + (1-u)*curve.p2;
+	vec2 b10 = u*curve.p[1] + (1-u)*curve.p[0];
+	vec2 b11 = u*curve.p[2] + (1-u)*curve.p[1];
+	vec2 b12 = u*curve.p[3] + (1-u)*curve.p[2];
 	vec2 b20 = v*b11 + (1-v)*b10;
 	vec2 b21 = v*b12 + (1-v)*b11;
 	vec2 b30 = w*b21 + (1-w)*b20;
@@ -468,10 +468,10 @@ void cubic_slice(Curve curve, float s0, float s1, out vec2 sp[4]) {
 	        p[0] (and likewise, B(s=1) might not equal p[3]).
 	        We handle that case explicitly to ensure that we don't create gaps in the paths.
 	*/
-	sp[0] = (s0 == 0) ? curve.p0 : cubic_blossom(curve, s0, s0, s0);
+	sp[0] = (s0 == 0) ? curve.p[0] : cubic_blossom(curve, s0, s0, s0);
 	sp[1] = cubic_blossom(curve, s0, s0, s1);
 	sp[2] = cubic_blossom(curve, s0, s1, s1);
-	sp[3] = (s1 == 1) ? curve.p3 : cubic_blossom(curve, s1, s1, s1);
+	sp[3] = (s1 == 1) ? curve.p[3] : cubic_blossom(curve, s1, s1, s1);
 }
 
 mat3 barycentric_matrix(vec2 v0, vec2 v1, vec2 v2) {
@@ -521,26 +521,26 @@ void cubic_emit(Path_Queue path, Curve curve, Cubic_Info info, float s0, float s
 	Implicit_Curve icurve = icurve_make(sp[0], sp[1], sp[2], sp[3], C_CUBIC);
 	icurve.hull_padding = vec2(float(info.type), 0);
 
-	vec2 v0 = curve.p0;
-	vec2 v1 = curve.p3;
+	vec2 v0 = curve.p[0];
+	vec2 v1 = curve.p[3];
 	vec2 v2;
 	mat3 K;
 
-	float sqr_norm0 = length_squared(curve.p1 - curve.p0);
-	float sqr_norm1 = length_squared(curve.p2 - curve.p3);
+	float sqr_norm0 = length_squared(curve.p[1] - curve.p[0]);
+	float sqr_norm1 = length_squared(curve.p[2] - curve.p[3]);
 
 	//TODO: should not be the local sub-curve, but the global curve!!!
-	if (length_squared(curve.p0 - curve.p3) > 1e-5) {
+	if (length_squared(curve.p[0] - curve.p[3]) > 1e-5) {
 		if (sqr_norm0 >= sqr_norm1) {
- 			v2 = curve.p1;
+ 			v2 = curve.p[1];
 			K = mat3(info.K[0].xyz, info.K[3].xyz, info.K[1].xyz);
  		} else {
-			v2 = curve.p2;
+			v2 = curve.p[2];
 			K = mat3(info.K[0].xyz, info.K[3].xyz, info.K[2].xyz);
 		}
 	} else {
-		v1 = curve.p1;
-		v2 = curve.p2;
+		v1 = curve.p[1];
+		v2 = curve.p[2];
 		K = mat3(info.K[0].xyz, info.K[1].xyz, info.K[2].xyz);
 	}
 	//NOTE: set matrices
@@ -578,20 +578,20 @@ void cubic_emit(Path_Queue path, Curve curve, Cubic_Info info, float s0, float s
 
 void cubic_setup(Path_Queue path, Curve curve) {
 	vec2 c[4] = {
-		curve.p0,
-		3.0*(curve.p1 - curve.p0),
-		3.0*(curve.p0 + curve.p2 - 2*curve.p1),
-		3.0*(curve.p1 - curve.p2) + curve.p3 - curve.p0
+		curve.p[0],
+		3.0*(curve.p[1] - curve.p[0]),
+		3.0*(curve.p[0] + curve.p[2] - 2*curve.p[1]),
+		3.0*(curve.p[1] - curve.p[2]) + curve.p[3] - curve.p[0]
 	};
 
 	Cubic_Info info = cubic_classify(c);
 
 	if (info.type == T_DEGENERATE_LINE) {
-		line_setup(path, curve.p0, curve.p3);
+		line_setup(path, curve.p[0], curve.p[3]);
 		return;
 	} else if(info.type == T_DEGENERATE_QUADRATIC) {
-		vec2 quad_point = vec2(1.5*curve.p1.x - 0.5*curve.p0.x, 1.5*curve.p1.y - 0.5*curve.p0.y);
-		quadratic_setup(path, curve.p0, quad_point, curve.p3);
+		vec2 quad_point = vec2(1.5*curve.p[1].x - 0.5*curve.p[0].x, 1.5*curve.p[1].y - 0.5*curve.p[0].y);
+		quadratic_setup(path, curve.p[0], quad_point, curve.p[3]);
 		return;
 	}
 
@@ -654,8 +654,8 @@ void main() {
 	Path_Queue path = path_queues.data[curve.path_index];
 
 	switch (curve.count) {
-	case C_LINE: line_setup(path, curve.p0, curve.p1); break; 
-	case C_QUADRATIC: quadratic_setup(path, curve.p0, curve.p1, curve.p2); break; 
+	case C_LINE: line_setup(path, curve.p[0], curve.p[1]); break; 
+	case C_QUADRATIC: quadratic_setup(path, curve.p[0], curve.p[1], curve.p[2]); break; 
 	case C_CUBIC: cubic_setup(path, curve); break; 
 	}
 }

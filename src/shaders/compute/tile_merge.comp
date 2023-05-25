@@ -13,8 +13,8 @@ void main() {
 		ivec2 path_tile_coord = tile_coord - ivec2(path_queue.x, path_queue.y);
 
 		Path path = paths.data[path_index];
-		float x_max = min(path.box.z, path.clip.z);
-		int tile_max = int(x_max) / TILE_SIZE;
+		float xmax = min(path_queue.xmax, path.clip.z);
+		int tile_max = int(xmax) / TILE_SIZE;
 		int path_tile_max = tile_max - path_queue.x;
 
 		// look for matching tile coordinates

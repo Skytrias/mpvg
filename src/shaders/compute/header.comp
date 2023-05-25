@@ -13,10 +13,7 @@
 #define C_TR 3
 
 struct Curve {
-	vec2 p0;
-	vec2 p1;
-	vec2 p2;
-	vec2 p3;
+	vec2 p[4];
 	int count;
 	int path_index;
 };
@@ -60,9 +57,7 @@ struct Tile_Operation {
 
 struct Path {
 	vec4 color;
-	vec4 box;
 	vec4 clip;
-
 	float xform[6];
 
 	int curve_index_start;
@@ -73,6 +68,8 @@ struct Path_Queue {
 	// tile start
 	int x;
 	int y;
+
+	float xmax;
 
 	// tile counts
 	int tiles_x;
@@ -92,7 +89,7 @@ layout(std430, binding = 0) buffer Input_Indices {
 	int tiles_y;
 } indices;
 
-layout(std430, binding = 1) readonly buffer Input_Curves {
+layout(std430, binding = 1) buffer Input_Curves {
 	Curve data[];
 } curves;
 
