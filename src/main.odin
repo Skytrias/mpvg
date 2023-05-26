@@ -9,6 +9,7 @@ import "core:strings"
 import "core:runtime"
 import "core:strconv"
 import "core:math/linalg"
+import "../vg"
 import glm "core:math/linalg/glsl"
 import glfw "vendor:glfw"
 import gl "vendor:OpenGL"
@@ -17,7 +18,7 @@ length :: linalg.vector_length
 
 App :: struct {
 	mouse: Mouse,
-	renderer: Renderer,
+	renderer: vg.Renderer,
 	ctrl: bool,
 	shift: bool,
 
@@ -110,13 +111,13 @@ main :: proc() {
 	glfw.MakeContextCurrent(app.window)
 	gl.load_up_to(4, 5, glfw.gl_set_proc_address)
 
-	renderer_init(&app.renderer)
-	defer renderer_destroy(&app.renderer)
+	vg.renderer_init(&app.renderer)
+	defer vg.renderer_destroy(&app.renderer)
 
-	renderer_font_push(&app.renderer, "Lato-Regular.ttf")
+	vg.renderer_font_push(&app.renderer, "Lato-Regular.ttf")
 
-	svg_curves := svg_gen_temp(svg_AB)
-	defer delete(svg_curves)
+	// svg_curves := vg.svg_gen_temp(svg_AB)
+	// defer vg.delete(svg_curves)
 
 	count: f32
 	duration: time.Duration
@@ -142,16 +143,16 @@ main :: proc() {
 		gl.Clear(gl.COLOR_BUFFER_BIT)
 
 		{
-			renderer_start(&app.renderer, app.window_width, app.window_height)
-			defer renderer_end(&app.renderer)
+			vg.renderer_start(&app.renderer, app.window_width, app.window_height)
+			defer vg.renderer_end(&app.renderer)
 
 			// NOTE: NEW
 			// renderer_path_translate(&app.renderer, 200, 200)
-			renderer_path_color(&app.renderer, { 1, 0, 0, 1 })
-			renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
-			renderer_path_rotate(&app.renderer, count * 0.01)
-			renderer_rect(&app.renderer, -100, -50, 200, 100)
-			renderer_path_push(&app.renderer)
+			vg.renderer_path_color(&app.renderer, { 1, 0, 0, 1 })
+			vg.renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
+			vg.renderer_path_rotate(&app.renderer, count * 0.01)
+			vg.renderer_rect(&app.renderer, -100, -50, 200, 100)
+			vg.renderer_path_push(&app.renderer)
 
 			// renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
 			// // renderer_path_translate(&app.renderer, 100, 100)
@@ -161,11 +162,13 @@ main :: proc() {
 			// // renderer_path_scale(&app.renderer, 50, 50)
 			// renderer_svg(&app.renderer, svg_curves)
 
-			renderer_path_color(&app.renderer, { 0, 0, 0, 1 })
-			renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
-			renderer_path_scale(&app.renderer, 1, 1)
+			// path := renderer_path_get(&app.renderer)
+			// path.stroke = true
+			vg.renderer_path_color(&app.renderer, { 0, 0, 0, 1 })
+			vg.renderer_path_translate(&app.renderer, app.mouse.x, app.mouse.y)
+			vg.renderer_path_scale(&app.renderer, 1, 1)
 			// renderer_text_push(&app.renderer, "xyzlp", 0, 0, math.sin(count * 0.05) * 20 + 200)
-			renderer_text_push(&app.renderer, "text works", 0, 0, math.sin(count * 0.05) * 20 + 100)
+			vg.renderer_text_push(&app.renderer, "text works", 0, 0, math.sin(count * 0.05) * 20 + 100)
 			// renderer_text_push(&app.renderer, "Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna ", 0, 0, math.sin(count * 0.05) * 10 + 40)
 		}
 
