@@ -982,6 +982,15 @@ xform_premultiply :: proc(a: ^Xform, b: Xform) {
 }
 
 MAX_STATES :: 32
+MAX_COMMANDS :: 1028
+
+Command :: enum i32 {
+	Move_To,
+	Line_To,
+	Quadratic_To,
+	Cubic_To,
+	Close,
+}
 
 Paint :: struct {
 	xform: Xform,
@@ -1003,6 +1012,7 @@ State :: struct {
 	stroke_width: f32,
 	line_join: Line_Cap,
 	line_cap: Line_Cap,
+	miter_limit: f32,
 	alpha: f32,
 	xform: Xform,
 
@@ -1012,5 +1022,173 @@ State :: struct {
 	font_id: int,
 }
 
+Context :: struct {
+	// float commands for less allocation
+	command_index: int,
+	commands: []V2,
+	command_last: V2, // saved last
 
+	// state stored 
+	states: [MAX_STATES]State,
+	state_index: int,
+}
 
+V2 :: [2]f32
+
+ctx_init :: proc(ctx: ^Context) {
+	ctx.commands = make([]V2, MAX_COMMANDS)
+	ctx.command_index = 0
+
+	ctx.state_index = 0
+	ctx_save(ctx)
+	ctx_reset(ctx)
+}
+
+ctx_make :: proc() -> (res: Context) {
+	ctx_init(&res)
+	return
+}
+
+ctx_destroy :: proc(ctx: ^Context) {
+	delete(ctx.commands)
+}
+
+ctx_frame_begin :: proc(ctx: ^Context) {
+	ctx.state_index = 0
+	ctx_save(ctx)
+	ctx_reset(ctx)
+}
+
+ctx_frame_end :: proc(ctx: ^Context) {
+	// TODO render final results
+}
+
+ctx_save :: proc(ctx: ^Context) {
+	if ctx.state_index >= MAX_STATES {
+		return
+	}
+
+	// copy prior
+	if ctx.state_index > 0 {
+		ctx.states[ctx.state_index] = ctx.states[ctx.state_index - 1]
+	}
+
+	ctx.state_index += 1
+}
+
+ctx_restore :: proc(ctx: ^Context) {
+	if ctx.state_index <= 1 {
+		return
+	}
+
+	ctx.state_index -= 1
+}
+
+@(deferred_in=ctx_restore)
+ctx_save_scoped :: #force_inline proc(ctx: ^Context) {
+	ctx_save(ctx)
+}
+
+@private
+paint_set_color :: proc(p: ^Paint, color: [4]f32) {
+	p^ = {}
+	xform_identity(&p.xform)
+	p.inner_color = color
+	p.outer_color = color
+}
+
+ctx_reset :: proc(ctx: ^Context) {
+	state := state_get(ctx)
+	state^ = {}
+
+	paint_set_color(&state.fill, { 1, 1, 1, 1 })
+	paint_set_color(&state.stroke, { 0, 0, 0, 1 })
+
+	state.stroke_width = 1
+	state.miter_limit = 10
+	state.line_cap = .Butt
+	state.line_join = .Miter
+	state.alpha = 1
+	xform_identity(&state.xform)
+
+	// font sets
+	state.font_size = 16
+	state.letter_spacing = 0
+	state.line_height = 1
+}
+
+@private
+state_get :: proc(ctx: ^Context) -> ^State #no_bounds_check {
+	return &ctx.states[ctx.state_index - 1]
+}
+
+ctx_stroke_width :: proc(ctx: ^Context, value: f32) {
+	state := state_get(ctx)
+	state.stroke_width = value
+}
+
+ctx_fill_color :: proc(ctx: ^Context, color: [4]f32) {
+	state := state_get(ctx)
+	paint_set_color(&state.fill, color)
+}
+
+ctx_stroke_color :: proc(ctx: ^Context, color: [4]f32) {
+	state := state_get(ctx)
+	paint_set_color(&state.stroke, color)
+}
+
+@private
+cmdf :: #force_inline proc(cmd: Command) -> V2 {
+	return { transmute(f32) cmd, max(f32) }
+}
+
+ctx_append_commands :: proc(ctx: ^Context, values: []V2) {
+	state := state_get(ctx)
+
+	cmd_first := Command(values[0].x)
+	if cmd_first != .Close {
+		ctx.command_last = values[len(values) - 1]
+	}
+
+	transform :: proc(xform: Xform, v: ^V2) {
+		// catch command and dont transform
+		if v.y == max(f32) {
+			return
+		}
+
+		temp := v^
+		v.x = temp.x * xform[0] + temp.y * xform[2] + xform[4]
+		v.y = temp.x * xform[1] + temp.y * xform[3] + xform[5]
+	}
+
+	// transform all points, commands are ignored
+	values := values
+	for v in &values {
+		transform(state.xform, &v)
+	}
+
+	// copy transformed values over
+	copy(ctx.commands[ctx.command_index:], values[:])
+	ctx.command_index += len(values)
+}
+
+push_rect :: proc(ctx: ^Context, x, y, w, h: f32) {
+	commands := [?]V2 {
+		cmdf(.Move_To), { x, y }, 
+		cmdf(.Line_To), { x, y + h }, 
+		cmdf(.Line_To), { x + w, y + h },
+		cmdf(.Line_To), { x + w, y },
+		cmdf(.Close),
+	}
+	ctx_append_commands(ctx, commands[:])
+}
+
+push_move_to :: proc(ctx: ^Context, x, y: f32) {
+	commands := [?]V2 { cmdf(.Move_To), { x, y }}
+	ctx_append_commands(ctx, commands[:])
+}
+
+push_line_to :: proc(ctx: ^Context, x, y: f32) {
+	commands := [?]V2 { cmdf(.Line_To), { x, y }}
+	ctx_append_commands(ctx, commands[:])
+}
