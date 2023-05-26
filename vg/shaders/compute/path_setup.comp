@@ -1,0 +1,53 @@
+void main() {
+	int path_index = int(gl_GlobalInvocationID.x);
+	Path path = paths.data[path_index]; 
+
+	vec4 box = vec4(100000, 100000, -100000, -100000);
+	for (int i = path.curve_index_start; i < path.curve_index_current; i += 1) {
+		Curve curve = curves.data[i];
+
+		for (int j = 0; j <= curve.count + 1; j += 1) {
+			box.x = min(box.x, curve.p[j].x);
+			box.y = min(box.y, curve.p[j].y);
+			box.z = max(box.z, curve.p[j].x);
+			box.w = max(box.w, curve.p[j].y);
+		}
+	}
+
+	// clipped box with z precedent
+	vec4 clipped_box = vec4(
+		max(box.x, path.clip.x),
+		max(box.y, path.clip.y),
+		box.z,
+		min(box.w, path.clip.w)
+	);
+	ivec2 first_tile = ivec2(clipped_box.xy) / TILE_SIZE;
+	ivec2 last_tile = ivec2(clipped_box.zw) / TILE_SIZE;
+
+	// calculate wanted tiles
+	int tiles_x = max(0, last_tile.x - first_tile.x + 1);
+	int tiles_y = max(0, last_tile.y - first_tile.y + 1);
+	int tile_count = tiles_x * tiles_y;
+	int tile_queue_index = atomicAdd(indices.tile_queues, tile_count);
+
+	// setup path queue data
+	Path_Queue queue;
+	queue.x = first_tile.x;
+	queue.y = first_tile.y;
+	queue.tiles_x = tiles_x;
+	queue.tiles_y = tiles_y;
+	queue.tile_queue_index = tile_queue_index;
+	queue.index = path_index;
+	queue.xmax = box.z;
+	path_queues.data[path_index] = queue;
+
+	for (int i = 0; i < tile_count; i += 1) {
+		Tile_Queue tile;
+		tile.op_head = -1;
+		tile.op_tail = -1;
+		tile.tile_queue_next = -1;
+		tile.winding_offset = 0;
+		tile.path_index = 0;
+		tile_queues.data[tile_queue_index + i] = tile;
+	}
+}
