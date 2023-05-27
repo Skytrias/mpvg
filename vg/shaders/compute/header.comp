@@ -23,6 +23,7 @@ struct Implicit_Curve {
 	vec2 hull_vertex;
 	vec2 hull_padding;
 
+
 	int kind;
 	int orientation;
 	int sign;
@@ -34,7 +35,6 @@ struct Implicit_Curve {
 struct Tile_Queue {
 	// op linked list
 	int op_head;
-	int op_tail;
 	
 	// link to next tile to process
 	int tile_queue_next;

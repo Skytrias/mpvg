@@ -32,7 +32,7 @@ void main() {
 	// for (int i = 0; i < tile_count; i += 1) {
 	// 	Tile_Queue tile;
 	// 	tile.op_head = -1;
-	// 	tile.op_tail = -1;
+	// 	// tile.op_tail = -1;
 	// 	tile.tile_queue_next = -1;
 	// 	tile.winding_offset = 0;
 	// 	tile.path_index = path_index;

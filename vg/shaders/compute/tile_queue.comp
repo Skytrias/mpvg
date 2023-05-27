@@ -2,7 +2,6 @@ void main() {
 	int tile_queue_index = int(gl_GlobalInvocationID.x);
 	Tile_Queue tile;
 	tile.op_head = -1;
-	tile.op_tail = -1;
 	tile.winding_offset = 0;
 	tile.tile_queue_next = -1;
 	tile.path_index = 0;
@@ -17,9 +16,6 @@ void main() {
 			if (tile.op_head == -1) {
 				tile.op_head = i;
 			}
-
-			// set tail
-			tile.op_tail = i;
 
 			// offset
 			tile.winding_offset += op.cross_bottom;

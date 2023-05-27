@@ -90,6 +90,7 @@ ctx_init :: proc(ctx: ^Context) {
 	ctx_reset(ctx)
 	ctx_device_pixel_ratio(ctx, 1)
 
+	pool_clear(&ctx.font_pool)
 	renderer_init(&ctx.renderer)
 }
 
@@ -303,9 +304,27 @@ push_close :: proc(ctx: ^Context) {
 				path_index = i32(ctx.temp_paths.index - 1),
 			})
 			
-			path.curve_end = i32(ctx.temp_curves.index)			
+			path.curve_end = i32(ctx.temp_curves.index)
 		}
 	}
+}
+
+push_text :: proc(ctx: ^Context, text: string, x, y: f32) {
+	font := pool_at(&ctx.font_pool, 1)
+	
+	x_start := x
+	x := x
+	y := y
+	for codepoint in text {
+		x += push_font_glyph(ctx, font, codepoint, x, y, 200)
+	}
+}
+
+push_font :: proc(ctx: ^Context, path: string) -> u32 {
+	index := pool_alloc_index(&ctx.font_pool)
+	font := pool_at(&ctx.font_pool, index)
+	font_init(font, path)
+	return index
 }
 
 @private
@@ -315,6 +334,7 @@ path_add :: proc(ctx: ^Context) {
 		clip = { 0, 0, 800, 800 },
 		box = { max(f32), max(f32), -max(f32), -max(f32) },
 		curve_start = i32(ctx.temp_curves.index),
+		stroke = false,
 	})
 }
 

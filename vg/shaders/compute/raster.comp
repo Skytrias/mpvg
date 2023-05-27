@@ -49,7 +49,8 @@ void main() {
 			vec4 clip = paths.data[path_index].clip;
 
 			if (sample_coord.x >= clip.x && sample_coord.x < clip.z && sample_coord.y >= clip.y && sample_coord.y < clip.w) {
-				bool filled = (paths.data[path_index].stroke == 1) ? (winding[sample_index] != 0) : ((winding[sample_index] & 1) == 1);
+				// bool filled = (paths.data[path_index].stroke == 1) ? (winding[sample_index] != 0) : ((winding[sample_index] & 1) == 1);
+				bool filled = (winding[sample_index] & 1) == 1;
 
 				if (filled) {
 					vec4 next_color = path_color;
@@ -105,7 +106,8 @@ void main() {
 		vec2 sample_coord = sample_coords[sample_index];
 
 		if (sample_coord.x >= clip.x && sample_coord.x < clip.z && sample_coord.y >= clip.y && sample_coord.y < clip.w) {
-			bool filled = (path.stroke == 1) ? (winding[sample_index] != 0) : ((winding[sample_index] & 1) == 1);
+			// bool filled = (path.stroke == 1) ? (winding[sample_index] != 0) : ((winding[sample_index] & 1) == 1);
+			bool filled = (winding[sample_index] & 1) == 1;
 
 			if (filled) {
 				vec4 next_color = path_color;
