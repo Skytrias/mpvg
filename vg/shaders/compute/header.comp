@@ -57,9 +57,8 @@ struct Tile_Operation {
 
 struct Path {
 	vec4 color;
+	vec4 box;
 	vec4 clip;
-	float xform[6];
-	float pad[2];
 
 	int curve_index_start;
 	int curve_index_current;
@@ -72,8 +71,6 @@ struct Path_Queue {
 	// tile start
 	int x;
 	int y;
-
-	float xmax;
 
 	// tile counts
 	int tiles_x;

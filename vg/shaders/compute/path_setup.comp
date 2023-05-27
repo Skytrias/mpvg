@@ -2,24 +2,12 @@ void main() {
 	int path_index = int(gl_GlobalInvocationID.x);
 	Path path = paths.data[path_index]; 
 
-	vec4 box = vec4(100000, 100000, -100000, -100000);
-	for (int i = path.curve_index_start; i < path.curve_index_current; i += 1) {
-		Curve curve = curves.data[i];
-
-		for (int j = 0; j <= curve.count + 1; j += 1) {
-			box.x = min(box.x, curve.p[j].x);
-			box.y = min(box.y, curve.p[j].y);
-			box.z = max(box.z, curve.p[j].x);
-			box.w = max(box.w, curve.p[j].y);
-		}
-	}
-
 	// clipped box with z precedent
 	vec4 clipped_box = vec4(
-		max(box.x, path.clip.x),
-		max(box.y, path.clip.y),
-		box.z,
-		min(box.w, path.clip.w)
+		max(path.box.x, path.clip.x),
+		max(path.box.y, path.clip.y),
+		path.box.z,
+		min(path.box.w, path.clip.w)
 	);
 	ivec2 first_tile = ivec2(clipped_box.xy) / TILE_SIZE;
 	ivec2 last_tile = ivec2(clipped_box.zw) / TILE_SIZE;
@@ -38,7 +26,6 @@ void main() {
 	queue.tiles_y = tiles_y;
 	queue.tile_queue_index = tile_queue_index;
 	queue.index = path_index;
-	queue.xmax = box.z;
 	path_queues.data[path_index] = queue;
 
 	for (int i = 0; i < tile_count; i += 1) {

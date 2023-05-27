@@ -92,56 +92,56 @@ svg_gen_temp :: proc(svg: string, allocator := context.allocator) -> []SVG_Path_
 	return slice.clone(fin, allocator)
 }
 
-renderer_svg :: proc(using renderer: ^Renderer, svg: []SVG_Path_Command) {
-	for cmd in svg {
-		p := cmd.points
+// renderer_svg :: proc(using renderer: ^Renderer, svg: []SVG_Path_Command) {
+// 	for cmd in svg {
+// 		p := cmd.points
 
-		switch cmd.type {
-		case 'M': 
-			renderer_move_to(renderer, p[0], p[1])
+// 		switch cmd.type {
+// 		case 'M': 
+// 			renderer_move_to(renderer, p[0], p[1])
 
-		case 'm': renderer_move_to_rel(renderer, p[0], p[1])
+// 		case 'm': renderer_move_to_rel(renderer, p[0], p[1])
 
-		case 'L': renderer_line_to(renderer, p[0], p[1])
-		case 'l': renderer_line_to_rel(renderer, p[0], p[1])
+// 		case 'L': renderer_line_to(renderer, p[0], p[1])
+// 		case 'l': renderer_line_to_rel(renderer, p[0], p[1])
 
-		case 'V': renderer_vertical_line_to(renderer, p[0])
-		case 'H': renderer_horizontal_line_to(renderer, p[0])
+// 		case 'V': renderer_vertical_line_to(renderer, p[0])
+// 		case 'H': renderer_horizontal_line_to(renderer, p[0])
 
-		case 'A': 
-			// 0  1  2               3              4          5 6
-			// rx ry x-axis-rotation large-arc-flag sweep-flag x y
-			renderer_arc_to(renderer, p[0], p[1], p[2], p[3], p[4], p[5], p[6])
+// 		case 'A': 
+// 			// 0  1  2               3              4          5 6
+// 			// rx ry x-axis-rotation large-arc-flag sweep-flag x y
+// 			renderer_arc_to(renderer, p[0], p[1], p[2], p[3], p[4], p[5], p[6])
 
-		case 'a': unimplemented("A relative")
+// 		case 'a': unimplemented("A relative")
 
-		case 'Q': renderer_quadratic_to(renderer, p[0], p[1], p[2], p[3])
-		case 'q': unimplemented("q relativee")
+// 		case 'Q': renderer_quadratic_to(renderer, p[0], p[1], p[2], p[3])
+// 		case 'q': unimplemented("q relativee")
 
-		case 'C': renderer_cubic_to(renderer, p[0], p[1], p[2], p[3], p[4], p[5])
-		case 'c': unimplemented("c RELATIVE")
+// 		case 'C': renderer_cubic_to(renderer, p[0], p[1], p[2], p[3], p[4], p[5])
+// 		case 'c': unimplemented("c RELATIVE")
 
-		case 'S': renderer_cubic_bezier_short_to(renderer, p[0], p[1], p[2], p[3])
-		case 's': unimplemented("SHORT relative")
+// 		case 'S': renderer_cubic_bezier_short_to(renderer, p[0], p[1], p[2], p[3])
+// 		case 's': unimplemented("SHORT relative")
 
-		case 'T': unimplemented("QUAD T")
-		case 't': unimplemented("QUAD t")
+// 		case 'T': unimplemented("QUAD T")
+// 		case 't': unimplemented("QUAD t")
 
-		case 'Z', 'z':
-			// fmt.eprintln("CLOSE")
-			// renderer_close(renderer)
-		}
-	}
-}
+// 		case 'Z', 'z':
+// 			// fmt.eprintln("CLOSE")
+// 			// renderer_close(renderer)
+// 		}
+// 	}
+// }
 
-renderer_cubic_bezier_short_to :: proc(
-	using renderer: ^Renderer,
-	c2x, c2y: f32,
-	x, y: f32,
-) {
-	c1x := 2 * curve_last.x - curve_last_control.x
-	c1y := 2 * curve_last.y - curve_last_control.y
-	renderer_cubic_to(renderer, c1x, c1y, c2x, c2y, x, y)
-	curve_last = { x, y }
-	curve_last_control = { c2x, c2y }
-}
+// renderer_cubic_bezier_short_to :: proc(
+// 	using renderer: ^Renderer,
+// 	c2x, c2y: f32,
+// 	x, y: f32,
+// ) {
+// 	c1x := 2 * curve_last.x - curve_last_control.x
+// 	c1y := 2 * curve_last.y - curve_last_control.y
+// 	renderer_cubic_to(renderer, c1x, c1y, c2x, c2y, x, y)
+// 	curve_last = { x, y }
+// 	curve_last_control = { c2x, c2y }
+// }

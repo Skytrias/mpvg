@@ -133,37 +133,37 @@ renderer_font_glyph :: proc(
 	glyph := font_glyph_get(font, codepoint)
 	scaling := font.scaling * size
 
-	for i := 0; i < len(glyph.vertices); i += 1 {
-		v := glyph.vertices[i]
+	// for i := 0; i < len(glyph.vertices); i += 1 {
+	// 	v := glyph.vertices[i]
 
-		switch v.type {
-		case u8(stbtt.vmove.vmove): 
-			x := offset_x + f32(v.x) * scaling
-			y := offset_y + f32(-v.y) * scaling + font.ascender * scaling
-			renderer_move_to(renderer, x, y)
+	// 	switch v.type {
+	// 	case u8(stbtt.vmove.vmove): 
+	// 		x := offset_x + f32(v.x) * scaling
+	// 		y := offset_y + f32(-v.y) * scaling + font.ascender * scaling
+	// 		renderer_move_to(renderer, x, y)
 		
-		case u8(stbtt.vmove.vline):
-			x := offset_x + f32(v.x) * scaling
-			y := offset_y + f32(-v.y) * scaling + font.ascender * scaling
-			renderer_line_to(renderer, x, y)
+	// 	case u8(stbtt.vmove.vline):
+	// 		x := offset_x + f32(v.x) * scaling
+	// 		y := offset_y + f32(-v.y) * scaling + font.ascender * scaling
+	// 		renderer_line_to(renderer, x, y)
 
-		case u8(stbtt.vmove.vcurve):
-			x := offset_x + f32(v.x) * scaling
-			y := offset_y + f32(-v.y) * scaling + font.ascender * scaling
-			cx := offset_x + f32(v.cx) * scaling
-			cy := offset_y + f32(-v.cy) * scaling + font.ascender * scaling
-			renderer_quadratic_to(renderer, cx, cy, x, y)
+	// 	case u8(stbtt.vmove.vcurve):
+	// 		x := offset_x + f32(v.x) * scaling
+	// 		y := offset_y + f32(-v.y) * scaling + font.ascender * scaling
+	// 		cx := offset_x + f32(v.cx) * scaling
+	// 		cy := offset_y + f32(-v.cy) * scaling + font.ascender * scaling
+	// 		renderer_quadratic_to(renderer, cx, cy, x, y)
 
-		case u8(stbtt.vmove.vcubic):
-			unimplemented("cubic")
+	// 	case u8(stbtt.vmove.vcubic):
+	// 		unimplemented("cubic")
 
-		// 	x := f32(v.x) * font.scaling
-		// 	y := f32(-v.y) * font.scaling + font.ascender * font.scaling
-		// 	cx := f32(v.cx) * font.scaling
-		// 	cy := f32(-v.cy) * font.scaling + font.ascender * font.scaling
-		// 	renderer_quadratic_to(renderer, cx, cy, x, y)
-		}
-	}
+	// 	// 	x := f32(v.x) * font.scaling
+	// 	// 	y := f32(-v.y) * font.scaling + font.ascender * font.scaling
+	// 	// 	cx := f32(v.cx) * font.scaling
+	// 	// 	cy := f32(-v.cy) * font.scaling + font.ascender * font.scaling
+	// 	// 	renderer_quadratic_to(renderer, cx, cy, x, y)
+	// 	}
+	// }
 
 	// NOTE: NO CLOSING
 	return glyph.advance * scaling

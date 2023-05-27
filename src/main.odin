@@ -128,8 +128,8 @@ main :: proc() {
 		time.SCOPED_TICK_DURATION(&duration)
 		free_all(context.temp_allocator)
 
-		mouse_tile_x := clamp(int(app.mouse.x), 0, app.window_width) / app.renderer.tiles_size
-		mouse_tile_y := clamp(int(app.mouse.y), 0, app.window_height) / app.renderer.tiles_size
+		mouse_tile_x := clamp(int(app.mouse.x), 0, app.window_width) / vg.TILE_SIZE
+		mouse_tile_y := clamp(int(app.mouse.y), 0, app.window_height) / vg.TILE_SIZE
 		window_text := fmt.ctprintf(
 			"mpvg %fms, tilex: %d, tiley: %d, tileid: %d, mousex: %d, mousey: %d", 
 			time.duration_milliseconds(duration),
@@ -146,8 +146,14 @@ main :: proc() {
 		gl.Clear(gl.COLOR_BUFFER_BIT)
 
 		{
-			vg.ctx_frame_begin(&ctx)
+			// TODO add px ratio
+			vg.ctx_frame_begin(&ctx, app.window_width, app.window_height, 1)
 			defer vg.ctx_frame_end(&ctx)
+
+			vg.push_path(&ctx)
+			vg.push_move_to(&ctx, 100, 100)
+			vg.push_line_to(&ctx, 200, 200)
+			vg.fill(&ctx)
 		}
 
 		// {
