@@ -205,6 +205,19 @@ push_rect :: proc(ctx: ^Context, x, y, w, h: f32) {
 	push_close(ctx)
 }
 
+push_ellipse :: proc(ctx: ^Context, cx, cy, rx, ry: f32) {
+	push_move_to(ctx, cx, cy)
+	push_cubic_to(ctx, cx-rx, cy+ry*KAPPA90, cx-rx*KAPPA90, cy+ry, cx, cy+ry)
+	push_cubic_to(ctx, cx+rx*KAPPA90, cy+ry, cx+rx, cy+ry*KAPPA90, cx+rx, cy)
+	push_cubic_to(ctx, cx+rx, cy-ry*KAPPA90, cx+rx*KAPPA90, cy-ry, cx, cy-ry)
+	push_cubic_to(ctx, cx-rx*KAPPA90, cy-ry, cx-rx, cy-ry*KAPPA90, cx-rx, cy)
+	push_close(ctx)
+}
+
+push_circle :: proc(ctx: ^Context, cx, cy, radius: f32) {
+	push_ellipse(ctx, cx, cy, radius, radius)
+}
+
 push_move_to :: proc(ctx: ^Context, x, y: f32) {
 	path_add(ctx)
 	ctx.point_last = { x, y }
@@ -217,6 +230,41 @@ push_line_to :: proc(ctx: ^Context, x, y: f32) {
 			0 = xform_point_v2(state.xform, ctx.point_last),
 			1 = xform_point_v2(state.xform, { x, y }),
 		},
+		path_index = i32(ctx.temp_paths.index - 1),
+	})
+	ctx.point_last = { x, y }
+	
+	path := fa_last(&ctx.temp_paths)
+	path.curve_end = i32(ctx.temp_curves.index)
+}
+
+push_quadratic_to :: proc(ctx: ^Context, cx, cy, x, y: f32) {
+	state := state_get(ctx)
+	fa_push(&ctx.temp_curves, Curve { 
+		B = { 
+			0 = xform_point_v2(state.xform, ctx.point_last),
+			1 = xform_point_v2(state.xform, { cx, cy }),
+			2 = xform_point_v2(state.xform, { x, y }),
+		},
+		count = 1,
+		path_index = i32(ctx.temp_paths.index - 1),
+	})
+	ctx.point_last = { x, y }
+	
+	path := fa_last(&ctx.temp_paths)
+	path.curve_end = i32(ctx.temp_curves.index)
+}
+
+push_cubic_to :: proc(ctx: ^Context, c1x, c1y, c2x, c2y, x, y: f32) {
+	state := state_get(ctx)
+	fa_push(&ctx.temp_curves, Curve { 
+		B = { 
+			0 = xform_point_v2(state.xform, ctx.point_last),
+			1 = xform_point_v2(state.xform, { c1x, c1y }),
+			2 = xform_point_v2(state.xform, { c2x, c2y }),
+			3 = xform_point_v2(state.xform, { x, y }),
+		},
+		count = 2,
 		path_index = i32(ctx.temp_paths.index - 1),
 	})
 	ctx.point_last = { x, y }
@@ -362,6 +410,7 @@ fill :: proc(ctx: ^Context) {
 
 		for j in path.curve_start..<path.curve_end {
 			curve := &ctx.temp_curves.data[j]
+			curve.path_index += i32(ctx.renderer.paths.index)
 
 			for k in 0..=curve.count + 1 {
 				point := curve.B[k]

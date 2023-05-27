@@ -1,5 +1,4 @@
 #define TILE_SIZE 32
-#define OPERATION_INVALID 100000
 
 // kind of curve
 #define C_LINE 0
@@ -61,10 +60,9 @@ struct Path {
 	vec4 clip;
 
 	int stroke;
-	int pad1;
-
 	int curve_start;
 	int curve_end;
+	int pad1;
 };
 
 struct Path_Queue {

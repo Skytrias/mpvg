@@ -99,10 +99,9 @@ Path :: struct #packed {
 	clip: [4]f32,
 
 	stroke: b32, // fill default
-	pad1: i32,
-
 	curve_start: i32, // start index
 	curve_end: i32, // end index
+	pad: i32, // end index
 }
 
 // curve Linear, Quadratic, Cubic in flat structure
@@ -165,7 +164,6 @@ renderer_init :: proc(using renderer: ^Renderer) {
 	}
 
 	curve_implicitize_program = renderer_gpu_shader_compute(&builder, compute_header, compute_curve_implicitize, 1, 1)
-	// curve_transform_program = renderer_gpu_shader_compute(&builder, compute_header, compute_curve_transform, 1, 1)
 	tile_backprop_program = renderer_gpu_shader_compute(&builder, compute_header, compute_tile_backprop, 16, 1)
 	path_setup_program = renderer_gpu_shader_compute(&builder, compute_header, compute_path_setup, 1, 1)
 	tile_merge_program = renderer_gpu_shader_compute(&builder, compute_header, compute_tile_merge, 1, 1)
@@ -272,17 +270,8 @@ renderer_gpu_shader_compute :: proc(
 	return program
 }
 
-renderer_end :: proc(using renderer: ^Renderer) {
-	// // check path count or unfinished path we might have pushed
-	// path_count := renderer.path_index + 1
-	// path := renderer.paths[renderer.path_index]
-	// if path.curve_index_start == path.curve_index_current {
-	// 	path_count -= 1
-	// }
-	
+renderer_end :: proc(using renderer: ^Renderer) {	
 	// write in the final path count
-	// fmt.eprintln("PATH COUNT", path_count, size_of(Path))
-	// renderer.indices.paths = i32(path_count)
 	path_count := renderer.paths.index
 	renderer.indices.paths = i32(path_count)
 
