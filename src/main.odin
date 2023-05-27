@@ -126,6 +126,8 @@ main :: proc() {
 	// svg_curves := vg.svg_gen_temp(svg_AB)
 	// defer vg.delete(svg_curves)
 
+	fmt.eprintln("PATH", size_of(vg.Path))
+
 	count: f32
 	duration: time.Duration
 	for !glfw.WindowShouldClose(app.window) {
@@ -170,12 +172,12 @@ main :: proc() {
 				vg.fill(&ctx)
 			}
 
-			{
-				vg.ctx_fill_color(&ctx, { 0, 0, 1, 1 })
-				vg.path_begin(&ctx)
-				vg.push_circle(&ctx, 300, 300, 50)
-				vg.fill(&ctx)
-			}
+			// {
+			// 	vg.ctx_fill_color(&ctx, { 0, 0, 1, 1 })
+			// 	vg.path_begin(&ctx)
+			// 	vg.push_circle(&ctx, 300, 300, 50)
+			// 	vg.fill(&ctx)
+			// }
 		}
 
 		// {
