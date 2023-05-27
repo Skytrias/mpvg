@@ -15,7 +15,7 @@ KAPPA90 :: 0.5522847493
 
 MAX_STATES :: 32
 MAX_COMMANDS :: 1028
-MAX_CACHE_PATHS :: 1028
+MAX_CACHE_PATHS :: 128
 MAX_CACHE_POINTS :: 1028
 MAX_CACHE_VERTICES :: 1028
 
@@ -76,8 +76,8 @@ Context :: struct {
 	// quality options?
 	distance_tolerance: f32,
 	tesselation_tolerance: f32,
-	fringe_width: f32,
 	device_pixel_ratio: f32,
+	fringe_width: f32,
 
 	// cache
 	cache: Cache,
@@ -162,7 +162,6 @@ ctx_frame_begin :: proc(ctx: ^Context, width, height: int, device_pixel_ratio: f
 }
 
 ctx_frame_end :: proc(ctx: ^Context) {
-	// TODO render final results
 	renderer_end(&ctx.renderer)
 }
 
@@ -204,7 +203,7 @@ ctx_reset :: proc(ctx: ^Context) {
 	state := state_get(ctx)
 	state^ = {}
 
-	paint_set_color(&state.fill, { 1, 1, 1, 1 })
+	paint_set_color(&state.fill, { 1, 0, 0, 1 })
 	paint_set_color(&state.stroke, { 0, 0, 0, 1 })
 
 	state.stroke_width = 1
@@ -408,11 +407,11 @@ paths_flatten :: proc(ctx: ^Context) {
 		// If the first and last points are the same, remove the last, mark as closed path.
 		p0 := &pts[path.count-1]
 		p1 := &pts[0]
-		if point_equals(p0.pos, p1.pos, ctx.distance_tolerance) && path.count > 1 {
-			path.count -= 1
-			p0 = &pts[path.count - 1]
-			path.closed = true
-		}
+		// if point_equals(p0.pos, p1.pos, ctx.distance_tolerance) && path.count > 1 {
+		// 	path.count -= 1
+		// 	p0 = &pts[path.count - 1]
+		// 	path.closed = true
+		// }
 
 		// TODO winding?
 		// // enforce winding
@@ -444,6 +443,128 @@ paths_flatten :: proc(ctx: ^Context) {
 			p1 = mem.ptr_offset(p1, 1)
 		}
 	}
+
+	// fmt.eprintln(ctx.cache.bounds)
+}
+
+paths_calculate_joins :: proc(
+	ctx: ^Context,
+	w: f32,
+	line_join: Line_Cap,
+	miter_limit: f32,
+) {
+	cache := &ctx.cache
+	iw := f32(0)
+
+	if w > 0 {
+		iw = 1.0 / w
+	} 
+
+	// Calculate which joins needs extra vertices to append, and gather vertex count.
+	for i in 0..<ctx.cache.paths.index {
+		path := &ctx.cache.paths.data[i]
+		pts := ctx.cache.points.data[path.point_start:]
+		p0 := &pts[path.count-1]
+		p1 := &pts[0]
+		nleft := 0
+		path.nbevel = 0
+
+		for j in 0..<path.count {
+			dlx0, dly0, dlx1, dly1, dmr2, __cross, limit: f32
+			dlx0 = p0.delta.y
+			dly0 = -p0.delta.x
+			dlx1 = p1.delta.y
+			dly1 = -p1.delta.x
+			// Calculate extrusions
+			p1.dmx = (dlx0 + dlx1) * 0.5
+			p1.dmy = (dly0 + dly1) * 0.5
+			dmr2 = p1.dmx*p1.dmx + p1.dmy*p1.dmy
+			if (dmr2 > 0.000001) {
+				scale := 1.0 / dmr2
+				if (scale > 600.0) {
+					scale = 600.0
+				}
+				p1.dmx *= scale
+				p1.dmy *= scale
+			}
+
+			// Clear flags, but keep the corner.
+			p1.flags = (.Corner in p1.flags) ? { .Corner } : {}
+
+			// Keep track of left turns.
+			__cross = p1.delta.x * p0.delta.y - p0.delta.x * p1.delta.y
+			if __cross > 0.0 {
+				nleft += 1
+				incl(&p1.flags, Point_Flag.Left)
+			}
+
+			// Calculate if we should use bevel or miter for inner join.
+			limit = max(1.01, min(p0.len, p1.len) * iw)
+			if (dmr2 * limit * limit) < 1.0 {
+				incl(&p1.flags, Point_Flag.Inner_Bevel)
+			}
+
+			// Check to see if the Corner needs to be beveled.
+			if .Corner in p1.flags {
+				if (dmr2 * miter_limit*miter_limit) < 1.0 || line_join == .Bevel || line_join == .Round {
+					incl(&p1.flags, Point_Flag.Bevel)
+				}
+			}
+
+			if (.Bevel in p1.flags) || (.Inner_Bevel in p1.flags) {
+				path.nbevel += 1
+			}
+
+			p0 = p1
+			p1 = mem.ptr_offset(p1, 1)
+		}
+
+		path.convex = nleft == path.count
+	}
+}
+
+paths_expand_fill :: proc(ctx: ^Context, w: f32, line_join: Line_Cap, miter_limit: f32) {
+	paths_calculate_joins(ctx, w, line_join, miter_limit)
+	state := state_get(ctx)
+
+	// add vertices that should be rendered
+	for i in 0..<ctx.cache.paths.index {
+		path := &ctx.cache.paths.data[i]
+		pts := ctx.cache.points.data[path.point_start:]
+		p0, p1: ^Cache_Point
+		rw, lw, woff: f32
+		ru, lu: f32
+
+		// Calculate shape vertices.
+		woff = 0.5*ctx.fringe_width
+		// dst := verts[dst_index:]
+		// dst_start_length := len(dst)
+
+		path_index := i32(ctx.renderer.paths.index)
+		fa_push(&ctx.renderer.paths, Path {
+			color = state.fill.inner_color,
+			box = ctx.cache.bounds,
+			clip = { 0, 0, 800, 800 },
+		})
+		// fmt.eprintln(fa_last(&ctx.renderer.paths))
+		fmt.eprintln(path.closed)
+
+		for j in 0..<path.count {
+			p0 := pts[j]
+			p1 := pts[(j + 1) % path.count]
+			
+			// set vertices
+			fa_push(&ctx.renderer.curves, Curve {
+				B = {
+					0 = p0.pos,
+					1 = p1.pos,
+				},
+				path_index = path_index
+			})
+		}
+
+		// fmt.eprintln(fa_slice(&ctx.renderer.curves))
+	}
 }
 
 fill :: proc(ctx: ^Context) {
@@ -451,12 +572,12 @@ fill :: proc(ctx: ^Context) {
 	fill_paint := state.fill
 
 	paths_flatten(ctx)
-	// expand_fill()
+	paths_expand_fill(ctx, ctx.fringe_width, .Miter, 2.4)
+
+	// fmt.eprintln(ctx.cache.points.index)
 
 	fill_paint.inner_color.a *= state.alpha
 	fill_paint.outer_color.a *= state.alpha
-
-	// for i in 0
 }
 
 ///////////////////////////////////////////////////////////
@@ -557,18 +678,39 @@ sparse_set_print :: proc(set: ^Sparse_Set) {
 	fmt.eprintln()
 }
 
+sparse_set_print_dense :: proc(set: ^Sparse_Set) {
+	fmt.eprintln("DENSE  ", set.data[:set.size])
+}
+
+// sparse_set_remove :: proc(set: ^Sparse_Set, id: int) {
+// 	index := set.data[set.sparse + id]
+// 	if index <= 0 && index < set.size && set.data[index] == id {
+// 		old_index := set.data[set.size - 1]
+// 		set.data[index] = set.data[set.size - 1]
+// 		set.data[set.sparse + id] = 
+// 		set.size -= 1
+// 	}
+// }
+
 @test
 sparse_set_test :: proc() {
 	set := sparse_set_make(10)
 	sparse_set_print(&set)
 	sparse_set_insert(&set, 3)
-	sparse_set_print(&set)
 	sparse_set_insert(&set, 3)
-	sparse_set_print(&set)
+	sparse_set_insert(&set, 3)
 	sparse_set_insert(&set, 4)
+	sparse_set_insert(&set, 5)
+	sparse_set_insert(&set, 6)
 	sparse_set_print(&set)
 	fmt.eprintln(sparse_set_contains(&set, 4))
 	fmt.eprintln(sparse_set_contains(&set, 3))
+
+	// sparse_set_print_dense(&set)
+	// sparse_set_remove(&set, 3)
+	// sparse_set_print_dense(&set)
+	
+	// sparse_set_print(&set)
 }
 
 ///////////////////////////////////////////////////////////
@@ -596,6 +738,10 @@ fa_clear :: #force_inline proc(fa: ^Fixed_Array($T)) {
 
 fa_slice :: proc(fa: ^Fixed_Array($T)) -> []T {
 	return fa.data[:fa.index]
+}
+
+fa_raw :: proc(fa: Fixed_Array($T)) -> rawptr {
+	return raw_data(fa.data)
 }
 
 fa_last_unsafe :: proc(fa: ^Fixed_Array($T)) -> ^T {

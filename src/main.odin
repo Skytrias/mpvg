@@ -82,6 +82,10 @@ window_size_callback :: proc "c" (handle: glfw.WindowHandle, width, height: i32)
 	app.window_height = int(height)
 }
 
+// main :: proc() {
+// 	vg.sparse_set_test()
+// }
+
 main :: proc() {
 	glfw.Init()
 	defer glfw.Terminate()
@@ -151,8 +155,9 @@ main :: proc() {
 			defer vg.ctx_frame_end(&ctx)
 
 			vg.push_path(&ctx)
-			vg.push_move_to(&ctx, 100, 100)
-			vg.push_line_to(&ctx, 200, 200)
+			vg.push_rect(&ctx, app.mouse.x, app.mouse.y, 200, 200)
+			// vg.push_move_to(&ctx, 100, 100)
+			// vg.push_line_to(&ctx, 200, 200)
 			vg.fill(&ctx)
 		}
 

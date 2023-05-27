@@ -60,9 +60,6 @@ struct Path {
 	vec4 box;
 	vec4 clip;
 
-	int curve_index_start;
-	int curve_index_current;
-
 	int stroke;
 	int pad1;
 };
