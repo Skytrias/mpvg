@@ -152,22 +152,25 @@ main :: proc() {
 			// TODO add px ratio
 			vg.ctx_frame_begin(&ctx, app.window_width, app.window_height, 1)
 			defer vg.ctx_frame_end(&ctx)
-
+			
 			{
 				vg.ctx_save_scoped(&ctx)
+				vg.ctx_fill_color(&ctx, { 0, 1, 0, 1 })
 				vg.path_begin(&ctx)
+				vg.push_rect(&ctx, 100, 100, 50, 50)
+				vg.fill(&ctx)
+			}
+
+			{
+				// vg.ctx_save_scoped(&ctx)
+				vg.path_begin(&ctx)
+				vg.ctx_fill_color(&ctx, { 0, 0, 1, 1 })
 				vg.ctx_translate(&ctx, app.mouse.x, app.mouse.y)
 				vg.ctx_rotate(&ctx, count * 0.01)
 				vg.push_rect(&ctx, -100, -100, 200, 200)
 				vg.fill(&ctx)
 			}
 
-			{
-				vg.ctx_fill_color(&ctx, { 0, 1, 0, 1 })
-				vg.path_begin(&ctx)
-				vg.push_rect(&ctx, 100, 100, 50, 50)
-				vg.fill(&ctx)
-			}
 
 			// {
 			// 	vg.ctx_fill_color(&ctx, { 0, 0, 1, 1 })
@@ -180,7 +183,7 @@ main :: proc() {
 			// 	vg.ctx_fill_color(&ctx, { 1, 0, 0, 1 })
 			// 	vg.path_begin(&ctx)
 			// 	// vg.push_text(&ctx, "o", 100, 200)
-			// 	vg.push_text(&ctx, "o", app.mouse.x, app.mouse.y)
+			// 	vg.push_text(&ctx, "texto", app.mouse.x, app.mouse.y)
 			// 	vg.fill(&ctx)
 			// }
 		}

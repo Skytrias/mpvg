@@ -206,19 +206,6 @@ push_rect :: proc(ctx: ^Context, x, y, w, h: f32) {
 	push_close(ctx)
 }
 
-// renderer_ellipse :: proc(renderer: ^Renderer, cx, cy, rx, ry: f32) {
-// 	renderer_move_to(renderer, cx-rx, cy)
-// 	renderer_cubic_to(renderer, cx, cy+ry, cx-rx, cy+ry*KAPPA90, cx-rx*KAPPA90, cy+ry)
-// 	renderer_cubic_to(renderer, cx+rx, cy, cx+rx*KAPPA90, cy+ry, cx+rx, cy+ry*KAPPA90)
-// 	renderer_cubic_to(renderer, cx, cy-ry, cx+rx, cy-ry*KAPPA90, cx+rx*KAPPA90, cy-ry)
-// 	renderer_cubic_to(renderer, cx-rx, cy, cx-rx*KAPPA90, cy-ry, cx-rx, cy-ry*KAPPA90)
-// 	renderer_close(renderer)
-// }
-
-// renderer_circle :: proc(renderer: ^Renderer, cx, cy, r: f32) {
-// 	renderer_ellipse(renderer, cx, cy, r, r)
-// }
-
 push_ellipse :: proc(ctx: ^Context, cx, cy, rx, ry: f32) {
 	push_move_to(ctx, cx, cy)
 	push_cubic_to(ctx, cx, cy+ry, cx-rx, cy+ry*KAPPA90, cx-rx*KAPPA90, cy+ry)
