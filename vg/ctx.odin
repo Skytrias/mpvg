@@ -15,17 +15,8 @@ KAPPA90 :: 0.5522847493
 
 MAX_STATES :: 32
 MAX_COMMANDS :: 1028
-MAX_CACHE_PATHS :: 128
-MAX_CACHE_POINTS :: 1028
-MAX_CACHE_VERTICES :: 1028
-
-Command :: enum i32 {
-	Move_To,
-	Line_To,
-	Quadratic_To,
-	Cubic_To,
-	Close,
-}
+MAX_TEMP_PATHS :: 128
+MAX_TEMP_CURVES :: 1028
 
 Paint :: struct {
 	xform: Xform,
@@ -60,9 +51,12 @@ State :: struct {
 Xform :: [6]f32
 
 Context :: struct {
+	// temp data for building paths, can be copied over
+	temp_curves: Fixed_Array(Curve),
+	temp_paths: Fixed_Array(Path),
+
 	// float commands for less allocation
-	commands: Fixed_Array(V2),
-	command_last: V2, // saved last
+	point_last: V2, // saved last
 
 	// state stored 
 	states: Fixed_Array(State),
@@ -77,65 +71,24 @@ Context :: struct {
 	distance_tolerance: f32,
 	tesselation_tolerance: f32,
 	device_pixel_ratio: f32,
-	fringe_width: f32,
-
-	// cache
-	cache: Cache,
 }
-
-Cache :: struct {
-	paths: Fixed_Array(Cache_Path),
-	points: Fixed_Array(Cache_Point),
-	bounds: [4]f32,
-}
-
-Cache_Path :: struct {
-	point_start: int,
-	count: int,
-	closed: bool,
-
-	nbevel: int,
-	fill: []V2,
-	stroke: []V2,
-
-	convex: bool,	
-}
-
-Cache_Point :: struct {
-	pos: V2,
-	delta: V2,
-	len: f32,
-	dmx, dmy: f32,
-	flags: Point_Flags,
-}
-
-Point_Flag :: enum {
-	Corner,
-	Left,
-	Bevel,
-	Inner_Bevel,
-}
-Point_Flags :: bit_set[Point_Flag]
 
 V2 :: [2]f32
 
 ctx_device_pixel_ratio :: proc(ctx: ^Context, ratio: f32) {
 	ctx.tesselation_tolerance = 0.25 / ratio
 	ctx.distance_tolerance = 0.01 / ratio
-	ctx.fringe_width = 1.0 / ratio
 	ctx.device_pixel_ratio = ratio
 }
 
 ctx_init :: proc(ctx: ^Context) {
-	fa_init(&ctx.commands, MAX_COMMANDS)
+	fa_init(&ctx.temp_curves, MAX_TEMP_CURVES)
+	fa_init(&ctx.temp_paths, MAX_TEMP_PATHS)
 	fa_init(&ctx.states, MAX_STATES)
 
 	ctx_save(ctx)
 	ctx_reset(ctx)
 	ctx_device_pixel_ratio(ctx, 1)
-
-	fa_init(&ctx.cache.paths, MAX_CACHE_PATHS)
-	fa_init(&ctx.cache.points, MAX_CACHE_POINTS)
 
 	renderer_init(&ctx.renderer)
 }
@@ -147,9 +100,8 @@ ctx_make :: proc() -> (res: Context) {
 
 ctx_destroy :: proc(ctx: ^Context) {
 	renderer_destroy(&ctx.renderer)
-	fa_destroy(ctx.cache.points)
-	fa_destroy(ctx.cache.paths)
-	fa_destroy(ctx.commands)
+	fa_destroy(ctx.temp_paths)
+	fa_destroy(ctx.temp_curves)
 	fa_destroy(ctx.states)
 }
 
@@ -239,112 +191,75 @@ ctx_stroke_color :: proc(ctx: ^Context, color: [4]f32) {
 	paint_set_color(&state.stroke, color)
 }
 
-@private
-cmd2f :: #force_inline proc(cmd: Command) -> V2 {
-	return { transmute(f32) cmd, max(f32) }
-}
-
-f2cmd :: #force_inline proc(v: V2) -> Command {
-	return transmute(Command) v.x
-}
-
-ctx_append_commands :: proc(ctx: ^Context, values: []V2) {
-	state := state_get(ctx)
-
-	cmd_first := Command(values[0].x)
-	if cmd_first != .Close {
-		ctx.command_last = values[len(values) - 1]
-	}
-
-	transform :: proc(xform: Xform, v: ^V2) {
-		// catch command and dont transform
-		if v.y == max(f32) {
-			return
-		}
-
-		temp := v^
-		v.x = temp.x * xform[0] + temp.y * xform[2] + xform[4]
-		v.y = temp.x * xform[1] + temp.y * xform[3] + xform[5]
-	}
-
-	// transform all points, commands are ignored
-	values := values
-	for v in &values {
-		transform(state.xform, &v)
-	}
-
-	// copy transformed values over
-	fa_add(&ctx.commands, values)
-}
-
-push_path :: proc(ctx: ^Context) {
-	fa_clear(&ctx.commands)
-	fa_clear(&ctx.cache.points)
-	fa_clear(&ctx.cache.paths)
+path_begin :: proc(ctx: ^Context) {
+	fa_clear(&ctx.temp_curves)
+	fa_clear(&ctx.temp_paths)
+	ctx.point_last = {}
 }
 
 push_rect :: proc(ctx: ^Context, x, y, w, h: f32) {
-	commands := [?]V2 {
-		cmd2f(.Move_To), { x, y }, 
-		cmd2f(.Line_To), { x, y + h }, 
-		cmd2f(.Line_To), { x + w, y + h },
-		cmd2f(.Line_To), { x + w, y },
-		cmd2f(.Close),
-	}
-	ctx_append_commands(ctx, commands[:])
+	push_move_to(ctx, x, y)
+	push_line_to(ctx, x, y + h)
+	push_line_to(ctx, x + w, y + h)
+	push_line_to(ctx, x + w, y)
+	push_close(ctx)
 }
 
 push_move_to :: proc(ctx: ^Context, x, y: f32) {
-	commands := [?]V2 { cmd2f(.Move_To), { x, y }}
-	ctx_append_commands(ctx, commands[:])
+	path_add(ctx)
+	ctx.point_last = { x, y }
 }
 
 push_line_to :: proc(ctx: ^Context, x, y: f32) {
-	commands := [?]V2 { cmd2f(.Line_To), { x, y }}
-	ctx_append_commands(ctx, commands[:])
+	state := state_get(ctx)
+	fa_push(&ctx.temp_curves, Curve { 
+		B = { 
+			0 = xform_point_v2(state.xform, ctx.point_last),
+			1 = xform_point_v2(state.xform, { x, y }),
+		},
+		path_index = i32(ctx.temp_paths.index - 1),
+	})
+	ctx.point_last = { x, y }
+	
+	path := fa_last(&ctx.temp_paths)
+	path.curve_end = i32(ctx.temp_curves.index)
 }
 
-paths_add :: proc(ctx: ^Context) {
-	fa_push(&ctx.cache.paths, Cache_Path {
-		point_start = ctx.cache.points.index,
-	})		
-}
+push_close :: proc(ctx: ^Context) {
+	if ctx.temp_paths.index > 0 {
+		path := fa_last_unsafe(&ctx.temp_paths)
 
-paths_close :: proc(ctx: ^Context) {
-	path := fa_last(&ctx.cache.paths)
-	if path == nil {
-		return
+		// connect the start / end point
+		if path.curve_end > path.curve_start {
+			curve_first := ctx.temp_curves.data[path.curve_start]
+			state := state_get(ctx)
+
+			fa_push(&ctx.temp_curves, Curve { 
+				B = { 
+					0 = xform_point_v2(state.xform, ctx.point_last),
+					1 = curve_first.B[0],
+				},
+				path_index = i32(ctx.temp_paths.index - 1),
+			})
+			
+			path.curve_end = i32(ctx.temp_curves.index)			
+		}
 	}
-	path.closed = true		
+}
+
+@private
+path_add :: proc(ctx: ^Context) {
+	fa_push(&ctx.temp_paths, Path {
+		// TODO replace
+		clip = { 0, 0, 800, 800 },
+		box = { max(f32), max(f32), -max(f32), -max(f32) },
+		curve_start = i32(ctx.temp_curves.index),
+	})
 }
 
 point_equals :: proc(v0, v1: V2, tolerance: f32) -> bool {
 	delta := v1 - v0
 	return delta.x * delta.x + delta.y * delta.y < tolerance * tolerance
-}
-
-points_add :: proc(ctx: ^Context, v: V2, flags: Point_Flags) {
-	path := fa_last(&ctx.cache.paths)
-	if path == nil {
-		return
-	}
-
-	if path.count > 0 && ctx.cache.points.index > 0 {
-		pt := fa_last_unsafe(&ctx.cache.points)
-
-		// check last point if its too close and replace it 
-		if point_equals(pt.pos, v, ctx.distance_tolerance) {
-			pt.flags |= flags
-			return
-		}
-	}
-
-	// add point + update count
-	fa_push(&ctx.cache.points, Cache_Point {
-		pos = v,
-		flags = flags,
-	})
-	path.count += 1
 }
 
 v2_normalize :: proc(v: ^V2) -> f32 {
@@ -357,227 +272,127 @@ v2_normalize :: proc(v: ^V2) -> f32 {
 	return d
 }
 
-paths_flatten :: proc(ctx: ^Context) {
-	if fa_not_empty(ctx.cache.paths) {
-		return
-	}
+// paths_calculate_joins :: proc(
+// 	ctx: ^Context,
+// 	w: f32,
+// 	line_join: Line_Cap,
+// 	miter_limit: f32,
+// ) {
+// 	cache := &ctx.cache
+// 	iw := f32(0)
 
-	// add translated points to path
-	i := 0
-	for i < ctx.commands.index {
-		cmd := f2cmd(ctx.commands.data[i])
+// 	if w > 0 {
+// 		iw = 1.0 / w
+// 	} 
 
-		switch cmd {
-		case .Move_To:
-			paths_add(ctx)
-			points_add(ctx, ctx.commands.data[i + 1], { .Corner })
-			i += 2
+// 	// Calculate which joins needs extra vertices to append, and gather vertex count.
+// 	for i in 0..<ctx.cache.paths.index {
+// 		path := &ctx.cache.paths.data[i]
+// 		pts := ctx.cache.points.data[path.point_start:]
+// 		p0 := &pts[path.count-1]
+// 		p1 := &pts[0]
+// 		nleft := 0
+// 		path.nbevel = 0
 
-		case .Line_To:
-			points_add(ctx, ctx.commands.data[i + 1], { .Corner })
-			i += 2
-		
-		case .Quadratic_To:
-			// TODO others
-			i += 3
+// 		for j in 0..<path.count {
+// 			dlx0, dly0, dlx1, dly1, dmr2, __cross, limit: f32
+// 			dlx0 = p0.delta.y
+// 			dly0 = -p0.delta.x
+// 			dlx1 = p1.delta.y
+// 			dly1 = -p1.delta.x
+// 			// Calculate extrusions
+// 			p1.dmx = (dlx0 + dlx1) * 0.5
+// 			p1.dmy = (dly0 + dly1) * 0.5
+// 			dmr2 = p1.dmx*p1.dmx + p1.dmy*p1.dmy
+// 			if (dmr2 > 0.000001) {
+// 				scale := 1.0 / dmr2
+// 				if (scale > 600.0) {
+// 					scale = 600.0
+// 				}
+// 				p1.dmx *= scale
+// 				p1.dmy *= scale
+// 			}
 
-		case .Cubic_To:
-			// TODO others
-			i += 4
+// 			// Clear flags, but keep the corner.
+// 			p1.flags = (.Corner in p1.flags) ? { .Corner } : {}
 
-		case .Close:
-			paths_close(ctx)
-			i += 1
-		}
-	}
+// 			// Keep track of left turns.
+// 			__cross = p1.delta.x * p0.delta.y - p0.delta.x * p1.delta.y
+// 			if __cross > 0.0 {
+// 				nleft += 1
+// 				incl(&p1.flags, Point_Flag.Left)
+// 			}
 
-	// gather aabb
-	ctx.cache.bounds = {
-		max(f32),
-		max(f32),
-		-max(f32),
-		-max(f32),
-	}
+// 			// Calculate if we should use bevel or miter for inner join.
+// 			limit = max(1.01, min(p0.len, p1.len) * iw)
+// 			if (dmr2 * limit * limit) < 1.0 {
+// 				incl(&p1.flags, Point_Flag.Inner_Bevel)
+// 			}
 
-	// Calculate the direction and length of line segments.
-	for j in 0..<ctx.cache.paths.index {
-		path := &ctx.cache.paths.data[j]
-		pts := ctx.cache.points.data[path.point_start:]
+// 			// Check to see if the Corner needs to be beveled.
+// 			if .Corner in p1.flags {
+// 				if (dmr2 * miter_limit*miter_limit) < 1.0 || line_join == .Bevel || line_join == .Round {
+// 					incl(&p1.flags, Point_Flag.Bevel)
+// 				}
+// 			}
 
-		// If the first and last points are the same, remove the last, mark as closed path.
-		p0 := &pts[path.count-1]
-		p1 := &pts[0]
-		// if point_equals(p0.pos, p1.pos, ctx.distance_tolerance) && path.count > 1 {
-		// 	path.count -= 1
-		// 	p0 = &pts[path.count - 1]
-		// 	path.closed = true
-		// }
+// 			if (.Bevel in p1.flags) || (.Inner_Bevel in p1.flags) {
+// 				path.nbevel += 1
+// 			}
 
-		// TODO winding?
-		// // enforce winding
-		// if path.count > 2 {
-		// 	area := __polyArea(pts[:path.count])
-			
-		// 	if path.winding == .CCW && area < 0 {
-		// 		__polyReverse(pts[:path.count])
-		// 	}
-			
-		// 	if path.winding == .CW && area > 0 {
-		// 		__polyReverse(pts[:path.count])
-		// 	}
-		// }
+// 			p0 = p1
+// 			p1 = mem.ptr_offset(p1, 1)
+// 		}
 
-		for k in 0..<path.count {
-			// Calculate segment direction and length
-			p0.delta = p1.pos - p0.pos
-			p0.len = v2_normalize(&p0.delta)
-			
-			// Update bounds
-			ctx.cache.bounds[0] = min(ctx.cache.bounds[0], p0.pos.x)
-			ctx.cache.bounds[1] = min(ctx.cache.bounds[1], p0.pos.y)
-			ctx.cache.bounds[2] = max(ctx.cache.bounds[2], p0.pos.x)
-			ctx.cache.bounds[3] = max(ctx.cache.bounds[3], p0.pos.y)
-			
-			// Advance
-			p0 = p1
-			p1 = mem.ptr_offset(p1, 1)
-		}
-	}
-
-	// fmt.eprintln(ctx.cache.bounds)
-}
-
-paths_calculate_joins :: proc(
-	ctx: ^Context,
-	w: f32,
-	line_join: Line_Cap,
-	miter_limit: f32,
-) {
-	cache := &ctx.cache
-	iw := f32(0)
-
-	if w > 0 {
-		iw = 1.0 / w
-	} 
-
-	// Calculate which joins needs extra vertices to append, and gather vertex count.
-	for i in 0..<ctx.cache.paths.index {
-		path := &ctx.cache.paths.data[i]
-		pts := ctx.cache.points.data[path.point_start:]
-		p0 := &pts[path.count-1]
-		p1 := &pts[0]
-		nleft := 0
-		path.nbevel = 0
-
-		for j in 0..<path.count {
-			dlx0, dly0, dlx1, dly1, dmr2, __cross, limit: f32
-			dlx0 = p0.delta.y
-			dly0 = -p0.delta.x
-			dlx1 = p1.delta.y
-			dly1 = -p1.delta.x
-			// Calculate extrusions
-			p1.dmx = (dlx0 + dlx1) * 0.5
-			p1.dmy = (dly0 + dly1) * 0.5
-			dmr2 = p1.dmx*p1.dmx + p1.dmy*p1.dmy
-			if (dmr2 > 0.000001) {
-				scale := 1.0 / dmr2
-				if (scale > 600.0) {
-					scale = 600.0
-				}
-				p1.dmx *= scale
-				p1.dmy *= scale
-			}
-
-			// Clear flags, but keep the corner.
-			p1.flags = (.Corner in p1.flags) ? { .Corner } : {}
-
-			// Keep track of left turns.
-			__cross = p1.delta.x * p0.delta.y - p0.delta.x * p1.delta.y
-			if __cross > 0.0 {
-				nleft += 1
-				incl(&p1.flags, Point_Flag.Left)
-			}
-
-			// Calculate if we should use bevel or miter for inner join.
-			limit = max(1.01, min(p0.len, p1.len) * iw)
-			if (dmr2 * limit * limit) < 1.0 {
-				incl(&p1.flags, Point_Flag.Inner_Bevel)
-			}
-
-			// Check to see if the Corner needs to be beveled.
-			if .Corner in p1.flags {
-				if (dmr2 * miter_limit*miter_limit) < 1.0 || line_join == .Bevel || line_join == .Round {
-					incl(&p1.flags, Point_Flag.Bevel)
-				}
-			}
-
-			if (.Bevel in p1.flags) || (.Inner_Bevel in p1.flags) {
-				path.nbevel += 1
-			}
-
-			p0 = p1
-			p1 = mem.ptr_offset(p1, 1)
-		}
-
-		path.convex = nleft == path.count
-	}
-}
-
-paths_expand_fill :: proc(ctx: ^Context, w: f32, line_join: Line_Cap, miter_limit: f32) {
-	paths_calculate_joins(ctx, w, line_join, miter_limit)
-	state := state_get(ctx)
-
-	// add vertices that should be rendered
-	for i in 0..<ctx.cache.paths.index {
-		path := &ctx.cache.paths.data[i]
-		pts := ctx.cache.points.data[path.point_start:]
-		p0, p1: ^Cache_Point
-		rw, lw, woff: f32
-		ru, lu: f32
-
-		// Calculate shape vertices.
-		woff = 0.5*ctx.fringe_width
-		// dst := verts[dst_index:]
-		// dst_start_length := len(dst)
-
-		path_index := i32(ctx.renderer.paths.index)
-		fa_push(&ctx.renderer.paths, Path {
-			color = state.fill.inner_color,
-			box = ctx.cache.bounds,
-			clip = { 0, 0, 800, 800 },
-		})
-		// fmt.eprintln(fa_last(&ctx.renderer.paths))
-		fmt.eprintln(path.closed)
-
-		for j in 0..<path.count {
-			p0 := pts[j]
-			p1 := pts[(j + 1) % path.count]
-			
-			// set vertices
-			fa_push(&ctx.renderer.curves, Curve {
-				B = {
-					0 = p0.pos,
-					1 = p1.pos,
-				},
-				path_index = path_index
-			})
-		}
-
-		// fmt.eprintln(fa_slice(&ctx.renderer.curves))
-	}
-}
+// 		path.convex = nleft == path.count
+// 	}
+// }
 
 fill :: proc(ctx: ^Context) {
 	state := state_get(ctx)
+
 	fill_paint := state.fill
-
-	paths_flatten(ctx)
-	paths_expand_fill(ctx, ctx.fringe_width, .Miter, 2.4)
-
-	// fmt.eprintln(ctx.cache.points.index)
-
 	fill_paint.inner_color.a *= state.alpha
 	fill_paint.outer_color.a *= state.alpha
+
+	// set colors and get bounding box
+	for i in 0..<ctx.temp_paths.index {
+		path := &ctx.temp_paths.data[i]
+		path.color = fill_paint.inner_color
+
+		for j in path.curve_start..<path.curve_end {
+			curve := &ctx.temp_curves.data[j]
+
+			for k in 0..=curve.count + 1 {
+				point := curve.B[k]
+				path.box.x = min(path.box.x, point.x)
+				path.box.y = min(path.box.y, point.y)
+				path.box.z = max(path.box.z, point.x)
+				path.box.w = max(path.box.w, point.y)
+			}
+		}
+	}
+
+	fa_add(&ctx.renderer.curves, fa_slice(&ctx.temp_curves))
+	fa_add(&ctx.renderer.paths, fa_slice(&ctx.temp_paths))
+}
+
+ctx_translate :: proc(ctx: ^Context, x, y: f32) {
+	state := state_get(ctx)
+	temp := xform_translate(x, y)
+	xform_premultiply(&state.xform, temp)
+}
+
+ctx_scale :: proc(ctx: ^Context, x, y: f32) {
+	state := state_get(ctx)
+	temp := xform_scale(x, y)
+	xform_premultiply(&state.xform, temp)
+}
+
+ctx_rotate :: proc(ctx: ^Context, rotation: f32) {
+	state := state_get(ctx)
+	temp := xform_rotate(rotation)
+	xform_premultiply(&state.xform, temp)
 }
 
 ///////////////////////////////////////////////////////////
@@ -681,16 +496,6 @@ sparse_set_print :: proc(set: ^Sparse_Set) {
 sparse_set_print_dense :: proc(set: ^Sparse_Set) {
 	fmt.eprintln("DENSE  ", set.data[:set.size])
 }
-
-// sparse_set_remove :: proc(set: ^Sparse_Set, id: int) {
-// 	index := set.data[set.sparse + id]
-// 	if index <= 0 && index < set.size && set.data[index] == id {
-// 		old_index := set.data[set.size - 1]
-// 		set.data[index] = set.data[set.size - 1]
-// 		set.data[set.sparse + id] = 
-// 		set.size -= 1
-// 	}
-// }
 
 @test
 sparse_set_test :: proc() {

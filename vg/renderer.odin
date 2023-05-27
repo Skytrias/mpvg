@@ -100,6 +100,9 @@ Path :: struct #packed {
 
 	stroke: b32, // fill default
 	pad1: i32,
+
+	curve_start: i32, // start index
+	curve_end: i32, // end index
 }
 
 // curve Linear, Quadratic, Cubic in flat structure
@@ -666,51 +669,4 @@ renderer_end :: proc(using renderer: ^Renderer) {
 // 		p = curr
 // 		ptan = tan
 // 	}
-// }
-
-// ///////////////////////////////////////////////////////////
-// // PATH
-// ///////////////////////////////////////////////////////////
-
-// path_init :: proc(using path: ^Path, width, height: f32) {
-// 	path.clip = {
-// 		0,
-// 		0,
-// 		width,
-// 		height,
-// 	}
-
-// 	xform_identity(&path.xform)
-// 	path.color = { 0, 0, 1, 1 }
-// 	path.curve_index_start = 0
-// 	path.curve_index_current = 0
-// 	path.stroke = false
-// }
-
-// curve_linear_init :: proc(curve: ^Curve, a, b: [2]f32, path_index: int) {
-// 	curve.B[0] = a
-// 	curve.B[1] = b
-// 	curve.count = 0
-// 	curve.path_index = i32(path_index)
-// }
-
-// curve_quadratic_init :: proc(curve: ^Curve, a, b, c: [2]f32, path_index: int) {
-// 	curve.B[0] = a
-// 	curve.B[1] = b
-// 	curve.B[2] = c
-// 	curve.count = 1
-// 	curve.path_index = i32(path_index)
-// }
-
-// curve_cubic_init :: proc(curve: ^Curve, a, b, c, d: [2]f32, path_index: int) {
-// 	curve.B[0] = a
-// 	curve.B[1] = b
-// 	curve.B[2] = c
-// 	curve.B[3] = d
-// 	curve.count = 2
-// 	curve.path_index = i32(path_index)
-// }
-
-// curve_set_endpoint :: proc(curve: ^Curve, to: [2]f32) {
-// 	curve.B[curve.count + 1] = to
 // }

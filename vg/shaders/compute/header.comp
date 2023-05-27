@@ -62,6 +62,9 @@ struct Path {
 
 	int stroke;
 	int pad1;
+
+	int curve_start;
+	int curve_end;
 };
 
 struct Path_Queue {

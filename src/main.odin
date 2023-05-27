@@ -154,8 +154,11 @@ main :: proc() {
 			vg.ctx_frame_begin(&ctx, app.window_width, app.window_height, 1)
 			defer vg.ctx_frame_end(&ctx)
 
-			vg.push_path(&ctx)
-			vg.push_rect(&ctx, app.mouse.x, app.mouse.y, 200, 200)
+			vg.path_begin(&ctx)
+			vg.ctx_translate(&ctx, app.mouse.x, app.mouse.y)
+			vg.ctx_rotate(&ctx, count * 0.01)
+			vg.push_rect(&ctx, -100, -100, 200, 200)
+			// vg.push_rect(&ctx, 100, 100, 200, 200)
 			// vg.push_move_to(&ctx, 100, 100)
 			// vg.push_line_to(&ctx, 200, 200)
 			vg.fill(&ctx)
