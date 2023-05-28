@@ -1,3 +1,6 @@
+#define OP_START 1
+#define OP_SEGMENT 2
+
 #define TILE_SIZE 32
 
 // kind of curve
@@ -34,20 +37,15 @@ struct Implicit_Curve {
 
 struct Tile_Queue {
 	// op linked list
-	int op_head;
-	int op_tail;
-	
-	// link to next tile to process
-	int tile_queue_next;
-
-	// info
-	int path_index;
+	int op_first;
+	int op_last;
 	int winding_offset;
 };
 
 struct Tile_Operation {
-	int curve_index;
-	int cross_right;
+	int kind;
+	int curve_or_path_index; // curve on SEGMENT, PATH ON START
+	int cross_right_or_winding_offset;
 	int op_next; // link to next op
 };
 

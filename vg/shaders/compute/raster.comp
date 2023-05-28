@@ -8,7 +8,7 @@ void main() {
 	uint screen_tile_index = gl_WorkGroupID.x + gl_WorkGroupID.y * indices.tiles_x;
 
 	int path_index = 0;
-	int tile_queue_offset = screen_tiles.data[screen_tile_index];
+	int tile_op_index = screen_tiles.data[screen_tile_index];
 
 	// prepare anti aliasing
 	vec2 center_coord = gl_GlobalInvocationID.xy + vec2(0.5, 0.5);
@@ -38,48 +38,47 @@ void main() {
 	int winding[MAX_SAMPLES] = int[MAX_SAMPLES](0, 0, 0, 0, 0, 0, 0, 0);
 
 	// iterate first tile queue
-	while (tile_queue_offset != -1) {
-		Tile_Queue tile_queue = tile_queues.data[tile_queue_offset];
-		vec4 path_color = paths.data[path_index].color;
-		path_color.rgb *= path_color.a;
+	while (tile_op_index != -1) {
+		Tile_Operation op = tile_operations.data[tile_op_index];
 
-		// fetch info from tile queue instead
-		for (int sample_index = 0; sample_index < MAX_SAMPLES; sample_index += 1) {
-			vec2 sample_coord = sample_coords[sample_index];
-			vec4 clip = paths.data[path_index].clip;
+		if (op.kind == OP_START) {
+			vec4 path_color = paths.data[path_index].color;
+			path_color.rgb *= path_color.a;
 
-			if (sample_coord.x >= clip.x && sample_coord.x < clip.z && sample_coord.y >= clip.y && sample_coord.y < clip.w) {
-				// bool filled = (paths.data[path_index].stroke == 1) ? (winding[sample_index] != 0) : ((winding[sample_index] & 1) == 1);
-				bool filled = (winding[sample_index] & 1) == 1;
+			// fetch info from tile queue instead
+			for (int sample_index = 0; sample_index < MAX_SAMPLES; sample_index += 1) {
+				vec2 sample_coord = sample_coords[sample_index];
+				vec4 clip = paths.data[path_index].clip;
 
-				if (filled) {
-					vec4 next_color = path_color;
-					// TODO add texturing
-					color[sample_index] = color[sample_index] * (1 - next_color.a) + next_color;
+				if (sample_coord.x >= clip.x && sample_coord.x < clip.z && sample_coord.y >= clip.y && sample_coord.y < clip.w) {
+					// bool filled = (paths.data[path_index].stroke == 1) ? (winding[sample_index] != 0) : ((winding[sample_index] & 1) == 1);
+					bool filled = (winding[sample_index] & 1) == 1;
+
+					if (filled) {
+						vec4 next_color = path_color;
+						// TODO add texturing
+						color[sample_index] = color[sample_index] * (1 - next_color.a) + next_color;
+					}
 				}
+
+				// do proper op path
+				winding[sample_index] = op.cross_right_or_winding_offset;
 			}
-
-			// do proper op path
-			path_index = tile_queue.path_index;
-			winding[sample_index] = tile_queue.winding_offset;
-		}
-
-		int tile_op_index = tile_queue.op_head;
-		while (tile_op_index != -1) {
-			Tile_Operation op = tile_operations.data[tile_op_index];
-
+			
+			path_index = op.curve_or_path_index;
+		} else {
 			// run through samples
 			for (int sample_index = 0; sample_index < MAX_SAMPLES; sample_index += 1) {
 				vec2 sample_coord = sample_coords[sample_index];
 				
 				// normal curve winding 
-				Implicit_Curve curve = implicit_curves.data[op.curve_index];
+				Implicit_Curve curve = implicit_curves.data[op.curve_or_path_index];
 				if (sample_coord.y > curve.box.y && sample_coord.y <= curve.box.w && curve_side(curve, sample_coord) < 0) {
 					winding[sample_index] += curve.winding_increment;
 				}
 
 				// apply command crosses
-				if (op.cross_right != 0) {
+				if (op.cross_right_or_winding_offset != 0) {
 					if ((curve.orientation == C_BR || curve.orientation == C_TL) && (sample_coord.y > curve.box.w)) {
 						winding[sample_index] += curve.winding_increment;
 					} else if( (curve.orientation == C_BL || curve.orientation == C_TR) && (sample_coord.y > curve.box.y)) {
@@ -87,13 +86,10 @@ void main() {
 					}
 				}
 			}
-
-			// link to other op
-			tile_op_index = op.op_next;
 		}			
 
-		// link to other tile_queues if they are chained
-		tile_queue_offset = tile_queue.tile_queue_next;
+		// link to other op
+		tile_op_index = op.op_next;
 	}
 
 	Path path = paths.data[path_index];

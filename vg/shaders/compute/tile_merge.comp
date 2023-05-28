@@ -4,8 +4,7 @@ void main() {
 
 	// set link
 	screen_tiles.data[screen_tile_index] = -1;
-
-	int last_tile_queue = -1;
+	int next_link = -2;
 
 	// iterate all paths
 	for (int path_index = 0; path_index < indices.paths; path_index += 1) {
@@ -24,37 +23,60 @@ void main() {
 			int tile_queue_index = path_queue.tile_queue_index + path_tile_index;
 			Tile_Queue tile_queue = tile_queues.data[tile_queue_index];
 
+			int winding_offset = tile_queue.winding_offset;
+
+			// groupMemoryBarrier();
+			// memoryBarrier();
+			// barrier();
+
 			// no tile ops?
-			if (tile_queue.op_head == -1) {
-				if ((tile_queue.winding_offset & 1) == 1) {
+			if (tile_queue.op_first == -1) {
+				if ((winding_offset & 1) == 1) {
+					Tile_Operation op;
+					op.kind = OP_START;
+					op.op_next = -1;
+					op.curve_or_path_index = path_index;
+					op.cross_right_or_winding_offset = winding_offset;
+
+					int tile_op_index = atomicAdd(indices.tile_operations, 1);
+					tile_operations.data[tile_op_index] = op;
+
 					vec4 clip = path.clip;
 					vec4 tile_box = vec4(tile_coord.x, tile_coord.y, tile_coord.x + 1, tile_coord.y + 1);
 					tile_box *= TILE_SIZE;
 
 					// when correct add to screen tiles
 					if (path.color.a == 1 && tile_box.x >= clip.x && tile_box.z < clip.z && tile_box.y >= clip.y && tile_box.w < clip.w) {
-						screen_tiles.data[screen_tile_index] = path_tile_index;
+						screen_tiles.data[screen_tile_index] = tile_op_index;
 					} else {
-						if (last_tile_queue == -1) {
-							screen_tiles.data[screen_tile_index] = tile_queue_index;
+						if (next_link == -2) {
+							screen_tiles.data[screen_tile_index] = tile_op_index;
 						} else {
-							tile_queues.data[last_tile_queue].tile_queue_next = tile_queue_index;		
+							tile_operations.data[next_link].op_next = tile_op_index;
 						}
 					}
 
-					last_tile_queue = tile_queue_index;
+					next_link = tile_op_index;
 				}
 				// else, tile is fully uncovered, skip path
 			} else {
-				if (last_tile_queue == -1) {
-					// set first tile queue to screen tile
-					screen_tiles.data[screen_tile_index] = tile_queue_index;
+				Tile_Operation op;
+				op.kind = OP_START;
+				op.curve_or_path_index = path_index;
+				op.cross_right_or_winding_offset = winding_offset;
+				op.op_next = tile_queue.op_first;
+
+				int tile_op_index = atomicAdd(indices.tile_operations, 1);
+				tile_operations.data[tile_op_index] = op;
+
+				if (next_link == -2) {
+					screen_tiles.data[screen_tile_index] = tile_op_index;
 				} else {
-					// link up previous tile queue to this current tile queue
-					tile_queues.data[last_tile_queue].tile_queue_next = tile_queue_index;
+					tile_operations.data[next_link].op_next = tile_op_index;
 				}
 
-				last_tile_queue = tile_queue_index;
+				// set next link to the last 
+				next_link = tile_queue.op_last;
 			}
 		}
 	}
