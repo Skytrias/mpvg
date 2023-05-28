@@ -24,11 +24,9 @@ void main() {
 			int tile_queue_index = path_queue.tile_queue_index + path_tile_index;
 			Tile_Queue tile_queue = tile_queues.data[tile_queue_index];
 
-			int winding_offset = tile_queue.winding_offset;
-
 			// no tile ops?
 			if (tile_queue.op_head == -1) {
-				if ((winding_offset & 1) == 1) {
+				if ((tile_queue.winding_offset & 1) == 1) {
 					vec4 clip = path.clip;
 					vec4 tile_box = vec4(tile_coord.x, tile_coord.y, tile_coord.x + 1, tile_coord.y + 1);
 					tile_box *= TILE_SIZE;

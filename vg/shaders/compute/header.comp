@@ -35,6 +35,7 @@ struct Implicit_Curve {
 struct Tile_Queue {
 	// op linked list
 	int op_head;
+	int op_tail;
 	
 	// link to next tile to process
 	int tile_queue_next;
@@ -47,10 +48,6 @@ struct Tile_Queue {
 struct Tile_Operation {
 	int curve_index;
 	int cross_right;
-	int cross_bottom;
-	
-	int tile_queue_index;
-	int path_index;
 	int op_next; // link to next op
 };
 
@@ -88,7 +85,7 @@ layout(std430, binding = 0) buffer Input_Indices {
 	int tiles_y;
 } indices;
 
-layout(std430, binding = 1) buffer readonly Input_Curves {
+layout(std430, binding = 1) readonly buffer Input_Curves {
 	Curve data[];
 } curves;
 

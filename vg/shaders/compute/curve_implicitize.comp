@@ -55,17 +55,63 @@ void curve_bin_to_tiles(Path_Queue path, Implicit_Curve curve) {
 			if (cross_l || cross_r || cross_t || cross_b || s0_inside || s1_inside) {
 				Tile_Operation op;
 				op.curve_index = curve_index;
-				op.op_next = -1;
-				op.path_index = path.index;
-
-				int tile_queue_index = x + y * path.tiles_x + OFF;
-				int tile_op_index = atomicAdd(indices.tile_operations, 1);
-
-				op.tile_queue_index = tile_queue_index;
-				op.cross_bottom = int(cross_b) * curve.winding_increment;
 				op.cross_right = int(cross_r);
 
+				int tile_op_index = atomicAdd(indices.tile_operations, 1);
+				int tile_queue_index = x + y * path.tiles_x + OFF;
+
+				// op.op_next = atomicExchange(tile_queues.data[tile_queue_index].op_tail, tile_op_index);
+				// if (op.op_next == -1) {
+				// 	atomicExchange(tile_queues.data[tile_queue_index].op_head, tile_op_index);
+				// }
+				op.op_next = atomicExchange(tile_queues.data[tile_queue_index].op_tail, tile_op_index);
+				atomicCompSwap(tile_queues.data[tile_queue_index].op_head, -1, op.op_next);
+				// if (op.op_next == -1) {
+				// 	// atomicExchange(tile_queues.data[tile_queue_index].op_head, tile_op_index);
+				// 	atomicExchange(tile_queues.data[tile_queue_index].op_tail, tile_op_index);
+				// }
+
+				if (cross_b) {
+					atomicAdd(tile_queues.data[tile_queue_index].winding_offset, curve.winding_increment);
+				}
+
 				tile_operations.data[tile_op_index] = op;
+
+
+				// memoryBarrier();
+				// barrier();
+
+				// Tile_Operation op;
+				// op.curve_index = curve_index;
+				// op.cross_right = int(cross_r);
+
+				// int tile_op_index = atomicAdd(indices.tile_operations, 1);
+				// int tile_queue_index = x + y * path.tiles_x + OFF;
+
+				// memoryBarrier();
+				// barrier();
+
+				// Tile_Queue tile = tile_queues.data[tile_queue_index];
+
+				// if (tile.op_head == -1) {
+				// 	tile.op_head = tile_op_index;
+				// }
+				
+				// op.op_next = tile.op_tail;
+				// tile.op_tail = tile_op_index;
+
+				// if (cross_b) {
+				// 	tile.winding_offset += curve.winding_increment;
+				// }
+
+				// memoryBarrier();
+				// barrier();
+
+				// tile_operations.data[tile_op_index] = op;
+				// tile_queues.data[tile_queue_index] = tile;
+
+				// memoryBarrier();
+				// barrier();
 			}
 		}
 	}

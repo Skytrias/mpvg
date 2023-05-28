@@ -1,4 +1,4 @@
-layout(rgba8, binding = 0) uniform image2D img_output;
+layout(rgba8, binding = 0) writeonly uniform image2D img_output;
 
 #define MAX_SAMPLES 8
 

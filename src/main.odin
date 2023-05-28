@@ -98,6 +98,9 @@ main :: proc() {
 
 	glfw.WindowHint(glfw.CONTEXT_VERSION_MAJOR, 4)
 	glfw.WindowHint(glfw.CONTEXT_VERSION_MINOR, 5)
+	glfw.WindowHint(glfw.OPENGL_FORWARD_COMPAT, 1)
+	glfw.WindowHint(glfw.OPENGL_DEBUG_CONTEXT, 1)
+	glfw.WindowHint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
 
 	app.window_width = 800
 	app.window_height = 800
@@ -153,7 +156,7 @@ main :: proc() {
 			vg.ctx_frame_begin(&ctx, app.window_width, app.window_height, 1)
 			defer vg.ctx_frame_end(&ctx)
 			
-			{
+			if true {
 				vg.ctx_save_scoped(&ctx)
 				vg.ctx_fill_color(&ctx, { 0, 1, 0, 1 })
 				vg.path_begin(&ctx)
@@ -162,7 +165,7 @@ main :: proc() {
 			}
 
 			{
-				// vg.ctx_save_scoped(&ctx)
+				vg.ctx_save_scoped(&ctx)
 				vg.path_begin(&ctx)
 				vg.ctx_fill_color(&ctx, { 0, 0, 1, 1 })
 				vg.ctx_translate(&ctx, app.mouse.x, app.mouse.y)
@@ -179,13 +182,14 @@ main :: proc() {
 			// 	vg.fill(&ctx)
 			// }
 
-			// {
-			// 	vg.ctx_fill_color(&ctx, { 1, 0, 0, 1 })
-			// 	vg.path_begin(&ctx)
-			// 	// vg.push_text(&ctx, "o", 100, 200)
-			// 	vg.push_text(&ctx, "texto", app.mouse.x, app.mouse.y)
-			// 	vg.fill(&ctx)
-			// }
+			if false {
+				vg.ctx_save_scoped(&ctx)
+				vg.ctx_fill_color(&ctx, { 1, 0, 0, 1 })
+				vg.path_begin(&ctx)
+				// vg.push_text(&ctx, "o", 100, 200)
+				vg.push_text(&ctx, "xyz", app.mouse.x, app.mouse.y)
+				vg.fill(&ctx)
+			}
 		}
 
 		glfw.SwapBuffers(app.window)

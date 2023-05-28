@@ -132,7 +132,7 @@ push_font_glyph :: proc(
 ) -> f32 {
 	glyph := font_glyph_get(font, codepoint)
 	scaling := font.scaling * size
-	fmt.eprintln("GLYPH", codepoint)
+	// fmt.eprintln("GLYPH", codepoint)
 
 	path_add(ctx)
 
@@ -145,8 +145,7 @@ push_font_glyph :: proc(
 			y := offset_y + f32(-v.y) * scaling + font.ascender * scaling
 			// push_move_to(ctx, x, y)
 			ctx.point_last = { x, y }
-
-			fmt.eprintln("MOVE", i)
+			// fmt.eprintln("MOVE", i)
 		
 		case u8(stbtt.vmove.vline):
 			x := offset_x + f32(v.x) * scaling

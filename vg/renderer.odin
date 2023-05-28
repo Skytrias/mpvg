@@ -1,5 +1,6 @@
 package vg
 
+import "core:os"
 import "core:fmt"
 import "core:mem"
 import "core:strings"
@@ -10,7 +11,7 @@ import gl "vendor:OpenGL"
 
 TILE_SIZE :: 32 // has to match compute header
 MAX_CURVES :: 4048
-MAX_PATHS :: 1028 * 8
+MAX_PATHS :: 1028
 SIZE_IMPLICIT_CURVES :: mem.Megabyte
 SIZE_TILE_QUEUES :: mem.Megabyte
 SIZE_TILE_OPERATIONS :: mem.Megabyte * 4
@@ -27,7 +28,6 @@ compute_path_setup := #load("shaders/compute/path_setup.comp")
 compute_curve_implicitize := #load("shaders/compute/curve_implicitize.comp")
 compute_tile_backprop := #load("shaders/compute/tile_backprop.comp")
 compute_tile_merge := #load("shaders/compute/tile_merge.comp")
-compute_tile_queue := #load("shaders/compute/tile_queue.comp")
 compute_raster := #load("shaders/compute/raster.comp")
 
 Vertex :: struct {
@@ -68,7 +68,6 @@ Renderer :: struct {
 	curve_implicitize_program: u32,
 	tile_backprop_program: u32,
 	tile_merge_program: u32,
-	tile_queue_program: u32,
 	path_setup_program: u32,
 
 	indices_ssbo: u32,
@@ -164,10 +163,10 @@ renderer_init :: proc(using renderer: ^Renderer) {
 	}
 
 	curve_implicitize_program = renderer_gpu_shader_compute(&builder, compute_header, compute_curve_implicitize, 1, 1)
-	tile_backprop_program = renderer_gpu_shader_compute(&builder, compute_header, compute_tile_backprop, 16, 1)
+	// tile_backprop_program = renderer_gpu_shader_compute(&builder, compute_header, compute_tile_backprop, 16, 1)
+	tile_backprop_program = renderer_gpu_shader_compute(&builder, compute_header, compute_tile_backprop, 1, 1)
 	path_setup_program = renderer_gpu_shader_compute(&builder, compute_header, compute_path_setup, 1, 1)
 	tile_merge_program = renderer_gpu_shader_compute(&builder, compute_header, compute_tile_merge, 1, 1)
-	tile_queue_program = renderer_gpu_shader_compute(&builder, compute_header, compute_tile_queue, 1, 1)
 
 	// TODO revisit STREAM/STATIC?
 	create :: proc(base: u32, size: int) -> (index: u32) {
@@ -261,6 +260,9 @@ renderer_gpu_shader_compute :: proc(
 	// write rest of the data
 	strings.write_bytes(builder, data)
 
+	// // fmt.eprintln("FINAL", strings.to_string(builder^))
+	// os.write_entire_file("debug.comp", builder.buf[:])
+
 	// write result
 	program, ok := gl.load_compute_source(strings.to_string(builder^))
 	if !ok {
@@ -271,10 +273,14 @@ renderer_gpu_shader_compute :: proc(
 }
 
 renderer_end :: proc(using renderer: ^Renderer) {	
+	// if true {
+	// 	return
+	// }
+
 	// write in the final path count
 	path_count := renderer.paths.index
 	renderer.indices.paths = i32(path_count)
-	fmt.eprintln("PATH COUNT", path_count)
+	// fmt.eprintln("PATH COUNT", path_count)
 
 	// bind
 	{
@@ -292,32 +298,28 @@ renderer_end :: proc(using renderer: ^Renderer) {
 	{
 		gl.UseProgram(path_setup_program)
 		gl.DispatchCompute(u32(path_count), 1, 1)
+		gl.MemoryBarrier(gl.ALL_BARRIER_BITS)
 	}
 
 	// implicitize stage
 	{
 		gl.UseProgram(curve_implicitize_program)
 		gl.DispatchCompute(u32(renderer.curves.index), 1, 1)
-	}
-
-	// find head/tail of tile queues, set op nexts per tile queue
-	{
-		gl.GetNamedBufferSubData(indices_ssbo, 0, size_of(Indices), &renderer.indices)
-		fmt.eprintln("INDICES", renderer.indices)
-		gl.UseProgram(tile_queue_program)
-		gl.DispatchCompute(u32(renderer.indices.tile_queues), 1, 1)
+		gl.MemoryBarrier(gl.ALL_BARRIER_BITS)
 	}
 
 	// tile backprop stage go by 0->tiles_y
 	{
 		gl.UseProgram(tile_backprop_program)
 		gl.DispatchCompute(u32(path_count), 1, 1)
+		gl.MemoryBarrier(gl.ALL_BARRIER_BITS)
 	}
 
 	// tile merging to screen tiles
 	{
 		gl.UseProgram(tile_merge_program)
 		gl.DispatchCompute(u32(renderer.tiles_x), u32(renderer.tiles_y), 1)
+		gl.MemoryBarrier(gl.ALL_BARRIER_BITS)
 	}
 
 	// raster stage

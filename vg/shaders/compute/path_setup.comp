@@ -11,7 +11,7 @@ void main() {
 	);
 	ivec2 first_tile = ivec2(clipped_box.xy) / TILE_SIZE;
 	ivec2 last_tile = ivec2(clipped_box.zw) / TILE_SIZE;
-
+	
 	// calculate wanted tiles
 	int tiles_x = max(0, last_tile.x - first_tile.x + 1);
 	int tiles_y = max(0, last_tile.y - first_tile.y + 1);
@@ -28,14 +28,14 @@ void main() {
 	queue.index = path_index;
 	path_queues.data[path_index] = queue;
 
-	// // setup tiles
-	// for (int i = 0; i < tile_count; i += 1) {
-	// 	Tile_Queue tile;
-	// 	tile.op_head = -1;
-	// 	// tile.op_tail = -1;
-	// 	tile.tile_queue_next = -1;
-	// 	tile.winding_offset = 0;
-	// 	tile.path_index = path_index;
-	// 	tile_queues.data[tile_queue_index + i] = tile;
-	// }
+	// setup tiles
+	for (int i = 0; i < tile_count; i += 1) {
+		Tile_Queue tile;
+		tile.op_head = -1;
+		tile.op_tail = -1;
+		tile.tile_queue_next = -1;
+		tile.winding_offset = 0;
+		tile.path_index = path_index;
+		tile_queues.data[tile_queue_index + i] = tile;
+	}
 }
