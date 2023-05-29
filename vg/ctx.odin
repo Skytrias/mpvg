@@ -7,6 +7,7 @@ import "core:slice"
 import "core:runtime"
 import "core:strings"
 import "core:math/rand"
+import "core:math/linalg"
 import glm "core:math/linalg/glsl"
 import sa "core:container/small_array"
 import gl "vendor:OpenGL"
@@ -54,6 +55,7 @@ Context :: struct {
 	// temp data for building paths, can be copied over
 	temp_curves: Fixed_Array(Curve),
 	temp_paths: Fixed_Array(Path),
+	stroke_curves: Fixed_Array(Curve), // stroke creation of curves from above,
 
 	// float commands for less allocation
 	point_last: V2, // saved last
@@ -74,6 +76,12 @@ Context :: struct {
 }
 
 V2 :: [2]f32
+WINDING_CW :: 0
+WINDING_CCW :: 1
+
+CURVE_LINE :: 0
+CURVE_QUADRATIC :: 1
+CURVE_CUBIC :: 2
 
 ctx_device_pixel_ratio :: proc(ctx: ^Context, ratio: f32) {
 	ctx.tesselation_tolerance = 0.25 / ratio
@@ -84,6 +92,7 @@ ctx_device_pixel_ratio :: proc(ctx: ^Context, ratio: f32) {
 ctx_init :: proc(ctx: ^Context) {
 	fa_init(&ctx.temp_curves, MAX_TEMP_CURVES)
 	fa_init(&ctx.temp_paths, MAX_TEMP_PATHS)
+	fa_init(&ctx.stroke_curves, MAX_TEMP_CURVES)
 	fa_init(&ctx.states, MAX_STATES)
 
 	ctx_save(ctx)
@@ -103,6 +112,7 @@ ctx_destroy :: proc(ctx: ^Context) {
 	renderer_destroy(&ctx.renderer)
 	fa_destroy(ctx.temp_paths)
 	fa_destroy(ctx.temp_curves)
+	fa_destroy(ctx.stroke_curves)
 	fa_destroy(ctx.states)
 }
 
@@ -159,7 +169,7 @@ ctx_reset :: proc(ctx: ^Context) {
 	paint_set_color(&state.fill, { 1, 0, 0, 1 })
 	paint_set_color(&state.stroke, { 0, 0, 0, 1 })
 
-	state.stroke_width = 1
+	state.stroke_width = 10
 	state.miter_limit = 10
 	state.line_cap = .Butt
 	state.line_join = .Miter
@@ -195,6 +205,7 @@ ctx_stroke_color :: proc(ctx: ^Context, color: [4]f32) {
 path_begin :: proc(ctx: ^Context) {
 	fa_clear(&ctx.temp_curves)
 	fa_clear(&ctx.temp_paths)
+	fa_clear(&ctx.stroke_curves)
 	ctx.point_last = {}
 }
 
@@ -206,12 +217,54 @@ push_rect :: proc(ctx: ^Context, x, y, w, h: f32) {
 	push_close(ctx)
 }
 
+// Creates new rounded rectangle shaped sub-path.
+push_rounded_rect :: proc(ctx: ^Context, x, y, w, h, radius: f32) {
+	push_rounded_rect_varying(ctx, x, y, w, h, radius, radius, radius, radius)
+}
+
+// Creates new rounded rectangle shaped sub-path with varying radii for each corner.
+push_rounded_rect_varying :: proc(
+	ctx: ^Context,
+	x, y: f32,
+	w, h: f32,
+	radius_top_left: f32,
+	radius_top_right: f32,
+	radius_bottom_right: f32,
+	radius_bottom_left: f32,
+) {
+	if radius_top_left < 0.1 && radius_top_right < 0.1 && radius_bottom_right < 0.1 && radius_bottom_left < 0.1 {
+		push_rect(ctx, x, y, w, h)
+	} else {
+		halfw := abs(w) * 0.5
+		halfh := abs(h) * 0.5
+		rxBL := min(radius_bottom_left, halfw) * math.sign(w)
+		ryBL := min(radius_bottom_left, halfh) * math.sign(h)
+		rxBR := min(radius_bottom_right, halfw) * math.sign(w)
+		ryBR := min(radius_bottom_right, halfh) * math.sign(h)
+		rxTR := min(radius_top_right, halfw) * math.sign(w)
+		ryTR := min(radius_top_right, halfh) * math.sign(h)
+		rxTL := min(radius_top_left, halfw) * math.sign(w)
+		ryTL := min(radius_top_left, halfh) * math.sign(h)
+		
+		push_move_to(ctx, x, y + ryTL)
+		push_line_to(ctx, x, y + h - ryBL)
+		push_cubic_to(ctx, x, y + h - ryBL*(1 - KAPPA90), x + rxBL*(1 - KAPPA90), y + h, x + rxBL, y + h)
+		push_line_to(ctx, x + w - rxBR, y + h)
+		push_cubic_to(ctx, x + w - rxBR*(1 - KAPPA90), y + h, x + w, y + h - ryBR*(1 - KAPPA90), x + w, y + h - ryBR)
+		push_line_to(ctx, x + w, y + ryTR)
+		push_cubic_to(ctx, x + w, y + ryTR*(1 - KAPPA90), x + w - rxTR*(1 - KAPPA90), y, x + w - rxTR, y)
+		push_line_to(ctx, x + rxTL, y)
+		push_cubic_to(ctx, x + rxTL*(1 - KAPPA90), y, x, y + ryTL*(1 - KAPPA90), x, y + ryTL)
+		push_close(ctx)
+	}
+}
+
 push_ellipse :: proc(ctx: ^Context, cx, cy, rx, ry: f32) {
-	push_move_to(ctx, cx, cy)
-	push_cubic_to(ctx, cx, cy+ry, cx-rx, cy+ry*KAPPA90, cx-rx*KAPPA90, cy+ry)
-	push_cubic_to(ctx, cx+rx, cy, cx+rx*KAPPA90, cy+ry, cx+rx, cy+ry*KAPPA90)
-	push_cubic_to(ctx, cx, cy-ry, cx+rx, cy-ry*KAPPA90, cx+rx*KAPPA90, cy-ry)
-	push_cubic_to(ctx, cx-rx, cy, cx-rx*KAPPA90, cy-ry, cx-rx, cy-ry*KAPPA90)
+	push_move_to(ctx, cx-rx, cy)
+	push_cubic_to(ctx, cx-rx, cy+ry*KAPPA90, cx-rx*KAPPA90, cy+ry, cx, cy+ry)
+	push_cubic_to(ctx, cx+rx*KAPPA90, cy+ry, cx+rx, cy+ry*KAPPA90, cx+rx, cy)
+	push_cubic_to(ctx, cx+rx, cy-ry*KAPPA90, cx+rx*KAPPA90, cy-ry, cx, cy-ry)
+	push_cubic_to(ctx, cx-rx*KAPPA90, cy-ry, cx-rx, cy-ry*KAPPA90, cx-rx, cy)
 	push_close(ctx)
 }
 
@@ -296,14 +349,20 @@ push_close :: proc(ctx: ^Context) {
 	}
 }
 
-push_text :: proc(ctx: ^Context, text: string, x, y: f32) {
+push_text :: proc(ctx: ^Context, text: string, x, y: f32, size: f32) {
 	font := pool_at(&ctx.font_pool, 1)
 	
 	x_start := x
 	x := x
+	x_old := x
 	y := y
 	for codepoint in text {
-		x += push_font_glyph(ctx, font, codepoint, x, y, 200)
+		x += push_font_glyph(ctx, font, codepoint, x, y, size)
+
+		if x > 500 {
+			y += size
+			x = x_old
+		}
 	}
 }
 
@@ -325,11 +384,40 @@ path_add :: proc(ctx: ^Context) {
 	})
 }
 
+@private
 point_equals :: proc(v0, v1: V2, tolerance: f32) -> bool {
 	delta := v1 - v0
 	return delta.x * delta.x + delta.y * delta.y < tolerance * tolerance
 }
 
+@private
+v2_cross :: proc(v0, v1: V2) -> f32 {
+	return v1.x*v0.y - v0.x * v1.y
+}
+
+@private
+point_distance_segment :: proc(p0, p1, p2: V2) -> f32 {
+	pq := p2 - p1
+	delta := p0 - p1
+	d := pq.x * pq.x + pq.y * pq.y
+	t := pq.x * delta.x + pq.y * delta.y
+	
+	if d > 0 {
+		t /= d
+	}
+	
+	if t < 0 {
+		t = 0
+	} else if t > 1 {
+		t = 1
+	} 
+
+	delta.x = p1.x + t * pq.x - p0.x
+	delta.y = p1.y + t * pq.y - p0.y
+	return delta.x * delta.x + delta.y * delta.y
+}
+
+@private
 v2_normalize :: proc(v: ^V2) -> f32 {
 	d := math.sqrt(v.x * v.x + v.y * v.y)
 	if d > 1e-6 {
@@ -338,6 +426,132 @@ v2_normalize :: proc(v: ^V2) -> f32 {
 		v.y *= id
 	}
 	return d
+}
+
+// Adds an arc segment at the corner defined by the last path point, and two specified points.
+push_arc_to :: proc(
+	ctx: ^Context,
+	x1, y1: f32,
+	x2, y2: f32,
+	radius: f32,
+) {
+	if ctx.temp_curves.index == 0 {
+		return
+	}
+
+	p0 := ctx.point_last
+	p1 := V2 { x1, y1 }
+	p2 := V2 { x2, y2 }
+	
+	// Handle degenerate cases.
+	if point_equals(p0, p1, ctx.distance_tolerance) ||
+		point_equals(p1, p2, ctx.distance_tolerance) ||
+		point_distance_segment(p1, p0, p2) < ctx.distance_tolerance*ctx.distance_tolerance ||
+		radius < ctx.distance_tolerance {
+		push_line_to(ctx, x1, y1)
+		return
+	}
+
+	// Calculate tangential circle to lines (p0)-(p1) and (p1)-(p2).
+	delta0 := p0 - p1
+	delta1 := p2 - p1
+	v2_normalize(&delta0)
+	v2_normalize(&delta1)
+	a := math.acos(delta0.x*delta1.x + delta0.y*delta1.y)
+	d := radius / math.tan(a / 2.0)
+
+	if d > 10000 {
+		push_line_to(ctx, x1, y1)
+		return
+	}
+
+	a0, a1, cx, cy: f32
+	direction: int
+
+	if v2_cross(delta0, delta1) > 0.0 {
+		cx = x1 + delta0.x*d + delta0.y*radius
+		cy = y1 + delta0.y*d + -delta0.x*radius
+		a0 = math.atan2(delta0.x, -delta0.y)
+		a1 = math.atan2(-delta1.x, delta1.y)
+		direction = WINDING_CW
+	} else {
+		cx = x1 + delta0.x*d + -delta0.y*radius
+		cy = y1 + delta0.y*d + delta0.x*radius
+		a0 = math.atan2(-delta0.x, delta0.y)
+		a1 = math.atan2(delta1.x, -delta1.y)
+		direction = WINDING_CCW
+	}
+
+	push_arc(ctx, cx, cy, radius, a0, a1, direction)
+}
+
+// Creates new circle arc shaped sub-path. The arc center is at cx,cy, the arc radius is r,
+// and the arc is drawn from angle a0 to a1, and swept in direction dir (NVG_CCW, or NVG_CW).
+// Angles are specified in radians.
+push_arc :: proc(ctx: ^Context, cx, cy, r, a0, a1: f32, dir: int) {
+	do_line := ctx.temp_curves.index > 0
+
+	// Clamp angles
+	da := a1 - a0
+	if dir == WINDING_CW {
+		if abs(da) >= math.PI*2 {
+			da = math.PI*2
+		} else {	
+			for da < 0.0 {
+				da += math.PI*2
+			}
+		}
+	} else {
+		if abs(da) >= math.PI*2 {
+			da = -math.PI*2
+		} else {
+			for da > 0.0 {
+				da -= math.PI*2
+			} 
+		}
+	}
+
+	// Split arc into max 90 degree segments.
+	ndivs := max(1, min((int)(abs(da) / (math.PI*0.5) + 0.5), 5))
+	hda := (da / f32(ndivs)) / 2.0
+	kappa := abs(4.0 / 3.0 * (1.0 - math.cos(hda)) / math.sin(hda))
+
+	if dir == WINDING_CCW {
+		kappa = -kappa
+	}
+
+	nvals := 0
+
+	px, py, ptanx, ptany: f32
+	for i in 0..=ndivs {
+		a := a0 + da * f32(i) / f32(ndivs)
+		dx := math.cos(a)
+		dy := math.sin(a)
+		x := cx + dx*r
+		y := cy + dy*r
+		tanx := -dy*r*kappa
+		tany := dx*r*kappa
+
+		if i == 0 {
+			if do_line {
+				push_line_to(ctx, x, y)
+			} else {
+				push_move_to(ctx, x, y)
+			}
+		} else {
+			push_cubic_to(
+				ctx, 
+				px + ptanx, py + ptany,
+				x - tanx, y - tany,
+				x, y,
+			)
+		}
+
+		px = x
+		py = y
+		ptanx = tanx
+		ptany = tany
+	}
 }
 
 // paths_calculate_joins :: proc(
@@ -445,6 +659,158 @@ fill :: proc(ctx: ^Context) {
 	fa_add(&ctx.renderer.curves, fa_slice(&ctx.temp_curves))
 	fa_add(&ctx.renderer.paths, fa_slice(&ctx.temp_paths))
 }
+
+@private
+stroke_flatten :: proc(ctx: ^Context) {
+	state := state_get(ctx)
+	halfW := f32(state.stroke_width) / 2
+
+	LINE :: proc(ctx: ^Context, path_index: int, v0, v1: V2) {
+		fa_push(&ctx.stroke_curves, Curve { B = { 0 = v0, 1 = v1 }, path_index = i32(path_index) })
+	}
+
+	// traverse paths
+	for i in 0..<ctx.temp_paths.index {
+		path := &ctx.temp_paths.data[i]
+		stroke_start := ctx.stroke_curves.index
+		
+		// only a single line
+		if path.curve_start == path.curve_end - 1 {
+			c0 := &ctx.temp_curves.data[path.curve_start]
+
+			switch c0.count {
+			case CURVE_LINE:
+				S := c0.B[0]
+				E := c0.B[1]
+				
+				// temp := S
+				// n1 := E - S
+				test := E - S
+				n1 := V2 { -test.y, test.x }
+				n1 = linalg.vector_normalize(n1)
+
+				// start left/right
+				S0 := S + halfW*n1
+				S1 := S - halfW*n1
+
+				// end left/right
+				B01 := E + halfW*n1
+				B02 := E - halfW*n1
+
+				LINE(ctx, i, S0, B01)
+				LINE(ctx, i, B01, B02)
+				LINE(ctx, i, B02, S1)
+				LINE(ctx, i, S1, S0)
+
+			case CURVE_QUADRATIC:
+
+			case CURVE_CUBIC:
+			}
+		}
+
+		// for j in path.curve_start..<path.curve_end - 1 {
+		// 	c0 := &ctx.temp_curves.data[j]
+		// 	c1 := &ctx.temp_curves.data[j + 1]
+
+		// 	if c0.count == 0 && c1.count == 0 {
+		// 		S := c0.B[0]
+		// 		B := c0.B[1] // or c1.B[0]
+		// 		E := c1.B[1]
+
+		// 		// temp := S
+		// 		n1 := v2_normalize(&S)
+		// 		// temp = E
+		// 		n2 := v2_normalize(&E)
+		// 		v2_normalize(&B)
+
+		// 		// start left/right
+		// 		S0 := S + halfW*n1
+		// 		S1 := S - halfW*n1
+
+		// 		B01 := B + halfW*n1
+		// 		B02 := B + halfW*n2
+
+		// 		// end left/right
+		// 		E0 := E + halfW*n2
+		// 		E1 := E - halfW*n2
+
+		// 		mu := ((B02.x-E0.x)*(S0.y-E0.y) - (B02.y-E0.y)*(S0.x-E0.x))/((B02.y-E0.y)*(B01.x-S0.x) - (B02.x-E0.x)*(B01.y-S0.y))
+		// 		M := S0 + mu*(B01-S0)
+
+		// 		Q := 2 * B - M
+
+		// 		fa_push(&ctx.stroke_curves, Curve {
+		// 			B = { 0 = S0, 1 = M },
+		// 			path_index = c0.path_index,
+		// 		})
+		// 		fa_push(&ctx.stroke_curves, Curve {
+		// 			B = { 0 = M, 1 = E0 },
+		// 			path_index = c0.path_index,
+		// 		})
+		// 		fa_push(&ctx.stroke_curves, Curve {
+		// 			B = { 0 = E0, 1 = E1 },
+		// 			path_index = c0.path_index,
+		// 		})
+		// 		fa_push(&ctx.stroke_curves, Curve {
+		// 			B = { 0 = E1, 1 = Q },
+		// 			path_index = c0.path_index,
+		// 		})
+		// 		fa_push(&ctx.stroke_curves, Curve {
+		// 			B = { 0 = Q, 1 = S1 },
+		// 			path_index = c0.path_index,
+		// 		})
+		// 		fa_push(&ctx.stroke_curves, Curve {
+		// 			B = { 0 = S1, 1 = S0 },
+		// 			path_index = c0.path_index,
+		// 		})
+		// 	}
+		// }
+
+		// set final indices again
+		path.curve_start = i32(stroke_start)
+		path.curve_end = i32(ctx.stroke_curves.index)
+	}
+}
+
+stroke :: proc(ctx: ^Context) {
+	state := state_get(ctx)
+
+	stroke_paint := state.fill
+	stroke_paint.inner_color.a *= state.alpha
+	stroke_paint.outer_color.a *= state.alpha
+
+	stroke_flatten(ctx)
+
+	// set colors and get bounding box
+	for i in 0..<ctx.temp_paths.index {
+		path := &ctx.temp_paths.data[i]
+		path.color = stroke_paint.inner_color
+
+		// path.box = { max(f32), max(f32), -max(f32), -max(f32) }
+		// fmt.eprintln(ctx.stroke_curves.data[path.curve_start:path.curve_end])
+
+		for j in path.curve_start..<path.curve_end {
+			curve := &ctx.stroke_curves.data[j]
+			curve.path_index += i32(ctx.renderer.paths.index)
+
+			for k in 0..=curve.count + 1 {
+				point := curve.B[k]
+				path.box.x = min(path.box.x, point.x)
+				path.box.y = min(path.box.y, point.y)
+				path.box.z = max(path.box.z, point.x)
+				path.box.w = max(path.box.w, point.y)
+			}
+		}
+	}
+
+
+	fa_add(&ctx.renderer.curves, fa_slice(&ctx.stroke_curves))
+	fa_add(&ctx.renderer.paths, fa_slice(&ctx.temp_paths))
+}
+
+///////////////////////////////////////////////////////////
+// STATE TRANSFORMS
+///////////////////////////////////////////////////////////
 
 ctx_translate :: proc(ctx: ^Context, x, y: f32) {
 	state := state_get(ctx)

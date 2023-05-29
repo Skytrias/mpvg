@@ -25,10 +25,6 @@ void main() {
 
 			int winding_offset = tile_queue.winding_offset;
 
-			// groupMemoryBarrier();
-			// memoryBarrier();
-			// barrier();
-
 			// no tile ops?
 			if (tile_queue.op_first == -1) {
 				if ((winding_offset & 1) == 1) {

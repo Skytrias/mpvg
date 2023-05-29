@@ -163,8 +163,7 @@ renderer_init :: proc(using renderer: ^Renderer) {
 	}
 
 	curve_implicitize_program = renderer_gpu_shader_compute(&builder, compute_header, compute_curve_implicitize, 1, 1)
-	// tile_backprop_program = renderer_gpu_shader_compute(&builder, compute_header, compute_tile_backprop, 16, 1)
-	tile_backprop_program = renderer_gpu_shader_compute(&builder, compute_header, compute_tile_backprop, 1, 1)
+	tile_backprop_program = renderer_gpu_shader_compute(&builder, compute_header, compute_tile_backprop, 16, 1)
 	path_setup_program = renderer_gpu_shader_compute(&builder, compute_header, compute_path_setup, 1, 1)
 	tile_merge_program = renderer_gpu_shader_compute(&builder, compute_header, compute_tile_merge, 1, 1)
 
@@ -213,33 +212,6 @@ renderer_begin :: proc(renderer: ^Renderer, width, height: int) {
 	renderer.window_height = height
 }
 
-// renderer_text_push :: proc(
-// 	using renderer: ^Renderer,
-// 	text: string,
-// 	x, y: f32,
-// 	size: f32,
-// ) {
-// 	font := pool_at(&font_pool, 1)
-	
-// 	x_start := x
-// 	x := x
-// 	y := y
-// 	for codepoint in text {
-// 		x += renderer_font_glyph(renderer, font, codepoint, x, y, size)
-// 		// if x > 500 {
-// 		// 	x = x_start
-// 		// 	y += size
-// 		// }
-// 	}
-// }
-
-// renderer_font_push :: proc(renderer: ^Renderer, path: string) -> u32 {
-// 	index := pool_alloc_index(&renderer.font_pool)
-// 	font := pool_at(&renderer.font_pool, index)
-// 	font_init(font, path)
-// 	return index
-// }
-
 // build unified compute shader with a shared header
 renderer_gpu_shader_compute :: proc(
 	builder: ^strings.Builder,
@@ -273,9 +245,9 @@ renderer_gpu_shader_compute :: proc(
 }
 
 renderer_end :: proc(using renderer: ^Renderer) {	
-	// if true {
-	// 	return
-	// }
+	if renderer.curves.index == 0 {
+		return
+	}
 
 	// write in the final path count
 	path_count := renderer.paths.index
