@@ -28,13 +28,11 @@ Paint :: struct {
 Line_Cap :: enum {
 	Butt, // default
 	Square,
-	Round,
 }
 
 Line_Join :: enum {
 	Miter, // default
 	Bevel,
-	Round,	
 }
 
 State :: struct {
@@ -573,12 +571,12 @@ push_arc :: proc(ctx: ^Context, cx, cy, r, a0, a1: f32, dir: int) {
 }
 
 // finish curves, gather aabb, set path closed flag, calculate deltas
-ctx_finish_curves :: proc(ctx: ^Context) {
+ctx_finish_curves :: proc(ctx: ^Context, curves: []Curve) {
 	for i in 0..<ctx.temp_paths.index {
 		path := &ctx.temp_paths.data[i]
 
 		if path.curve_end > path.curve_start {
-			c := ctx.temp_curves.data[path.curve_start]
+			c := curves[path.curve_start]
 
 			if point_equals(c.B[0], curve_endpoint(c), ctx.distance_tolerance) {
 				path.closed = true
@@ -586,7 +584,7 @@ ctx_finish_curves :: proc(ctx: ^Context) {
 		}
 
 		for j in path.curve_start..<path.curve_end {
-			curve := &ctx.temp_curves.data[j]
+			curve := &curves[j]
 
 			// get box early as strokes dont really extend?
 			for k in 0..=curve.count + 1 {
@@ -604,7 +602,7 @@ fill :: proc(ctx: ^Context) {
 	state := state_get(ctx)
 
 	// not 100% necessary as we dont use the path.closed on fill
-	ctx_finish_curves(ctx)
+	ctx_finish_curves(ctx, ctx.temp_curves.data)
 
 	fill_paint := state.fill
 	fill_paint.inner_color.a *= state.alpha
@@ -666,81 +664,181 @@ v2_diff_normal_normalized :: #force_inline proc(delta: V2) -> (delta_normalized:
 	return
 }
 
-@private
-stroke_flatten :: proc(ctx: ^Context) {
-	state := state_get(ctx)
-	w2 := f32(state.stroke_width) / 2
+// @private
+// stroke_flatten :: proc(ctx: ^Context) {
+// 	state := state_get(ctx)
+// 	w2 := f32(state.stroke_width) / 2
 
-	v0, v1: V2
-	type: i32
-	type_last: i32 
+// 	v0, v1: V2
+// 	type: i32
+// 	type_last: i32 
 
-	// traverse paths
-	for path_index in 0..<ctx.temp_paths.index {
-		path := &ctx.temp_paths.data[path_index]
-		path.stroke = true
-		stroke_start := ctx.stroke_curves.index
-		curves := ctx.temp_curves.data[path.curve_start:path.curve_end]
-		ctx.stroke_path_index = i32(path_index)
+// 	// traverse paths
+// 	for path_index in 0..<ctx.temp_paths.index {
+// 		path := &ctx.temp_paths.data[path_index]
+// 		path.stroke = true
+// 		stroke_start := ctx.stroke_curves.index
+// 		curves := ctx.temp_curves.data[path.curve_start:path.curve_end]
+// 		ctx.stroke_path_index = i32(path_index)
 
-		// just do simple line
-		if len(curves) == 1 {
-			S := curves[0].B[0]
-			E := curve_endpoint(curves[0])
-			d, dn := v2_diff_normal_normalized(E - S)
+// 		assert(len(curves) > 0)
 
-			// cap start
-			switch state.line_cap {
-			case .Butt: STROKE_LINE(ctx, S - dn * w2, S + dn * w2)
-			case .Square: STROKE_LINE(ctx, S - dn * w2 - d * w2, S + dn * w2 - d * w2)
-			case .Round: STROKE_QUAD(ctx, S - dn * w2, S - d * w2 * 2, S + dn * w2)
-			}
+// 		// cap start
+// 		{
+// 			S := curves[0].B[0]
+// 			E := curve_endpoint(curves[0])
+// 			d, dn := v2_diff_normal_normalized(E - S)
 
-			// line to + cap end
-			switch state.line_cap {
-			case .Butt: 
-				STROKE_LINE_TO(ctx, E + dn * w2)
-				STROKE_LINE_TO(ctx, E - dn * w2)
-			case .Square: 
-				STROKE_LINE_TO(ctx, E + dn * w2 + d * w2)
-				STROKE_LINE_TO(ctx, E - dn * w2 + d * w2)
-			case .Round: 
-				STROKE_LINE_TO(ctx, E + dn * w2)
-				STROKE_QUAD_TO(ctx, E + d * w2 * 2, E - dn * w2)
-			}
+// 			// cap start
+// 			switch state.line_cap {
+// 			case .Butt: STROKE_LINE(ctx, S + dn * w2, S - dn * w2)
+// 			case .Square: STROKE_LINE(ctx, S + dn * w2 - d * w2, S - dn * w2 - d * w2)
+// 			}
+// 		}
 
-			// back to origin
-			first := ctx.stroke_curves.data[stroke_start].B[0]
-			STROKE_LINE_TO(ctx, first)
-		} else {
+// 		// left side only
+// 		for i in 0..<len(curves) {
+// 			curve := curves[i]
+// 			S := curve.B[0]
+// 			E := curve_endpoint(curve)
+// 			d, dn := v2_diff_normal_normalized(E - S)
+// 			STROKE_LINE_TO(ctx, E - dn * w2)
+// 		}
 
-		}
+// 		// cap end to curve
+// 		{
+// 			curve := curves[len(curves) - 1]
+// 			S := curve.B[0]
+// 			E := curve_endpoint(curve)
+// 			d, dn := v2_diff_normal_normalized(E - S)
 
-		// set final indices again
-		path.curve_start = i32(stroke_start)
-		path.curve_end = i32(ctx.stroke_curves.index)
-	}
-}
+// 			// cap start
+// 			switch state.line_cap {
+// 			case .Butt: 
+// 				STROKE_LINE_TO(ctx, E + dn * w2)
+// 			case .Square: 
+// 				STROKE_LINE_TO(ctx, E + dn * w2 + d * w2)
+// 			}
+// 		}
+
+// 		// right
+// 		for i := len(curves) - 2; i >= 0; i -= 1 {
+// 			curve := curves[i]
+// 			S := curve.B[0]
+// 			E := curve_endpoint(curve)
+// 			d, dn := v2_diff_normal_normalized(E - S)
+// 			STROKE_LINE_TO(ctx, S + dn * w2)
+// 		}
+
+// 		// back to origin
+// 		first := ctx.stroke_curves.data[stroke_start].B[0]
+// 		STROKE_LINE_TO(ctx, first)
+
+// 		// set final indices again
+// 		path.curve_start = i32(stroke_start)
+// 		path.curve_end = i32(ctx.stroke_curves.index)
+// 	}
+// }
+
+// @private
+// stroke_flatten :: proc(ctx: ^Context) {
+// 	state := state_get(ctx)
+// 	w2 := f32(state.stroke_width) / 2
+
+// 	v0, v1: V2
+// 	type: i32
+// 	type_last: i32 
+
+// 	// traverse paths
+// 	for path_index in 0..<ctx.temp_paths.index {
+// 		path := &ctx.temp_paths.data[path_index]
+// 		path.stroke = true
+// 		stroke_start := ctx.stroke_curves.index
+// 		curves := ctx.temp_curves.data[path.curve_start:path.curve_end]
+// 		ctx.stroke_path_index = i32(path_index)
+
+// 		// just do simple line
+// 		if len(curves) == 1 {
+// 			S := curves[0].B[0]
+// 			E := curve_endpoint(curves[0])
+// 			d, dn := v2_diff_normal_normalized(E - S)
+
+// 			// cap start
+// 			switch state.line_cap {
+// 			case .Butt: STROKE_LINE(ctx, S - dn * w2, S + dn * w2)
+// 			case .Square: STROKE_LINE(ctx, S - dn * w2 - d * w2, S + dn * w2 - d * w2)
+// 			case .Round: STROKE_QUAD(ctx, S - dn * w2, S - d * w2 * 2, S + dn * w2)
+// 			}
+
+// 			// line to + cap end
+// 			switch state.line_cap {
+// 			case .Butt: 
+// 				STROKE_LINE_TO(ctx, E + dn * w2)
+// 				STROKE_LINE_TO(ctx, E - dn * w2)
+// 			case .Square: 
+// 				STROKE_LINE_TO(ctx, E + dn * w2 + d * w2)
+// 				STROKE_LINE_TO(ctx, E - dn * w2 + d * w2)
+// 			case .Round: 
+// 				STROKE_LINE_TO(ctx, E + dn * w2)
+// 				STROKE_QUAD_TO(ctx, E + d * w2 * 2, E - dn * w2)
+// 			}
+
+// 			// back to origin
+// 			first := ctx.stroke_curves.data[stroke_start].B[0]
+// 			STROKE_LINE_TO(ctx, first)
+// 		} else {
+// 			S: V2
+// 			for curve, i in curves {
+// 				S = curve.B[0]
+// 				MID := curve.B[1]
+// 				E := curve.B
+// 			}
+// 		}
+
+// 		// set final indices again
+// 		path.curve_start = i32(stroke_start)
+// 		path.curve_end = i32(ctx.stroke_curves.index)
+// 	}
+// }
 
 stroke :: proc(ctx: ^Context) {
 	state := state_get(ctx)
 
-	stroke_paint := state.fill
-	stroke_paint.inner_color.a *= state.alpha
+		stroke_paint := state.fill
+		stroke_paint.inner_color.a *= state.alpha
 	stroke_paint.outer_color.a *= state.alpha
 
-	ctx_finish_curves(ctx)
-	stroke_flatten(ctx)
+	// stroke_flatten(ctx)
+	// ctx_finish_curves(ctx, ctx.stroke_curves.data)
 
 	for i in 0..<ctx.temp_paths.index {
 		path := &ctx.temp_paths.data[i]
 		path.color = stroke_paint.inner_color
-		// curves_print(ctx.stroke_curves.data[path.curve_start:path.curve_end])
+		curves_print(ctx.stroke_curves.data[path.curve_start:path.curve_end])
 	}
 
 	// submit
 	fa_add(&ctx.renderer.curves, fa_slice(&ctx.stroke_curves))
 	fa_add(&ctx.renderer.paths, fa_slice(&ctx.temp_paths))
+}
+
+///////////////////////////////////////////////////////////
+// CURVE creation
+///////////////////////////////////////////////////////////
+
+ctx_line :: proc(ctx: ^Context, curve: ^Curve, a, b: V2) {
+	curve.count = 0
+	curve.B[0] = a
+	curve.B[1] = b
+	curve.path_index = ctx.stroke_path_index
+}
+
+ctx_quad :: proc(ctx: ^Context, curve: ^Curve, a, b, c: V2) {
+	curve.count = 1
+	curve.B[0] = a
+	curve.B[1] = b
+	curve.B[2] = c
+	curve.path_index = ctx.stroke_path_index
 }
 
 ///////////////////////////////////////////////////////////

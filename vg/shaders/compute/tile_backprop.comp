@@ -1,49 +1,49 @@
-shared int next_row_index;
+// shared int next_row_index;
 
-// backpropogate right to left and do prefix sum
-void main() {
-	if (gl_LocalInvocationIndex == 0) {
-		next_row_index = 0;
-	}
-	memoryBarrier();
-	barrier();
-
-	int path_index = int(gl_WorkGroupID.x);
-	
-	Path_Queue path_queue = path_queues.data[path_index];
-	int off = path_queue.tile_queue_index;
-	int row_size = path_queue.tiles_x;
-	int row_count = path_queue.tiles_y;
-	
-	int row_index = atomicAdd(next_row_index, 1);
-	while (row_index < row_count) {
-		int sum = 0;
-		
-		for (int x = row_size - 1; x >= 0; x -= 1) {
-			int tile_index = off + row_index * row_size + x;
-			int old_winding_offset = tile_queues.data[tile_index].winding_offset;
-			tile_queues.data[tile_index].winding_offset = sum;
-			sum += old_winding_offset;
-		}
-
-		row_index = atomicAdd(next_row_index, 1);
-	}
-}
-
-// old linear one
+// // backpropogate right to left and do prefix sum
 // void main() {
+// 	if (gl_LocalInvocationIndex == 0) {
+// 		next_row_index = 0;
+// 	}
+// 	memoryBarrier();
+// 	barrier();
+
 // 	int path_index = int(gl_WorkGroupID.x);
+	
 // 	Path_Queue path_queue = path_queues.data[path_index];
 // 	int off = path_queue.tile_queue_index;
-
-// 	for (int y = 0; y < path_queue.tiles_y; y += 1) {
+// 	int row_size = path_queue.tiles_x;
+// 	int row_count = path_queue.tiles_y;
+	
+// 	int row_index = atomicAdd(next_row_index, 1);
+// 	while (row_index < row_count) {
 // 		int sum = 0;
-
-// 		for (int x = path_queue.tiles_x - 1; x >= 0; x -= 1) {
-// 			int tile_index = off + y * path_queue.tiles_x + x;
+		
+// 		for (int x = row_size - 1; x >= 0; x -= 1) {
+// 			int tile_index = off + row_index * row_size + x;
 // 			int old_winding_offset = tile_queues.data[tile_index].winding_offset;
 // 			tile_queues.data[tile_index].winding_offset = sum;
 // 			sum += old_winding_offset;
 // 		}
+
+// 		row_index = atomicAdd(next_row_index, 1);
 // 	}
 // }
+
+// NOTE old linear one
+void main() {
+	int path_index = int(gl_WorkGroupID.x);
+	Path_Queue path_queue = path_queues.data[path_index];
+	int off = path_queue.tile_queue_index;
+
+	for (int y = 0; y < path_queue.tiles_y; y += 1) {
+		int sum = 0;
+
+		for (int x = path_queue.tiles_x - 1; x >= 0; x -= 1) {
+			int tile_index = off + y * path_queue.tiles_x + x;
+			int old_winding_offset = tile_queues.data[tile_index].winding_offset;
+			tile_queues.data[tile_index].winding_offset = sum;
+			sum += old_winding_offset;
+		}
+	}
+}

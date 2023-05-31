@@ -213,6 +213,8 @@ main :: proc() {
 			// 	vg.fill(&ctx)
 			// }
 
+			temp := vg.V2 { 120, 110 }
+
 			{
 				vg.ctx_line_join(&ctx, app.line_join)
 				vg.ctx_line_cap(&ctx, app.line_cap)
@@ -221,7 +223,7 @@ main :: proc() {
 				vg.ctx_stroke_color(&ctx, { 0, 0, 0, 1 })
 
 				vg.path_begin(&ctx)
-				vg.push_move_to(&ctx, 120, 400)
+				vg.push_move_to(&ctx, temp.x, temp.y)
 				// vg.push_line_to(&ctx, 200, 100)
 				// vg.push_line_to(&ctx, 300, 200)
 				vg.push_line_to(&ctx, app.mouse.x, app.mouse.y)
@@ -234,7 +236,7 @@ main :: proc() {
 				vg.ctx_fill_color(&ctx, { 0, 1, 0, 1 })
 
 				vg.path_begin(&ctx)
-				vg.push_circle(&ctx, 120, 400, 5)
+				vg.push_circle(&ctx, temp.x, temp.y, 5)
 				vg.fill(&ctx)
 
 				vg.path_begin(&ctx)

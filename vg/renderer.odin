@@ -132,6 +132,18 @@ curves_print :: proc(curves: []Curve) {
 	}
 }
 
+curve_line_offset :: proc(curve: Curve, offset: V2) -> (res: Curve) {
+	res = curve
+	for i in 0..=res.count + 1 {
+		res.B[i] += offset
+	}
+	return
+}
+
+curve_line_invert :: proc(curve: ^Curve) {
+	curve.B[0], curve.B[1] = curve.B[1], curve.B[0]
+}
+
 renderer_init :: proc(using renderer: ^Renderer) {
 	fa_init(&renderer.curves, MAX_CURVES)
 	fa_init(&renderer.paths, MAX_PATHS)
@@ -183,7 +195,8 @@ renderer_init :: proc(using renderer: ^Renderer) {
 	}
 
 	curve_implicitize_program = renderer_gpu_shader_compute(&builder, compute_header, compute_curve_implicitize, 1, 1)
-	tile_backprop_program = renderer_gpu_shader_compute(&builder, compute_header, compute_tile_backprop, 16, 1)
+	// tile_backprop_program = renderer_gpu_shader_compute(&builder, compute_header, compute_tile_backprop, 16, 1)
+	tile_backprop_program = renderer_gpu_shader_compute(&builder, compute_header, compute_tile_backprop, 1, 1)
 	path_setup_program = renderer_gpu_shader_compute(&builder, compute_header, compute_path_setup, 1, 1)
 	tile_merge_program = renderer_gpu_shader_compute(&builder, compute_header, compute_tile_merge, 1, 1)
 
