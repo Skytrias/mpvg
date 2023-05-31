@@ -26,7 +26,6 @@ struct Implicit_Curve {
 	vec2 hull_vertex;
 	vec2 hull_padding;
 
-
 	int kind;
 	int orientation;
 	int sign;
@@ -57,7 +56,7 @@ struct Path {
 	int stroke;
 	int curve_start;
 	int curve_end;
-	int pad1;
+	int closed;
 };
 
 struct Path_Queue {

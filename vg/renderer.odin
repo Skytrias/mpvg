@@ -97,10 +97,10 @@ Path :: struct #packed {
 	box: [4]f32,
 	clip: [4]f32,
 
-	stroke: b32, // fill default
+	stroke: b32, // fill default - stroke does fills for winding non 0
 	curve_start: i32, // start index
 	curve_end: i32, // end index
-	pad: i32, // end index
+	closed: b32, // closed path
 }
 
 // curve Linear, Quadratic, Cubic in flat structure
@@ -111,6 +111,26 @@ Curve :: struct #packed {
 }
 
 Screen_Tile :: i32
+
+curve_point_data :: proc(curve: Curve, v0, v1: ^V2, type: ^i32) {
+	v0^ = curve.B[0]
+	v1^ = curve.B[curve.count + 1]
+	type^ = curve.count
+}
+
+// get the endpoint of the curve by its type
+curve_endpoint :: #force_inline proc(curve: Curve) -> V2 {
+	return curve.B[curve.count + 1]
+}
+
+curves_print :: proc(curves: []Curve) {
+	fmt.eprintln("~~~~~~~~~~~~~~~~~~", len(curves))
+	for curve, i in curves {
+		v0 := curve.B[0]
+		v1 := curve.B[1]
+		fmt.eprintf("\t%d: (%f, %f) | (%f, %f)\n", i, v0.x, v0.y, v1.x, v1.y)
+	}
+}
 
 renderer_init :: proc(using renderer: ^Renderer) {
 	fa_init(&renderer.curves, MAX_CURVES)

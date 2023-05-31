@@ -26,18 +26,22 @@ Paint :: struct {
 }
 
 Line_Cap :: enum {
-	Butt,
-	Round,
+	Butt, // default
 	Square,
+	Round,
+}
+
+Line_Join :: enum {
+	Miter, // default
 	Bevel,
-	Miter,
+	Round,	
 }
 
 State :: struct {
 	fill: Paint,
 	stroke: Paint,
 	stroke_width: f32,
-	line_join: Line_Cap,
+	line_join: Line_Join,
 	line_cap: Line_Cap,
 	miter_limit: f32,
 	alpha: f32,
@@ -56,6 +60,8 @@ Context :: struct {
 	temp_curves: Fixed_Array(Curve),
 	temp_paths: Fixed_Array(Path),
 	stroke_curves: Fixed_Array(Curve), // stroke creation of curves from above,
+	stroke_last: V2, // temp point for building lines
+	stroke_path_index: i32,
 
 	// float commands for less allocation
 	point_last: V2, // saved last
@@ -169,7 +175,7 @@ ctx_reset :: proc(ctx: ^Context) {
 	paint_set_color(&state.fill, { 1, 0, 0, 1 })
 	paint_set_color(&state.stroke, { 0, 0, 0, 1 })
 
-	state.stroke_width = 10
+	state.stroke_width = 20
 	state.miter_limit = 10
 	state.line_cap = .Butt
 	state.line_join = .Miter
@@ -200,6 +206,16 @@ ctx_fill_color :: proc(ctx: ^Context, color: [4]f32) {
 ctx_stroke_color :: proc(ctx: ^Context, color: [4]f32) {
 	state := state_get(ctx)
 	paint_set_color(&state.stroke, color)
+}
+
+ctx_line_join :: proc(ctx: ^Context, join: Line_Join) {
+	state := state_get(ctx)
+	state.line_join = join
+}
+
+ctx_line_cap :: proc(ctx: ^Context, cap: Line_Cap) {
+	state := state_get(ctx)
+	state.line_cap = cap
 }
 
 path_begin :: proc(ctx: ^Context) {
@@ -346,6 +362,8 @@ push_close :: proc(ctx: ^Context) {
 			
 			path.curve_end = i32(ctx.temp_curves.index)
 		}
+
+		path.closed = true
 	}
 }
 
@@ -443,7 +461,7 @@ push_arc_to :: proc(
 	p1 := V2 { x1, y1 }
 	p2 := V2 { x2, y2 }
 	
-	// Handle degenerate cases.
+	// Handne degenerate cases.
 	if point_equals(p0, p1, ctx.distance_tolerance) ||
 		point_equals(p1, p2, ctx.distance_tolerance) ||
 		point_distance_segment(p1, p0, p2) < ctx.distance_tolerance*ctx.distance_tolerance ||
@@ -554,84 +572,39 @@ push_arc :: proc(ctx: ^Context, cx, cy, r, a0, a1: f32, dir: int) {
 	}
 }
 
-// paths_calculate_joins :: proc(
-// 	ctx: ^Context,
-// 	w: f32,
-// 	line_join: Line_Cap,
-// 	miter_limit: f32,
-// ) {
-// 	cache := &ctx.cache
-// 	iw := f32(0)
+// finish curves, gather aabb, set path closed flag, calculate deltas
+ctx_finish_curves :: proc(ctx: ^Context) {
+	for i in 0..<ctx.temp_paths.index {
+		path := &ctx.temp_paths.data[i]
 
-// 	if w > 0 {
-// 		iw = 1.0 / w
-// 	} 
+		if path.curve_end > path.curve_start {
+			c := ctx.temp_curves.data[path.curve_start]
 
-// 	// Calculate which joins needs extra vertices to append, and gather vertex count.
-// 	for i in 0..<ctx.cache.paths.index {
-// 		path := &ctx.cache.paths.data[i]
-// 		pts := ctx.cache.points.data[path.point_start:]
-// 		p0 := &pts[path.count-1]
-// 		p1 := &pts[0]
-// 		nleft := 0
-// 		path.nbevel = 0
+			if point_equals(c.B[0], curve_endpoint(c), ctx.distance_tolerance) {
+				path.closed = true
+			}
+		}
 
-// 		for j in 0..<path.count {
-// 			dlx0, dly0, dlx1, dly1, dmr2, __cross, limit: f32
-// 			dlx0 = p0.delta.y
-// 			dly0 = -p0.delta.x
-// 			dlx1 = p1.delta.y
-// 			dly1 = -p1.delta.x
-// 			// Calculate extrusions
-// 			p1.dmx = (dlx0 + dlx1) * 0.5
-// 			p1.dmy = (dly0 + dly1) * 0.5
-// 			dmr2 = p1.dmx*p1.dmx + p1.dmy*p1.dmy
-// 			if (dmr2 > 0.000001) {
-// 				scale := 1.0 / dmr2
-// 				if (scale > 600.0) {
-// 					scale = 600.0
-// 				}
-// 				p1.dmx *= scale
-// 				p1.dmy *= scale
-// 			}
+		for j in path.curve_start..<path.curve_end {
+			curve := &ctx.temp_curves.data[j]
 
-// 			// Clear flags, but keep the corner.
-// 			p1.flags = (.Corner in p1.flags) ? { .Corner } : {}
-
-// 			// Keep track of left turns.
-// 			__cross = p1.delta.x * p0.delta.y - p0.delta.x * p1.delta.y
-// 			if __cross > 0.0 {
-// 				nleft += 1
-// 				incl(&p1.flags, Point_Flag.Left)
-// 			}
-
-// 			// Calculate if we should use bevel or miter for inner join.
-// 			limit = max(1.01, min(p0.len, p1.len) * iw)
-// 			if (dmr2 * limit * limit) < 1.0 {
-// 				incl(&p1.flags, Point_Flag.Inner_Bevel)
-// 			}
-
-// 			// Check to see if the Corner needs to be beveled.
-// 			if .Corner in p1.flags {
-// 				if (dmr2 * miter_limit*miter_limit) < 1.0 || line_join == .Bevel || line_join == .Round {
-// 					incl(&p1.flags, Point_Flag.Bevel)
-// 				}
-// 			}
-
-// 			if (.Bevel in p1.flags) || (.Inner_Bevel in p1.flags) {
-// 				path.nbevel += 1
-// 			}
-
-// 			p0 = p1
-// 			p1 = mem.ptr_offset(p1, 1)
-// 		}
-
-// 		path.convex = nleft == path.count
-// 	}
-// }
+			// get box early as strokes dont really extend?
+			for k in 0..=curve.count + 1 {
+				point := curve.B[k]
+				path.box.x = min(path.box.x, point.x)
+				path.box.y = min(path.box.y, point.y)
+				path.box.z = max(path.box.z, point.x)
+				path.box.w = max(path.box.w, point.y)
+			}
+		}
+	}
+}
 
 fill :: proc(ctx: ^Context) {
 	state := state_get(ctx)
+
+	// not 100% necessary as we dont use the path.closed on fill
+	ctx_finish_curves(ctx)
 
 	fill_paint := state.fill
 	fill_paint.inner_color.a *= state.alpha
@@ -656,115 +629,92 @@ fill :: proc(ctx: ^Context) {
 		}
 	}
 
+	// submit
 	fa_add(&ctx.renderer.curves, fa_slice(&ctx.temp_curves))
 	fa_add(&ctx.renderer.paths, fa_slice(&ctx.temp_paths))
 }
 
 @private
+STROKE_LINE :: proc(ctx: ^Context, v0, v1: V2) {
+	fa_push(&ctx.stroke_curves, Curve { B = { 0 = v0, 1 = v1 }, path_index = i32(ctx.stroke_path_index) })
+	ctx.stroke_last = v1
+}
+
+@private
+STROKE_LINE_TO :: proc(ctx: ^Context, to: V2) {
+	fa_push(&ctx.stroke_curves, Curve { B = { 0 = ctx.stroke_last, 1 = to }, path_index = i32(ctx.stroke_path_index) })
+	ctx.stroke_last = to
+}
+
+@private
+STROKE_QUAD :: proc(ctx: ^Context, v0, v1, v2: V2) {
+	fa_push(&ctx.stroke_curves, Curve { B = { 0 = v0, 1 = v1, 2 = v2 }, count = 1, path_index = i32(ctx.stroke_path_index) })
+	ctx.stroke_last = v2
+}
+
+@private
+STROKE_QUAD_TO :: proc(ctx: ^Context, control, to: V2) {
+	fa_push(&ctx.stroke_curves, Curve { B = { 0 = ctx.stroke_last, 1 = control, 2 = to }, count = 1, path_index = i32(ctx.stroke_path_index) })
+	ctx.stroke_last = to
+}
+
+@private
+v2_diff_normal_normalized :: #force_inline proc(delta: V2) -> (delta_normalized: V2, delta_normal: V2) {
+	delta_normalized = delta
+	v2_normalize(&delta_normalized)
+	delta_normal = { -delta_normalized.y, delta_normalized.x }
+	return
+}
+
+@private
 stroke_flatten :: proc(ctx: ^Context) {
 	state := state_get(ctx)
-	halfW := f32(state.stroke_width) / 2
+	w2 := f32(state.stroke_width) / 2
 
-	LINE :: proc(ctx: ^Context, path_index: int, v0, v1: V2) {
-		fa_push(&ctx.stroke_curves, Curve { B = { 0 = v0, 1 = v1 }, path_index = i32(path_index) })
-	}
+	v0, v1: V2
+	type: i32
+	type_last: i32 
 
 	// traverse paths
-	for i in 0..<ctx.temp_paths.index {
-		path := &ctx.temp_paths.data[i]
+	for path_index in 0..<ctx.temp_paths.index {
+		path := &ctx.temp_paths.data[path_index]
+		path.stroke = true
 		stroke_start := ctx.stroke_curves.index
-		
-		// only a single line
-		if path.curve_start == path.curve_end - 1 {
-			c0 := &ctx.temp_curves.data[path.curve_start]
+		curves := ctx.temp_curves.data[path.curve_start:path.curve_end]
+		ctx.stroke_path_index = i32(path_index)
 
-			switch c0.count {
-			case CURVE_LINE:
-				S := c0.B[0]
-				E := c0.B[1]
-				
-				// temp := S
-				// n1 := E - S
-				test := E - S
-				n1 := V2 { -test.y, test.x }
-				n1 = linalg.vector_normalize(n1)
+		// just do simple line
+		if len(curves) == 1 {
+			S := curves[0].B[0]
+			E := curve_endpoint(curves[0])
+			d, dn := v2_diff_normal_normalized(E - S)
 
-				// start left/right
-				S0 := S + halfW*n1
-				S1 := S - halfW*n1
-
-				// end left/right
-				B01 := E + halfW*n1
-				B02 := E - halfW*n1
-
-				LINE(ctx, i, S0, B01)
-				LINE(ctx, i, B01, B02)
-				LINE(ctx, i, B02, S1)
-				LINE(ctx, i, S1, S0)
-
-			case CURVE_QUADRATIC:
-
-			case CURVE_CUBIC:
+			// cap start
+			switch state.line_cap {
+			case .Butt: STROKE_LINE(ctx, S - dn * w2, S + dn * w2)
+			case .Square: STROKE_LINE(ctx, S - dn * w2 - d * w2, S + dn * w2 - d * w2)
+			case .Round: STROKE_QUAD(ctx, S - dn * w2, S - d * w2 * 2, S + dn * w2)
 			}
+
+			// line to + cap end
+			switch state.line_cap {
+			case .Butt: 
+				STROKE_LINE_TO(ctx, E + dn * w2)
+				STROKE_LINE_TO(ctx, E - dn * w2)
+			case .Square: 
+				STROKE_LINE_TO(ctx, E + dn * w2 + d * w2)
+				STROKE_LINE_TO(ctx, E - dn * w2 + d * w2)
+			case .Round: 
+				STROKE_LINE_TO(ctx, E + dn * w2)
+				STROKE_QUAD_TO(ctx, E + d * w2 * 2, E - dn * w2)
+			}
+
+			// back to origin
+			first := ctx.stroke_curves.data[stroke_start].B[0]
+			STROKE_LINE_TO(ctx, first)
+		} else {
+
 		}
-
-		// for j in path.curve_start..<path.curve_end - 1 {
-		// 	c0 := &ctx.temp_curves.data[j]
-		// 	c1 := &ctx.temp_curves.data[j + 1]
-
-		// 	if c0.count == 0 && c1.count == 0 {
-		// 		S := c0.B[0]
-		// 		B := c0.B[1] // or c1.B[0]
-		// 		E := c1.B[1]
-
-		// 		// temp := S
-		// 		n1 := v2_normalize(&S)
-		// 		// temp = E
-		// 		n2 := v2_normalize(&E)
-		// 		v2_normalize(&B)
-
-		// 		// start left/right
-		// 		S0 := S + halfW*n1
-		// 		S1 := S - halfW*n1
-
-		// 		B01 := B + halfW*n1
-		// 		B02 := B + halfW*n2
-
-		// 		// end left/right
-		// 		E0 := E + halfW*n2
-		// 		E1 := E - halfW*n2
-
-		// 		mu := ((B02.x-E0.x)*(S0.y-E0.y) - (B02.y-E0.y)*(S0.x-E0.x))/((B02.y-E0.y)*(B01.x-S0.x) - (B02.x-E0.x)*(B01.y-S0.y))
-		// 		M := S0 + mu*(B01-S0)
-
-		// 		Q := 2 * B - M
-
-		// 		fa_push(&ctx.stroke_curves, Curve {
-		// 			B = { 0 = S0, 1 = M },
-		// 			path_index = c0.path_index,
-		// 		})
-		// 		fa_push(&ctx.stroke_curves, Curve {
-		// 			B = { 0 = M, 1 = E0 },
-		// 			path_index = c0.path_index,
-		// 		})
-		// 		fa_push(&ctx.stroke_curves, Curve {
-		// 			B = { 0 = E0, 1 = E1 },
-		// 			path_index = c0.path_index,
-		// 		})
-		// 		fa_push(&ctx.stroke_curves, Curve {
-		// 			B = { 0 = E1, 1 = Q },
-		// 			path_index = c0.path_index,
-		// 		})
-		// 		fa_push(&ctx.stroke_curves, Curve {
-		// 			B = { 0 = Q, 1 = S1 },
-		// 			path_index = c0.path_index,
-		// 		})
-		// 		fa_push(&ctx.stroke_curves, Curve {
-		// 			B = { 0 = S1, 1 = S0 },
-		// 			path_index = c0.path_index,
-		// 		})
-		// 	}
-		// }
 
 		// set final indices again
 		path.curve_start = i32(stroke_start)
@@ -779,31 +729,16 @@ stroke :: proc(ctx: ^Context) {
 	stroke_paint.inner_color.a *= state.alpha
 	stroke_paint.outer_color.a *= state.alpha
 
+	ctx_finish_curves(ctx)
 	stroke_flatten(ctx)
 
-	// set colors and get bounding box
 	for i in 0..<ctx.temp_paths.index {
 		path := &ctx.temp_paths.data[i]
 		path.color = stroke_paint.inner_color
-
-		// path.box = { max(f32), max(f32), -max(f32), -max(f32) }
-		// fmt.eprintln(ctx.stroke_curves.data[path.curve_start:path.curve_end])
-
-		for j in path.curve_start..<path.curve_end {
-			curve := &ctx.stroke_curves.data[j]
-			curve.path_index += i32(ctx.renderer.paths.index)
-
-			for k in 0..=curve.count + 1 {
-				point := curve.B[k]
-				path.box.x = min(path.box.x, point.x)
-				path.box.y = min(path.box.y, point.y)
-				path.box.z = max(path.box.z, point.x)
-				path.box.w = max(path.box.w, point.y)
-			}
-		}
+		// curves_print(ctx.stroke_curves.data[path.curve_start:path.curve_end])
 	}
 
-
+	// submit
 	fa_add(&ctx.renderer.curves, fa_slice(&ctx.stroke_curves))
 	fa_add(&ctx.renderer.paths, fa_slice(&ctx.temp_paths))
 }
