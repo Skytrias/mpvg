@@ -3,6 +3,7 @@ package vg
 import "core:os"
 import "core:fmt"
 import "core:mem"
+import "core:math"
 import "core:strings"
 
 import glm "core:math/linalg/glsl"
@@ -10,12 +11,12 @@ import sa "core:container/small_array"
 import gl "vendor:OpenGL"
 
 TILE_SIZE :: 32 // has to match compute header
-MAX_CURVES :: 4048
-MAX_PATHS :: 1028
-SIZE_IMPLICIT_CURVES :: mem.Megabyte
-SIZE_TILE_QUEUES :: mem.Megabyte
+MAX_CURVES :: 4048 * 8
+MAX_PATHS :: 1028 * 4
+SIZE_IMPLICIT_CURVES :: mem.Megabyte * 2
+SIZE_TILE_QUEUES :: mem.Megabyte * 2
 SIZE_TILE_OPERATIONS :: mem.Megabyte * 4
-SIZE_SCREEN_TILES :: mem.Megabyte
+SIZE_SCREEN_TILES :: mem.Megabyte * 2
 
 ////////////////////////////////////////////////////////////////////////////////
 // Compute Renderer implementation
@@ -231,8 +232,8 @@ renderer_destroy :: proc(renderer: ^Renderer) {
 }
 
 renderer_begin :: proc(renderer: ^Renderer, width, height: int) {
-	renderer.tiles_x = width / TILE_SIZE
-	renderer.tiles_y = height / TILE_SIZE
+	renderer.tiles_x = int(math.ceil(f32(width) / TILE_SIZE))
+	renderer.tiles_y = int(math.ceil(f32(height) / TILE_SIZE))
 
 	fa_clear(&renderer.curves)
 	fa_clear(&renderer.paths)

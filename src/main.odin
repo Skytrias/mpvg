@@ -80,9 +80,9 @@ window_key_callback :: proc "c" (handle: glfw.WindowHandle, key, scancode, actio
 	}
 
 	switch key {
-	case glfw.KEY_0: app.line_join = vg.Line_Join(0)
-	case glfw.KEY_1: app.line_join = vg.Line_Join(1)
-	case glfw.KEY_2: app.line_join = vg.Line_Join(2)
+	case glfw.KEY_1: app.line_join = vg.Line_Join(0)
+	case glfw.KEY_2: app.line_join = vg.Line_Join(1)
+	case glfw.KEY_3: app.line_join = vg.Line_Join(2)
 
 	case glfw.KEY_Q: app.line_cap = vg.Line_Cap(0)
 	case glfw.KEY_W: app.line_cap = vg.Line_Cap(1)
@@ -134,7 +134,7 @@ main :: proc() {
 	ctx := vg.ctx_make()
 	defer vg.ctx_destroy(&ctx)
 
-	vg.push_font(&ctx, "Lato-Regular.ttf")
+	vg.font_push(&ctx, "regular", "Lato-Regular.ttf")
 
 	// svg_curves := vg.svg_gen_temp(svg_AB)
 	// defer vg.delete(svg_curves)
@@ -216,33 +216,44 @@ main :: proc() {
 			temp := vg.V2 { 120, 110 }
 
 			{
-				vg.ctx_line_join(&ctx, app.line_join)
-				vg.ctx_line_cap(&ctx, app.line_cap)
+				vg.line_join(&ctx, app.line_join)
+				vg.line_cap(&ctx, app.line_cap)
 
-				vg.ctx_save_scoped(&ctx)
-				vg.ctx_stroke_color(&ctx, { 0, 0, 0, 1 })
+				vg.save_scoped(&ctx)
+				vg.stroke_color(&ctx, { 0, 0, 0, 1 })
+				vg.stroke_width(&ctx, 20)
 
 				vg.path_begin(&ctx)
-				vg.push_move_to(&ctx, temp.x, temp.y)
-				// vg.push_line_to(&ctx, 200, 100)
-				// vg.push_line_to(&ctx, 300, 200)
-				vg.push_line_to(&ctx, app.mouse.x, app.mouse.y)
+				vg.move_to(&ctx, temp.x, temp.y)
+				vg.line_to(&ctx, 200, 100)
+				vg.line_to(&ctx, 300, 200)
+				vg.line_to(&ctx, app.mouse.x, app.mouse.y)
 				vg.stroke(&ctx)
 			}
 
 			// circle
 			{
-				vg.ctx_save_scoped(&ctx)
-				vg.ctx_fill_color(&ctx, { 0, 1, 0, 1 })
+				vg.save_scoped(&ctx)
+				vg.fill_color(&ctx, { 0, 1, 0, 1 })
 
 				vg.path_begin(&ctx)
-				vg.push_circle(&ctx, temp.x, temp.y, 5)
+				vg.circle(&ctx, temp.x, temp.y, 5)
 				vg.fill(&ctx)
 
 				vg.path_begin(&ctx)
-				vg.push_circle(&ctx, app.mouse.x, app.mouse.y, 5)
+				vg.circle(&ctx, app.mouse.x, app.mouse.y, 5)
 				vg.fill(&ctx)
 			}
+
+			// {
+			// 	vg.save_scoped(&ctx)
+			// 	vg.stroke_color(&ctx, { 0, 1, 0, 1 })
+
+			// 	vg.path_begin(&ctx)
+			// 	vg.rect(&ctx, 50, 50, 100, 100)
+			// 	vg.fill(&ctx)
+			// 	vg.stroke(&ctx)
+			// }
 		}
 
 		glfw.SwapBuffers(app.window)

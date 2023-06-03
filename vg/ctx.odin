@@ -1,5 +1,6 @@
 package vg
 
+import "core:os"
 import "core:mem"
 import "core:fmt"
 import "core:math"
@@ -15,9 +16,8 @@ import gl "vendor:OpenGL"
 KAPPA90 :: 0.5522847493
 
 MAX_STATES :: 32
-MAX_COMMANDS :: 1028
-MAX_TEMP_PATHS :: 128
-MAX_TEMP_CURVES :: 1028
+MAX_TEMP_PATHS :: 1028
+MAX_TEMP_CURVES :: 1028 * 2
 
 Paint :: struct {
 	xform: Xform,
@@ -46,9 +46,11 @@ State :: struct {
 	xform: Xform,
 
 	font_size: f32,
+	font_id: u32,
 	letter_spacing: f32,
 	line_height: f32,
-	font_id: int,
+	ah: Align_Horizontal,
+	av: Align_Vertical,
 }
 
 Xform :: [6]f32
@@ -77,6 +79,10 @@ Context :: struct {
 	distance_tolerance: f32,
 	tesselation_tolerance: f32,
 	device_pixel_ratio: f32,
+
+	// window data
+	window_width: f32,
+	window_height: f32,
 }
 
 V2 :: [2]f32
@@ -95,12 +101,12 @@ ctx_device_pixel_ratio :: proc(ctx: ^Context, ratio: f32) {
 
 ctx_init :: proc(ctx: ^Context) {
 	fa_init(&ctx.temp_curves, MAX_TEMP_CURVES)
-	fa_init(&ctx.temp_paths, MAX_TEMP_PATHS)
 	fa_init(&ctx.stroke_curves, MAX_TEMP_CURVES)
+	fa_init(&ctx.temp_paths, MAX_TEMP_PATHS)
 	fa_init(&ctx.states, MAX_STATES)
 
-	ctx_save(ctx)
-	ctx_reset(ctx)
+	save(ctx)
+	reset(ctx)
 	ctx_device_pixel_ratio(ctx, 1)
 
 	pool_clear(&ctx.font_pool)
@@ -122,8 +128,10 @@ ctx_destroy :: proc(ctx: ^Context) {
 
 ctx_frame_begin :: proc(ctx: ^Context, width, height: int, device_pixel_ratio: f32) {
 	fa_clear(&ctx.states)
-	ctx_save(ctx)
-	ctx_reset(ctx)
+	ctx.window_width = f32(width)
+	ctx.window_height = f32(height)
+	save(ctx)
+	reset(ctx)
 	ctx_device_pixel_ratio(ctx, device_pixel_ratio)
 	renderer_begin(&ctx.renderer, width, height)
 }
@@ -132,7 +140,7 @@ ctx_frame_end :: proc(ctx: ^Context) {
 	renderer_end(&ctx.renderer)
 }
 
-ctx_save :: proc(ctx: ^Context) {
+save :: proc(ctx: ^Context) {
 	if ctx.states.index >= MAX_STATES {
 		return
 	}
@@ -145,7 +153,7 @@ ctx_save :: proc(ctx: ^Context) {
 	ctx.states.index += 1
 }
 
-ctx_restore :: proc(ctx: ^Context) {
+restore :: proc(ctx: ^Context) {
 	if ctx.states.index <= 1 {
 		return
 	}
@@ -153,9 +161,14 @@ ctx_restore :: proc(ctx: ^Context) {
 	ctx.states.index -= 1
 }
 
-@(deferred_in=ctx_restore)
-ctx_save_scoped :: #force_inline proc(ctx: ^Context) {
-	ctx_save(ctx)
+@(deferred_in=restore)
+save_scoped :: #force_inline proc(ctx: ^Context) {
+	save(ctx)
+}
+
+global_alpha :: proc(ctx: ^Context, alpha: f32) {
+	state := state_get(ctx)
+	state.alpha = alpha
 }
 
 @private
@@ -166,14 +179,14 @@ paint_set_color :: proc(p: ^Paint, color: [4]f32) {
 	p.outer_color = color
 }
 
-ctx_reset :: proc(ctx: ^Context) {
+reset :: proc(ctx: ^Context) {
 	state := state_get(ctx)
 	state^ = {}
 
 	paint_set_color(&state.fill, { 1, 0, 0, 1 })
 	paint_set_color(&state.stroke, { 0, 0, 0, 1 })
 
-	state.stroke_width = 20
+	state.stroke_width = 5
 	state.miter_limit = 10
 	state.line_cap = .Butt
 	state.line_join = .Miter
@@ -181,6 +194,7 @@ ctx_reset :: proc(ctx: ^Context) {
 	xform_identity(&state.xform)
 
 	// font sets
+	state.font_id = Pool_Invalid_Slot_Index
 	state.font_size = 16
 	state.letter_spacing = 0
 	state.line_height = 1
@@ -191,27 +205,27 @@ state_get :: proc(ctx: ^Context) -> ^State #no_bounds_check {
 	return &ctx.states.data[ctx.states.index - 1]
 }
 
-ctx_stroke_width :: proc(ctx: ^Context, value: f32) {
+stroke_width :: proc(ctx: ^Context, value: f32) {
 	state := state_get(ctx)
 	state.stroke_width = value
 }
 
-ctx_fill_color :: proc(ctx: ^Context, color: [4]f32) {
+fill_color :: proc(ctx: ^Context, color: [4]f32) {
 	state := state_get(ctx)
 	paint_set_color(&state.fill, color)
 }
 
-ctx_stroke_color :: proc(ctx: ^Context, color: [4]f32) {
+stroke_color :: proc(ctx: ^Context, color: [4]f32) {
 	state := state_get(ctx)
 	paint_set_color(&state.stroke, color)
 }
 
-ctx_line_join :: proc(ctx: ^Context, join: Line_Join) {
+line_join :: proc(ctx: ^Context, join: Line_Join) {
 	state := state_get(ctx)
 	state.line_join = join
 }
 
-ctx_line_cap :: proc(ctx: ^Context, cap: Line_Cap) {
+line_cap :: proc(ctx: ^Context, cap: Line_Cap) {
 	state := state_get(ctx)
 	state.line_cap = cap
 }
@@ -221,23 +235,24 @@ path_begin :: proc(ctx: ^Context) {
 	fa_clear(&ctx.temp_paths)
 	fa_clear(&ctx.stroke_curves)
 	ctx.point_last = {}
+	ctx.stroke_last = {}
 }
 
-push_rect :: proc(ctx: ^Context, x, y, w, h: f32) {
-	push_move_to(ctx, x, y)
-	push_line_to(ctx, x, y + h)
-	push_line_to(ctx, x + w, y + h)
-	push_line_to(ctx, x + w, y)
-	push_close(ctx)
+rect :: proc(ctx: ^Context, x, y, w, h: f32) {
+	move_to(ctx, x, y)
+	line_to(ctx, x, y + h)
+	line_to(ctx, x + w, y + h)
+	line_to(ctx, x + w, y)
+	close(ctx)
 }
 
 // Creates new rounded rectangle shaped sub-path.
-push_rounded_rect :: proc(ctx: ^Context, x, y, w, h, radius: f32) {
-	push_rounded_rect_varying(ctx, x, y, w, h, radius, radius, radius, radius)
+rounded_rect :: proc(ctx: ^Context, x, y, w, h, radius: f32) {
+	rounded_rect_varying(ctx, x, y, w, h, radius, radius, radius, radius)
 }
 
 // Creates new rounded rectangle shaped sub-path with varying radii for each corner.
-push_rounded_rect_varying :: proc(
+rounded_rect_varying :: proc(
 	ctx: ^Context,
 	x, y: f32,
 	w, h: f32,
@@ -247,7 +262,7 @@ push_rounded_rect_varying :: proc(
 	radius_bottom_left: f32,
 ) {
 	if radius_top_left < 0.1 && radius_top_right < 0.1 && radius_bottom_right < 0.1 && radius_bottom_left < 0.1 {
-		push_rect(ctx, x, y, w, h)
+		rect(ctx, x, y, w, h)
 	} else {
 		halfw := abs(w) * 0.5
 		halfh := abs(h) * 0.5
@@ -260,38 +275,38 @@ push_rounded_rect_varying :: proc(
 		rxTL := min(radius_top_left, halfw) * math.sign(w)
 		ryTL := min(radius_top_left, halfh) * math.sign(h)
 		
-		push_move_to(ctx, x, y + ryTL)
-		push_line_to(ctx, x, y + h - ryBL)
-		push_cubic_to(ctx, x, y + h - ryBL*(1 - KAPPA90), x + rxBL*(1 - KAPPA90), y + h, x + rxBL, y + h)
-		push_line_to(ctx, x + w - rxBR, y + h)
-		push_cubic_to(ctx, x + w - rxBR*(1 - KAPPA90), y + h, x + w, y + h - ryBR*(1 - KAPPA90), x + w, y + h - ryBR)
-		push_line_to(ctx, x + w, y + ryTR)
-		push_cubic_to(ctx, x + w, y + ryTR*(1 - KAPPA90), x + w - rxTR*(1 - KAPPA90), y, x + w - rxTR, y)
-		push_line_to(ctx, x + rxTL, y)
-		push_cubic_to(ctx, x + rxTL*(1 - KAPPA90), y, x, y + ryTL*(1 - KAPPA90), x, y + ryTL)
-		push_close(ctx)
+		move_to(ctx, x, y + ryTL)
+		line_to(ctx, x, y + h - ryBL)
+		cubic_to(ctx, x, y + h - ryBL*(1 - KAPPA90), x + rxBL*(1 - KAPPA90), y + h, x + rxBL, y + h)
+		line_to(ctx, x + w - rxBR, y + h)
+		cubic_to(ctx, x + w - rxBR*(1 - KAPPA90), y + h, x + w, y + h - ryBR*(1 - KAPPA90), x + w, y + h - ryBR)
+		line_to(ctx, x + w, y + ryTR)
+		cubic_to(ctx, x + w, y + ryTR*(1 - KAPPA90), x + w - rxTR*(1 - KAPPA90), y, x + w - rxTR, y)
+		line_to(ctx, x + rxTL, y)
+		cubic_to(ctx, x + rxTL*(1 - KAPPA90), y, x, y + ryTL*(1 - KAPPA90), x, y + ryTL)
+		close(ctx)
 	}
 }
 
-push_ellipse :: proc(ctx: ^Context, cx, cy, rx, ry: f32) {
-	push_move_to(ctx, cx-rx, cy)
-	push_cubic_to(ctx, cx-rx, cy+ry*KAPPA90, cx-rx*KAPPA90, cy+ry, cx, cy+ry)
-	push_cubic_to(ctx, cx+rx*KAPPA90, cy+ry, cx+rx, cy+ry*KAPPA90, cx+rx, cy)
-	push_cubic_to(ctx, cx+rx, cy-ry*KAPPA90, cx+rx*KAPPA90, cy-ry, cx, cy-ry)
-	push_cubic_to(ctx, cx-rx*KAPPA90, cy-ry, cx-rx, cy-ry*KAPPA90, cx-rx, cy)
-	push_close(ctx)
+ellipse :: proc(ctx: ^Context, cx, cy, rx, ry: f32) {
+	move_to(ctx, cx-rx, cy)
+	cubic_to(ctx, cx-rx, cy+ry*KAPPA90, cx-rx*KAPPA90, cy+ry, cx, cy+ry)
+	cubic_to(ctx, cx+rx*KAPPA90, cy+ry, cx+rx, cy+ry*KAPPA90, cx+rx, cy)
+	cubic_to(ctx, cx+rx, cy-ry*KAPPA90, cx+rx*KAPPA90, cy-ry, cx, cy-ry)
+	cubic_to(ctx, cx-rx*KAPPA90, cy-ry, cx-rx, cy-ry*KAPPA90, cx-rx, cy)
+	close(ctx)
 }
 
-push_circle :: proc(ctx: ^Context, cx, cy, radius: f32) {
-	push_ellipse(ctx, cx, cy, radius, radius)
+circle :: proc(ctx: ^Context, cx, cy, radius: f32) {
+	ellipse(ctx, cx, cy, radius, radius)
 }
 
-push_move_to :: proc(ctx: ^Context, x, y: f32) {
+move_to :: proc(ctx: ^Context, x, y: f32) {
 	path_add(ctx)
 	ctx.point_last = { x, y }
 }
 
-push_line_to :: proc(ctx: ^Context, x, y: f32) {
+line_to :: proc(ctx: ^Context, x, y: f32) {
 	state := state_get(ctx)
 	fa_push(&ctx.temp_curves, Curve { 
 		B = { 
@@ -306,7 +321,7 @@ push_line_to :: proc(ctx: ^Context, x, y: f32) {
 	path.curve_end = i32(ctx.temp_curves.index)
 }
 
-push_quadratic_to :: proc(ctx: ^Context, cx, cy, x, y: f32) {
+quadratic_to :: proc(ctx: ^Context, cx, cy, x, y: f32) {
 	state := state_get(ctx)
 	fa_push(&ctx.temp_curves, Curve { 
 		B = { 
@@ -323,7 +338,7 @@ push_quadratic_to :: proc(ctx: ^Context, cx, cy, x, y: f32) {
 	path.curve_end = i32(ctx.temp_curves.index)
 }
 
-push_cubic_to :: proc(ctx: ^Context, c1x, c1y, c2x, c2y, x, y: f32) {
+cubic_to :: proc(ctx: ^Context, c1x, c1y, c2x, c2y, x, y: f32) {
 	state := state_get(ctx)
 	fa_push(&ctx.temp_curves, Curve { 
 		B = { 
@@ -341,7 +356,7 @@ push_cubic_to :: proc(ctx: ^Context, c1x, c1y, c2x, c2y, x, y: f32) {
 	path.curve_end = i32(ctx.temp_curves.index)
 }
 
-push_close :: proc(ctx: ^Context) {
+close :: proc(ctx: ^Context) {
 	if ctx.temp_paths.index > 0 {
 		path := fa_last_unsafe(&ctx.temp_paths)
 
@@ -365,35 +380,10 @@ push_close :: proc(ctx: ^Context) {
 	}
 }
 
-push_text :: proc(ctx: ^Context, text: string, x, y: f32, size: f32) {
-	font := pool_at(&ctx.font_pool, 1)
-	
-	x_start := x
-	x := x
-	x_old := x
-	y := y
-	for codepoint in text {
-		x += push_font_glyph(ctx, font, codepoint, x, y, size)
-
-		if x > 500 {
-			y += size
-			x = x_old
-		}
-	}
-}
-
-push_font :: proc(ctx: ^Context, path: string) -> u32 {
-	index := pool_alloc_index(&ctx.font_pool)
-	font := pool_at(&ctx.font_pool, index)
-	font_init(font, path)
-	return index
-}
-
 @private
 path_add :: proc(ctx: ^Context) {
 	fa_push(&ctx.temp_paths, Path {
-		// TODO replace
-		clip = { 0, 0, 800, 800 },
+		clip = { 0, 0, ctx.window_width, ctx.window_height },
 		box = { max(f32), max(f32), -max(f32), -max(f32) },
 		curve_start = i32(ctx.temp_curves.index),
 		stroke = false,
@@ -445,7 +435,7 @@ v2_normalize :: proc(v: ^V2) -> f32 {
 }
 
 // Adds an arc segment at the corner defined by the last path point, and two specified points.
-push_arc_to :: proc(
+arc_to :: proc(
 	ctx: ^Context,
 	x1, y1: f32,
 	x2, y2: f32,
@@ -464,7 +454,7 @@ push_arc_to :: proc(
 		point_equals(p1, p2, ctx.distance_tolerance) ||
 		point_distance_segment(p1, p0, p2) < ctx.distance_tolerance*ctx.distance_tolerance ||
 		radius < ctx.distance_tolerance {
-		push_line_to(ctx, x1, y1)
+		line_to(ctx, x1, y1)
 		return
 	}
 
@@ -477,7 +467,7 @@ push_arc_to :: proc(
 	d := radius / math.tan(a / 2.0)
 
 	if d > 10000 {
-		push_line_to(ctx, x1, y1)
+		line_to(ctx, x1, y1)
 		return
 	}
 
@@ -498,13 +488,13 @@ push_arc_to :: proc(
 		direction = WINDING_CCW
 	}
 
-	push_arc(ctx, cx, cy, radius, a0, a1, direction)
+	arc(ctx, cx, cy, radius, a0, a1, direction)
 }
 
 // Creates new circle arc shaped sub-path. The arc center is at cx,cy, the arc radius is r,
 // and the arc is drawn from angle a0 to a1, and swept in direction dir (NVG_CCW, or NVG_CW).
 // Angles are specified in radians.
-push_arc :: proc(ctx: ^Context, cx, cy, r, a0, a1: f32, dir: int) {
+arc :: proc(ctx: ^Context, cx, cy, r, a0, a1: f32, dir: int) {
 	do_line := ctx.temp_curves.index > 0
 
 	// Clamp angles
@@ -550,12 +540,12 @@ push_arc :: proc(ctx: ^Context, cx, cy, r, a0, a1: f32, dir: int) {
 
 		if i == 0 {
 			if do_line {
-				push_line_to(ctx, x, y)
+				line_to(ctx, x, y)
 			} else {
-				push_move_to(ctx, x, y)
+				move_to(ctx, x, y)
 			}
 		} else {
-			push_cubic_to(
+			cubic_to(
 				ctx, 
 				px + ptanx, py + ptany,
 				x - tanx, y - tany,
@@ -598,8 +588,17 @@ ctx_finish_curves :: proc(ctx: ^Context, curves: []Curve) {
 	}
 }
 
+@(deferred_in=fill)
+fill_scoped :: proc(ctx: ^Context) {
+	path_begin(ctx)
+}
+
 fill :: proc(ctx: ^Context) {
 	state := state_get(ctx)
+
+	if ctx.temp_paths.index == 0 {
+		return
+	}
 
 	// not 100% necessary as we dont use the path.closed on fill
 	ctx_finish_curves(ctx, ctx.temp_curves.data)
@@ -664,81 +663,118 @@ v2_diff_normal_normalized :: #force_inline proc(delta: V2) -> (delta_normalized:
 	return
 }
 
-// @private
-// stroke_flatten :: proc(ctx: ^Context) {
-// 	state := state_get(ctx)
-// 	w2 := f32(state.stroke_width) / 2
+@private
+stroke_flatten :: proc(ctx: ^Context) {
+	state := state_get(ctx)
+	w2 := f32(state.stroke_width) / 2
 
-// 	v0, v1: V2
-// 	type: i32
-// 	type_last: i32 
+	v0, v1: V2
+	type: i32
+	type_last: i32 
 
-// 	// traverse paths
-// 	for path_index in 0..<ctx.temp_paths.index {
-// 		path := &ctx.temp_paths.data[path_index]
-// 		path.stroke = true
-// 		stroke_start := ctx.stroke_curves.index
-// 		curves := ctx.temp_curves.data[path.curve_start:path.curve_end]
-// 		ctx.stroke_path_index = i32(path_index)
+	// traverse paths
+	for path_index in 0..<ctx.temp_paths.index {
+		path := &ctx.temp_paths.data[path_index]
+		path.stroke = true
+		stroke_start := ctx.stroke_curves.index
+		curves := ctx.temp_curves.data[path.curve_start:path.curve_end]
+		ctx.stroke_path_index = i32(path_index)
 
-// 		assert(len(curves) > 0)
+		assert(len(curves) > 0)
 
-// 		// cap start
-// 		{
-// 			S := curves[0].B[0]
-// 			E := curve_endpoint(curves[0])
-// 			d, dn := v2_diff_normal_normalized(E - S)
+		for i in 0..<len(curves) {
+			curve := curves[i]
+			S := curve.B[0]
+			E := curve_endpoint(curve)
+			d, dn := v2_diff_normal_normalized(E - S)
 
-// 			// cap start
-// 			switch state.line_cap {
-// 			case .Butt: STROKE_LINE(ctx, S + dn * w2, S - dn * w2)
-// 			case .Square: STROKE_LINE(ctx, S + dn * w2 - d * w2, S - dn * w2 - d * w2)
-// 			}
-// 		}
+			if i != 0 {
+				last := curves[i - 1]
+				p0 := curve.B[0]
+				t0 := curve_endpoint(last) - last.B[0]
+				t1 := E - S
 
-// 		// left side only
-// 		for i in 0..<len(curves) {
-// 			curve := curves[i]
-// 			S := curve.B[0]
-// 			E := curve_endpoint(curve)
-// 			d, dn := v2_diff_normal_normalized(E - S)
-// 			STROKE_LINE_TO(ctx, E - dn * w2)
-// 		}
+				norm_t0 := math.sqrt(t0.x * t0.x + t0.y * t0.y)
+				norm_t1 := math.sqrt(t1.x * t1.x + t1.y * t1.y)
 
-// 		// cap end to curve
-// 		{
-// 			curve := curves[len(curves) - 1]
-// 			S := curve.B[0]
-// 			E := curve_endpoint(curve)
-// 			d, dn := v2_diff_normal_normalized(E - S)
+				n0 := V2 { -t0.y, t0.x }
+				n0.x /= norm_t0
+				n0.y /= norm_t0
+				n1 := V2 { -t1.y, t1.x }
+				n1.x /= norm_t1
+				n1.y /= norm_t1
 
-// 			// cap start
-// 			switch state.line_cap {
-// 			case .Butt: 
-// 				STROKE_LINE_TO(ctx, E + dn * w2)
-// 			case .Square: 
-// 				STROKE_LINE_TO(ctx, E + dn * w2 + d * w2)
-// 			}
-// 		}
+				cross_z := n0.x * n1.y - n0.y * n1.x
+				if cross_z > 0 {
+					n0.x *= -1
+					n0.y *= -1
+					n1.x *= -1
+					n1.y *= -1
+				}
 
-// 		// right
-// 		for i := len(curves) - 2; i >= 0; i -= 1 {
-// 			curve := curves[i]
-// 			S := curve.B[0]
-// 			E := curve_endpoint(curve)
-// 			d, dn := v2_diff_normal_normalized(E - S)
-// 			STROKE_LINE_TO(ctx, S + dn * w2)
-// 		}
+				u := n0 + n1
+				unorm_square := u.x * u.x + u.y * u.y
+				alpha := state.stroke_width / unorm_square
+				v := u * alpha
+				temp := alpha - state.stroke_width / 4
+				excursion_suqare := unorm_square * (temp * temp)
 
-// 		// back to origin
-// 		first := ctx.stroke_curves.data[stroke_start].B[0]
-// 		STROKE_LINE_TO(ctx, first)
+				ctx.stroke_last = p0
 
-// 		// set final indices again
-// 		path.curve_start = i32(stroke_start)
-// 		path.curve_end = i32(ctx.stroke_curves.index)
-// 	}
-// }
+				if state.line_join == .Miter && excursion_suqare <= (state.miter_limit * state.miter_limit) {
+					STROKE_LINE_TO(ctx, { p0.x + n1.x * w2, p0.y + n1.y * w2 })
+					STROKE_LINE_TO(ctx, p0 + v)
+					STROKE_LINE_TO(ctx, { p0.x + n0.x * w2, p0.y + n0.y * w2 })
+					STROKE_LINE_TO(ctx, p0)
+				} else {
+					STROKE_LINE_TO(ctx, { p0.x + n1.x * w2, p0.y + n1.y * w2 })
+					STROKE_LINE_TO(ctx, { p0.x + n0.x * w2, p0.y + n0.y * w2 })
+					STROKE_LINE_TO(ctx, p0)
+				}
+			}
+
+			curve_start_index := ctx.stroke_curves.index
+
+			// cap on first curve
+			if i == 0 {
+				switch state.line_cap {
+				case .Butt: 
+					ctx.stroke_last	= S - dn * w2
+					STROKE_LINE_TO(ctx, S + dn * w2)
+				case .Square:
+					ctx.stroke_last	= S - dn * w2 - d * w2
+					STROKE_LINE_TO(ctx, S + dn * w2 - d * w2)
+				}
+			} else {
+				// normal line
+				ctx.stroke_last	= S - dn * w2
+				STROKE_LINE_TO(ctx, S + dn * w2)
+			}
+
+			// cap on end
+			if i == len(curves) - 1 {
+				switch state.line_cap {
+				case .Butt: 
+					STROKE_LINE_TO(ctx, E + dn * w2)
+					STROKE_LINE_TO(ctx, E - dn * w2)
+				case .Square: 
+					STROKE_LINE_TO(ctx, E + dn * w2 + d * w2)
+					STROKE_LINE_TO(ctx, E - dn * w2 + d * w2)
+				}
+			} else {
+				STROKE_LINE_TO(ctx, E + dn * w2)
+				STROKE_LINE_TO(ctx, E - dn * w2)
+			}
+
+			curve_first := ctx.stroke_curves.data[curve_start_index]
+			STROKE_LINE_TO(ctx, curve_first.B[0])
+		}
+
+		// set final indices again
+		path.curve_start = i32(stroke_start)
+		path.curve_end = i32(ctx.stroke_curves.index)
+	}
+}
 
 // @private
 // stroke_flatten :: proc(ctx: ^Context) {
@@ -804,17 +840,30 @@ v2_diff_normal_normalized :: #force_inline proc(delta: V2) -> (delta_normalized:
 stroke :: proc(ctx: ^Context) {
 	state := state_get(ctx)
 
-		stroke_paint := state.fill
-		stroke_paint.inner_color.a *= state.alpha
+	stroke_paint := state.stroke
+	stroke_paint.inner_color.a *= state.alpha
 	stroke_paint.outer_color.a *= state.alpha
 
-	// stroke_flatten(ctx)
-	// ctx_finish_curves(ctx, ctx.stroke_curves.data)
+	stroke_flatten(ctx)
+	ctx_finish_curves(ctx, ctx.stroke_curves.data)
 
+	// set colors and get bounding box
 	for i in 0..<ctx.temp_paths.index {
 		path := &ctx.temp_paths.data[i]
 		path.color = stroke_paint.inner_color
-		curves_print(ctx.stroke_curves.data[path.curve_start:path.curve_end])
+
+		for j in path.curve_start..<path.curve_end {
+			curve := &ctx.stroke_curves.data[j]
+			curve.path_index += i32(ctx.renderer.paths.index)
+
+			for k in 0..=curve.count + 1 {
+				point := curve.B[k]
+				path.box.x = min(path.box.x, point.x)
+				path.box.y = min(path.box.y, point.y)
+				path.box.z = max(path.box.z, point.x)
+				path.box.w = max(path.box.w, point.y)
+			}
+		}
 	}
 
 	// submit
@@ -845,19 +894,19 @@ ctx_quad :: proc(ctx: ^Context, curve: ^Curve, a, b, c: V2) {
 // STATE TRANSFORMS
 ///////////////////////////////////////////////////////////
 
-ctx_translate :: proc(ctx: ^Context, x, y: f32) {
+translate :: proc(ctx: ^Context, x, y: f32) {
 	state := state_get(ctx)
 	temp := xform_translate(x, y)
 	xform_premultiply(&state.xform, temp)
 }
 
-ctx_scale :: proc(ctx: ^Context, x, y: f32) {
+scale :: proc(ctx: ^Context, x, y: f32) {
 	state := state_get(ctx)
 	temp := xform_scale(x, y)
 	xform_premultiply(&state.xform, temp)
 }
 
-ctx_rotate :: proc(ctx: ^Context, rotation: f32) {
+rotate :: proc(ctx: ^Context, rotation: f32) {
 	state := state_get(ctx)
 	temp := xform_rotate(rotation)
 	xform_premultiply(&state.xform, temp)
@@ -1037,13 +1086,15 @@ fa_not_empty :: proc(fa: Fixed_Array($T)) -> bool {
 	return fa.index > 0
 }
 
-fa_push :: proc(fa: ^Fixed_Array($T), item: T) {
+fa_push :: proc(fa: ^Fixed_Array($T), item: T, loc := #caller_location) #no_bounds_check {
+	runtime.bounds_check_error_loc(loc, fa.index + 1, len(fa.data))
 	fa.data[fa.index] = item
 	fa.index += 1
 }
 
 // copy a slice over added
-fa_add :: proc(fa: ^Fixed_Array($T), slice: []T) {
+fa_add :: proc(fa: ^Fixed_Array($T), slice: []T, loc := #caller_location) #no_bounds_check {
+	runtime.bounds_check_error_loc(loc, fa.index + len(slice), len(fa.data))
 	copy(fa.data[fa.index:], slice)
 	fa.index += len(slice)
 }
@@ -1129,4 +1180,142 @@ xform_premultiply :: proc(a: ^Xform, b: Xform) {
 	temp := b
 	xform_multiply(&temp, a^)
 	a^ = temp
+}
+
+///////////////////////////////////////////////////////////
+// text calls
+///////////////////////////////////////////////////////////
+
+Align_Horizontal :: enum {
+	Left,
+	Center,
+	Right,
+}
+
+Align_Vertical :: enum {
+	Top,
+	Middle,
+	Baseline,
+	Bottom,
+}
+
+text :: proc(ctx: ^Context, input: string, x := f32(0), y := f32(0)) -> f32 {
+	state := state_get(ctx)
+
+	if state.font_id == Pool_Invalid_Slot_Index {
+		return x
+	}
+
+	path_begin(ctx)
+	font := pool_at(&ctx.font_pool, state.font_id)
+
+	iter := text_iter_init(font, input, x, y, state.font_size, state.letter_spacing, state.ah, state.av)
+	for glyph in text_iter_next(&iter) {
+		font_glyph_render(ctx, font, glyph, iter.x, iter.y, state.font_size)
+	}
+
+	fill(ctx)
+	return iter.nextx
+}
+
+text_icon :: proc(ctx: ^Context, codepoint: rune, x := f32(0), y := f32(0)) -> f32 {
+	state := state_get(ctx)
+
+	if state.font_id == Pool_Invalid_Slot_Index {
+		return x
+	}
+
+	path_begin(ctx)
+	font := pool_at(&ctx.font_pool, state.font_id)
+	glyph := font_glyph_get(font, codepoint)
+
+	if glyph == nil {
+		return x
+	}
+
+	scaling := state.font_size * font.scaling
+	x := x
+	y := y + font_vertical_align(font, state.av, state.font_size)
+	width := (glyph.x1 - glyph.x0) * scaling
+	switch state.ah {
+		case .Left: 
+		case .Center: x = math.round(x - width * 0.5)
+		case .Right: x -= width
+	}
+
+	font_glyph_render(ctx, font, glyph, x, y, state.font_size)
+	fill(ctx)
+	return x + f32(glyph.advance) * scaling
+}
+
+font_push_mem :: proc(ctx: ^Context, name: string, data: []byte, free_loaded_data: bool) -> u32 {
+	index := pool_alloc_index(&ctx.font_pool)
+	font := pool_at(&ctx.font_pool, index)
+	font_init(font, name, data, free_loaded_data)
+	return index
+}
+
+font_push_path :: proc(ctx: ^Context, name: string, path: string) -> u32 {
+	data, ok := os.read_entire_file(path)
+	if !ok {
+		return Pool_Invalid_Slot_Index		
+	}
+
+	index := pool_alloc_index(&ctx.font_pool)
+	font := pool_at(&ctx.font_pool, index)
+
+	font_init(font, name, data, false)
+	return index
+}
+
+font_push :: proc { font_push_mem, font_push_path }
+
+font_size :: proc(ctx: ^Context, to: f32) {
+	state := state_get(ctx)
+	state.font_size = to
+}
+
+font_face :: proc(ctx: ^Context, face: string) {
+	state := state_get(ctx)
+
+	// TODO use sparse set
+	for i in 0..<len(ctx.font_pool.data) {
+		font := ctx.font_pool.data[i]
+		
+		if font.name == face {
+			state.font_id = u32(i)
+			break
+		}
+	}
+}
+
+text_bounds :: proc(ctx: ^Context, input: string, x := f32(0), y := f32(0)) -> f32 {
+	font := pool_at(&ctx.font_pool, 1) 
+	state := state_get(ctx)
+	width := font_text_bounds(font, input, x, y, state.font_size, state.letter_spacing, state.ah)
+	return width
+}
+
+text_align_horizontal :: proc(ctx: ^Context, ah: Align_Horizontal) {
+	state := state_get(ctx)
+	state.ah = ah
+}
+
+text_align_vertical :: proc(ctx: ^Context, av: Align_Vertical) {
+	state := state_get(ctx)
+	state.av = av
+}
+
+text_align :: proc(ctx: ^Context, ah: Align_Horizontal, av: Align_Vertical) {
+	state := state_get(ctx)
+	state.av = av
+	state.ah = ah
+}
+
+scissor :: proc(ctx: ^Context, x, y, w, h: f32) {
+	if ctx.temp_paths.index > 0 {
+		path := fa_last_unsafe(&ctx.temp_paths)
+		// TODO maybe intersect by window?
+		path.clip = { x, y, w, h }
+	}
 }
