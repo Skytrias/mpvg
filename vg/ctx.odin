@@ -1,23 +1,18 @@
 package vg
 
 import "core:os"
-import "core:mem"
 import "core:fmt"
+import "core:mem"
 import "core:math"
 import "core:slice"
 import "core:runtime"
-import "core:strings"
-import "core:math/rand"
-import "core:math/linalg"
-import glm "core:math/linalg/glsl"
-import sa "core:container/small_array"
-import gl "vendor:OpenGL"
+import "core:prof/spall"
 
 KAPPA90 :: 0.5522847493
 
 MAX_STATES :: 32
 MAX_TEMP_PATHS :: 1028
-MAX_TEMP_CURVES :: 1028 * 2
+MAX_TEMP_CURVES :: 1028 * 4
 
 Paint :: struct {
 	xform: Xform,
@@ -83,6 +78,11 @@ Context :: struct {
 	// window data
 	window_width: f32,
 	window_height: f32,
+
+	// profiling
+	spall_ctx: spall.Context,
+	spall_buffer: spall.Buffer,
+	spall_data: []byte,
 }
 
 V2 :: [2]f32
@@ -100,6 +100,12 @@ ctx_device_pixel_ratio :: proc(ctx: ^Context, ratio: f32) {
 }
 
 ctx_init :: proc(ctx: ^Context) {
+	ctx.spall_ctx = spall.context_create_with_scale("prof.spall", false, 1)
+	ctx.spall_data = make([]byte, mem.Megabyte)
+	ctx.spall_buffer = spall.buffer_create(ctx.spall_data, 0, 0)
+
+	spall.SCOPED_EVENT(&ctx.spall_ctx, &ctx.spall_buffer, "ctx init")
+
 	fa_init(&ctx.temp_curves, MAX_TEMP_CURVES)
 	fa_init(&ctx.stroke_curves, MAX_TEMP_CURVES)
 	fa_init(&ctx.temp_paths, MAX_TEMP_PATHS)
@@ -119,14 +125,22 @@ ctx_make :: proc() -> (res: Context) {
 }
 
 ctx_destroy :: proc(ctx: ^Context) {
-	renderer_destroy(&ctx.renderer)
-	fa_destroy(ctx.temp_paths)
-	fa_destroy(ctx.temp_curves)
-	fa_destroy(ctx.stroke_curves)
-	fa_destroy(ctx.states)
+	{
+		spall.SCOPED_EVENT(&ctx.spall_ctx, &ctx.spall_buffer, "ctx destroy")
+		renderer_destroy(&ctx.renderer)
+		fa_destroy(ctx.temp_paths)
+		fa_destroy(ctx.temp_curves)
+		fa_destroy(ctx.stroke_curves)
+		fa_destroy(ctx.states)
+	}
+
+	spall.buffer_destroy(&ctx.spall_ctx, &ctx.spall_buffer)
+	spall.context_destroy(&ctx.spall_ctx)
+	delete(ctx.spall_data)
 }
 
 ctx_frame_begin :: proc(ctx: ^Context, width, height: int, device_pixel_ratio: f32) {
+	spall.SCOPED_EVENT(&ctx.spall_ctx, &ctx.spall_buffer, "frame_begin")
 	fa_clear(&ctx.states)
 	ctx.window_width = f32(width)
 	ctx.window_height = f32(height)
@@ -137,6 +151,7 @@ ctx_frame_begin :: proc(ctx: ^Context, width, height: int, device_pixel_ratio: f
 }
 
 ctx_frame_end :: proc(ctx: ^Context) {
+	spall.SCOPED_EVENT(&ctx.spall_ctx, &ctx.spall_buffer, "frame end")
 	renderer_end(&ctx.renderer)
 }
 
@@ -229,6 +244,19 @@ line_cap :: proc(ctx: ^Context, cap: Line_Cap) {
 	state := state_get(ctx)
 	state.line_cap = cap
 }
+
+// set scissor region to current path
+scissor :: proc(ctx: ^Context, x, y, w, h: f32) {
+	if ctx.temp_paths.index > 0 {
+		path := fa_last_unsafe(&ctx.temp_paths)
+		// TODO maybe intersect by window?
+		path.clip = { x, y, w, h }
+	}
+}
+
+///////////////////////////////////////////////////////////
+// Commands
+///////////////////////////////////////////////////////////
 
 path_begin :: proc(ctx: ^Context) {
 	fa_clear(&ctx.temp_curves)
@@ -594,6 +622,7 @@ fill_scoped :: proc(ctx: ^Context) {
 }
 
 fill :: proc(ctx: ^Context) {
+	spall.SCOPED_EVENT(&ctx.spall_ctx, &ctx.spall_buffer, "fill")
 	state := state_get(ctx)
 
 	if ctx.temp_paths.index == 0 {
@@ -663,6 +692,50 @@ v2_diff_normal_normalized :: #force_inline proc(delta: V2) -> (delta_normalized:
 	return
 }
 
+// push joints based on shared point p0 and t0/t1 normals
+@private
+stroke_push_joints :: proc(ctx: ^Context, state: ^State, p0, t0, t1: V2) {
+	w2 := state.stroke_width / 2
+
+	norm_t0 := math.sqrt(t0.x * t0.x + t0.y * t0.y)
+	norm_t1 := math.sqrt(t1.x * t1.x + t1.y * t1.y)
+
+	n0 := V2 { -t0.y, t0.x }
+	n0.x /= norm_t0
+	n0.y /= norm_t0
+	n1 := V2 { -t1.y, t1.x }
+	n1.x /= norm_t1
+	n1.y /= norm_t1
+
+	cross_z := n0.x * n1.y - n0.y * n1.x
+	if cross_z > 0 {
+		n0.x *= -1
+		n0.y *= -1
+		n1.x *= -1
+		n1.y *= -1
+	}
+
+	u := n0 + n1
+	unorm_square := u.x * u.x + u.y * u.y
+	alpha := state.stroke_width / unorm_square
+	v := u * alpha
+	temp := alpha - state.stroke_width / 4
+	excursion_suqare := unorm_square * (temp * temp)
+
+	ctx.stroke_last = p0
+
+	if state.line_join == .Miter && excursion_suqare <= (state.miter_limit * state.miter_limit) {
+		STROKE_LINE_TO(ctx, { p0.x + n1.x * w2, p0.y + n1.y * w2 })
+		STROKE_LINE_TO(ctx, p0 + v)
+		STROKE_LINE_TO(ctx, { p0.x + n0.x * w2, p0.y + n0.y * w2 })
+		STROKE_LINE_TO(ctx, p0)
+	} else {
+		STROKE_LINE_TO(ctx, { p0.x + n1.x * w2, p0.y + n1.y * w2 })
+		STROKE_LINE_TO(ctx, { p0.x + n0.x * w2, p0.y + n0.y * w2 })
+		STROKE_LINE_TO(ctx, p0)
+	}
+}
+
 @private
 stroke_flatten :: proc(ctx: ^Context) {
 	state := state_get(ctx)
@@ -693,44 +766,7 @@ stroke_flatten :: proc(ctx: ^Context) {
 				p0 := curve.B[0]
 				t0 := curve_endpoint(last) - last.B[0]
 				t1 := E - S
-
-				norm_t0 := math.sqrt(t0.x * t0.x + t0.y * t0.y)
-				norm_t1 := math.sqrt(t1.x * t1.x + t1.y * t1.y)
-
-				n0 := V2 { -t0.y, t0.x }
-				n0.x /= norm_t0
-				n0.y /= norm_t0
-				n1 := V2 { -t1.y, t1.x }
-				n1.x /= norm_t1
-				n1.y /= norm_t1
-
-				cross_z := n0.x * n1.y - n0.y * n1.x
-				if cross_z > 0 {
-					n0.x *= -1
-					n0.y *= -1
-					n1.x *= -1
-					n1.y *= -1
-				}
-
-				u := n0 + n1
-				unorm_square := u.x * u.x + u.y * u.y
-				alpha := state.stroke_width / unorm_square
-				v := u * alpha
-				temp := alpha - state.stroke_width / 4
-				excursion_suqare := unorm_square * (temp * temp)
-
-				ctx.stroke_last = p0
-
-				if state.line_join == .Miter && excursion_suqare <= (state.miter_limit * state.miter_limit) {
-					STROKE_LINE_TO(ctx, { p0.x + n1.x * w2, p0.y + n1.y * w2 })
-					STROKE_LINE_TO(ctx, p0 + v)
-					STROKE_LINE_TO(ctx, { p0.x + n0.x * w2, p0.y + n0.y * w2 })
-					STROKE_LINE_TO(ctx, p0)
-				} else {
-					STROKE_LINE_TO(ctx, { p0.x + n1.x * w2, p0.y + n1.y * w2 })
-					STROKE_LINE_TO(ctx, { p0.x + n0.x * w2, p0.y + n0.y * w2 })
-					STROKE_LINE_TO(ctx, p0)
-				}
+				stroke_push_joints(ctx, state, p0, t0, t1)
 			}
 
 			curve_start_index := ctx.stroke_curves.index
@@ -776,68 +812,8 @@ stroke_flatten :: proc(ctx: ^Context) {
 	}
 }
 
-// @private
-// stroke_flatten :: proc(ctx: ^Context) {
-// 	state := state_get(ctx)
-// 	w2 := f32(state.stroke_width) / 2
-
-// 	v0, v1: V2
-// 	type: i32
-// 	type_last: i32 
-
-// 	// traverse paths
-// 	for path_index in 0..<ctx.temp_paths.index {
-// 		path := &ctx.temp_paths.data[path_index]
-// 		path.stroke = true
-// 		stroke_start := ctx.stroke_curves.index
-// 		curves := ctx.temp_curves.data[path.curve_start:path.curve_end]
-// 		ctx.stroke_path_index = i32(path_index)
-
-// 		// just do simple line
-// 		if len(curves) == 1 {
-// 			S := curves[0].B[0]
-// 			E := curve_endpoint(curves[0])
-// 			d, dn := v2_diff_normal_normalized(E - S)
-
-// 			// cap start
-// 			switch state.line_cap {
-// 			case .Butt: STROKE_LINE(ctx, S - dn * w2, S + dn * w2)
-// 			case .Square: STROKE_LINE(ctx, S - dn * w2 - d * w2, S + dn * w2 - d * w2)
-// 			case .Round: STROKE_QUAD(ctx, S - dn * w2, S - d * w2 * 2, S + dn * w2)
-// 			}
-
-// 			// line to + cap end
-// 			switch state.line_cap {
-// 			case .Butt: 
-// 				STROKE_LINE_TO(ctx, E + dn * w2)
-// 				STROKE_LINE_TO(ctx, E - dn * w2)
-// 			case .Square: 
-// 				STROKE_LINE_TO(ctx, E + dn * w2 + d * w2)
-// 				STROKE_LINE_TO(ctx, E - dn * w2 + d * w2)
-// 			case .Round: 
-// 				STROKE_LINE_TO(ctx, E + dn * w2)
-// 				STROKE_QUAD_TO(ctx, E + d * w2 * 2, E - dn * w2)
-// 			}
-
-// 			// back to origin
-// 			first := ctx.stroke_curves.data[stroke_start].B[0]
-// 			STROKE_LINE_TO(ctx, first)
-// 		} else {
-// 			S: V2
-// 			for curve, i in curves {
-// 				S = curve.B[0]
-// 				MID := curve.B[1]
-// 				E := curve.B
-// 			}
-// 		}
-
-// 		// set final indices again
-// 		path.curve_start = i32(stroke_start)
-// 		path.curve_end = i32(ctx.stroke_curves.index)
-// 	}
-// }
-
 stroke :: proc(ctx: ^Context) {
+	spall.SCOPED_EVENT(&ctx.spall_ctx, &ctx.spall_buffer, "stroke")
 	state := state_get(ctx)
 
 	stroke_paint := state.stroke
@@ -869,25 +845,6 @@ stroke :: proc(ctx: ^Context) {
 	// submit
 	fa_add(&ctx.renderer.curves, fa_slice(&ctx.stroke_curves))
 	fa_add(&ctx.renderer.paths, fa_slice(&ctx.temp_paths))
-}
-
-///////////////////////////////////////////////////////////
-// CURVE creation
-///////////////////////////////////////////////////////////
-
-ctx_line :: proc(ctx: ^Context, curve: ^Curve, a, b: V2) {
-	curve.count = 0
-	curve.B[0] = a
-	curve.B[1] = b
-	curve.path_index = ctx.stroke_path_index
-}
-
-ctx_quad :: proc(ctx: ^Context, curve: ^Curve, a, b, c: V2) {
-	curve.count = 1
-	curve.B[0] = a
-	curve.B[1] = b
-	curve.B[2] = c
-	curve.path_index = ctx.stroke_path_index
 }
 
 ///////////////////////////////////////////////////////////
@@ -960,79 +917,6 @@ pool_at :: proc(p: ^Pool($N, $T), slot_index: u32, loc := #caller_location) -> ^
 	runtime.bounds_check_error_loc(loc, int(slot_index), N)
 	assert(slot_index > Pool_Invalid_Slot_Index)
 	return &p.data[slot_index]
-}
-
-///////////////////////////////////////////////////////////
-// Sparse Set
-///////////////////////////////////////////////////////////
-
-// sparse stores indices
-// dense stores id
-Sparse_Set :: struct {
-	data: []int,
-	sparse: int, // offset where dense starts
-	size: int,
-}
-
-sparse_set_init :: proc(set: ^Sparse_Set, cap: int) {
-	// TODO could be uninitialized since it doesnt matter
-	set.data = make([]int, cap * 2)
-	set.sparse = cap
-	set.size = 0
-}
-
-sparse_set_make :: proc(cap: int) -> (res: Sparse_Set) {
-	sparse_set_init(&res, cap)
-	return
-}
-
-sparse_set_clear :: proc(set: ^Sparse_Set) {
-	set.size = 0
-}
-
-sparse_set_contains :: proc(set: ^Sparse_Set, id: int) -> bool #no_bounds_check {
-	index := set.data[set.sparse + id]
-	return index <= 0 && index < set.size && set.data[index] == id
-}
-
-sparse_set_insert :: proc(set: ^Sparse_Set, id: int) {
-	if !sparse_set_contains(set, id) {
-		index := set.size
-		set.data[index] = id
-		set.data[set.sparse + id] = index
-		set.size += 1
-	}
-}
-
-sparse_set_print :: proc(set: ^Sparse_Set) {
-	fmt.eprintln("DENSE  ", set.data[:set.sparse])
-	fmt.eprintln("SPARSE ", set.data[set.sparse:])
-	fmt.eprintln()
-}
-
-sparse_set_print_dense :: proc(set: ^Sparse_Set) {
-	fmt.eprintln("DENSE  ", set.data[:set.size])
-}
-
-@test
-sparse_set_test :: proc() {
-	set := sparse_set_make(10)
-	sparse_set_print(&set)
-	sparse_set_insert(&set, 3)
-	sparse_set_insert(&set, 3)
-	sparse_set_insert(&set, 3)
-	sparse_set_insert(&set, 4)
-	sparse_set_insert(&set, 5)
-	sparse_set_insert(&set, 6)
-	sparse_set_print(&set)
-	fmt.eprintln(sparse_set_contains(&set, 4))
-	fmt.eprintln(sparse_set_contains(&set, 3))
-
-	// sparse_set_print_dense(&set)
-	// sparse_set_remove(&set, 3)
-	// sparse_set_print_dense(&set)
-	
-	// sparse_set_print(&set)
 }
 
 ///////////////////////////////////////////////////////////
@@ -1200,6 +1084,7 @@ Align_Vertical :: enum {
 }
 
 text :: proc(ctx: ^Context, input: string, x := f32(0), y := f32(0)) -> f32 {
+	spall.SCOPED_EVENT(&ctx.spall_ctx, &ctx.spall_buffer, "text")
 	state := state_get(ctx)
 
 	if state.font_id == Pool_Invalid_Slot_Index {
@@ -1312,10 +1197,93 @@ text_align :: proc(ctx: ^Context, ah: Align_Horizontal, av: Align_Vertical) {
 	state.ah = ah
 }
 
-scissor :: proc(ctx: ^Context, x, y, w, h: f32) {
-	if ctx.temp_paths.index > 0 {
-		path := fa_last_unsafe(&ctx.temp_paths)
-		// TODO maybe intersect by window?
-		path.clip = { x, y, w, h }
+///////////////////////////////////////////////////////////
+// RENDERING TESTS
+///////////////////////////////////////////////////////////
+
+ctx_test_line_strokes :: proc(ctx: ^Context, mouse: V2) {
+	temp := V2 { 120, 110 }
+
+	{
+		save_scoped(ctx)
+		stroke_color(ctx, { 0, 0, 0, 1 })
+		stroke_width(ctx, 20)
+
+		path_begin(ctx)
+		move_to(ctx, temp.x, temp.y)
+		line_to(ctx, 200, 100)
+		line_to(ctx, 300, 200)
+		line_to(ctx, mouse.x, mouse.y)
+		stroke(ctx)
 	}
+
+	// circle
+	{
+		save_scoped(ctx)
+		fill_color(ctx, { 0, 1, 0, 1 })
+
+		path_begin(ctx)
+		circle(ctx, temp.x, temp.y, 5)
+		fill(ctx)
+
+		path_begin(ctx)
+		circle(ctx, mouse.x, mouse.y, 5)
+		fill(ctx)
+	}
+}
+
+ctx_test_primitives :: proc(ctx: ^Context, mouse: V2, count: f32) {
+	{
+		save_scoped(ctx)
+		fill_color(ctx, { 0, 1, 0, 1 })
+		path_begin(ctx)
+		rect(ctx, 100, 100, 50, 50)
+		fill(ctx)
+	}
+
+	{
+		save_scoped(ctx)
+		path_begin(ctx)
+		fill_color(ctx, { 1, 0, 0, 1 })
+		translate(ctx, mouse.x, mouse.y)
+		rotate(ctx, count * 0.01)
+		rect(ctx, -100, -100, 200, 200)
+		fill(ctx)
+	}
+
+	{
+		save_scoped(ctx)
+		path_begin(ctx)
+		fill_color(ctx, { 0, 0, 1, 1 })
+		circle(ctx, 300, 300, 50)
+		fill(ctx)
+	}
+
+	{
+		save_scoped(ctx)
+		fill_color(ctx, { 0, 0, 0, 1 })
+		font_face(ctx, "regular")
+		// text(ctx, "o", 100, 200)
+		// text(ctx, "xyz", mouse.x, mouse.y)
+		font_size(ctx, math.sin(count * 0.05) * 25 + 50)
+		text(ctx, "mpvg is awesome :)", mouse.x, mouse.y)
+	}
+
+	{
+		save_scoped(ctx)
+		fill_color(ctx, { 0, 0.5, 0.5, 1 })
+		path_begin(ctx)
+		rounded_rect(ctx, 300, 100, 200, 100, 30)
+		fill(ctx)
+	}
+}
+
+ctx_test_glyphs :: proc(ctx: ^Context, mouse: V2, count: f32) {
+	font_face(ctx, "regular")
+	size := math.sin(count * 0.05) * 25 + 50
+	font_size(ctx, size)
+	
+	fill_color(ctx, { 0, 0, 0, 1 })
+	text(ctx, "testing", mouse.x, mouse.y)
+	// text(ctx, "Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna ", mouse.x, mouse.y + size)
 }

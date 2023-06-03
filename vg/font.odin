@@ -66,7 +66,7 @@ font_init :: proc(font: ^Font, name: string, data: []byte, free_loaded_data: boo
 	font.glyph_index = 0
 }
 
-font_destroy :: proc(font: Font) {
+font_destroy :: proc(font: ^Font) {
 	delete(font.glyphs)
 	delete(font.name)
 

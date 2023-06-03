@@ -1,6 +1,6 @@
 #define OP_START 1
 #define OP_SEGMENT 2
-
+#define DEBUG 0
 #define TILE_SIZE 32
 
 // kind of curve

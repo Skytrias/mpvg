@@ -32,8 +32,7 @@ App :: struct {
 app: App
 
 Mouse :: struct {
-	x: f32,
-	y: f32,
+	using pos: vg.V2,
 	left: bool,
 	right: bool,
 }
@@ -168,92 +167,13 @@ main :: proc() {
 			// TODO add px ratio
 			vg.ctx_frame_begin(&ctx, app.window_width, app.window_height, 1)
 			defer vg.ctx_frame_end(&ctx)
-			
-			// {
-			// 	vg.ctx_save_scoped(&ctx)
-			// 	vg.ctx_fill_color(&ctx, { 0, 1, 0, 1 })
-			// 	vg.path_begin(&ctx)
-			// 	vg.push_rect(&ctx, 100, 100, 50, 50)
-			// 	vg.fill(&ctx)
-			// }
 
-			// {
-			// 	vg.ctx_save_scoped(&ctx)
-			// 	vg.path_begin(&ctx)
-			// 	vg.ctx_fill_color(&ctx, { 1, 0, 0, 1 })
-			// 	vg.ctx_translate(&ctx, app.mouse.x, app.mouse.y)
-			// 	vg.ctx_rotate(&ctx, count * 0.01)
-			// 	vg.push_rect(&ctx, -100, -100, 200, 200)
-			// 	vg.fill(&ctx)
-			// }
+			// vg.ctx_test_primitives(&ctx, app.mouse.pos, count)
+			vg.ctx_test_glyphs(&ctx, app.mouse.pos, count)
 
-			// {
-			// 	vg.ctx_fill_color(&ctx, { 0, 0, 1, 1 })
-			// 	vg.path_begin(&ctx)
-			// 	vg.push_circle(&ctx, 300, 300, 50)
-			// 	vg.fill(&ctx)
-			// }
-
-			// {
-			// 	vg.ctx_save_scoped(&ctx)
-			// 	vg.ctx_fill_color(&ctx, { 0, 0, 0, 1 })
-			// 	vg.path_begin(&ctx)
-			// 	// vg.push_text(&ctx, "o", 100, 200)
-			// 	// vg.push_text(&ctx, "xyz", app.mouse.x, app.mouse.y)
-			// 	vg.push_text(&ctx, "mpvg is awesome :)", app.mouse.x, app.mouse.y, math.sin(count * 0.05) * 25 + 50)
-			// 	vg.fill(&ctx)
-			// }
-
-			// {
-			// 	vg.ctx_save_scoped(&ctx)
-			// 	vg.ctx_fill_color(&ctx, { 0, 0.5, 0.5, 1 })
-			// 	vg.path_begin(&ctx)
-
-			// 	vg.push_rounded_rect(&ctx, 300, 100, 200, 100, 30)
-			// 	vg.fill(&ctx)
-			// }
-
-			temp := vg.V2 { 120, 110 }
-
-			{
-				vg.line_join(&ctx, app.line_join)
-				vg.line_cap(&ctx, app.line_cap)
-
-				vg.save_scoped(&ctx)
-				vg.stroke_color(&ctx, { 0, 0, 0, 1 })
-				vg.stroke_width(&ctx, 20)
-
-				vg.path_begin(&ctx)
-				vg.move_to(&ctx, temp.x, temp.y)
-				vg.line_to(&ctx, 200, 100)
-				vg.line_to(&ctx, 300, 200)
-				vg.line_to(&ctx, app.mouse.x, app.mouse.y)
-				vg.stroke(&ctx)
-			}
-
-			// circle
-			{
-				vg.save_scoped(&ctx)
-				vg.fill_color(&ctx, { 0, 1, 0, 1 })
-
-				vg.path_begin(&ctx)
-				vg.circle(&ctx, temp.x, temp.y, 5)
-				vg.fill(&ctx)
-
-				vg.path_begin(&ctx)
-				vg.circle(&ctx, app.mouse.x, app.mouse.y, 5)
-				vg.fill(&ctx)
-			}
-
-			// {
-			// 	vg.save_scoped(&ctx)
-			// 	vg.stroke_color(&ctx, { 0, 1, 0, 1 })
-
-			// 	vg.path_begin(&ctx)
-			// 	vg.rect(&ctx, 50, 50, 100, 100)
-			// 	vg.fill(&ctx)
-			// 	vg.stroke(&ctx)
-			// }
+			// vg.line_join(&ctx, app.line_join)
+			// vg.line_cap(&ctx, app.line_cap)
+			// vg.ctx_test_line_strokes(&ctx, app.mouse.pos)
 		}
 
 		glfw.SwapBuffers(app.window)
