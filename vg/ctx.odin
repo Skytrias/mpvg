@@ -1133,14 +1133,14 @@ text_icon :: proc(ctx: ^Context, codepoint: rune, x := f32(0), y := f32(0)) -> f
 	return x + f32(glyph.advance) * scaling
 }
 
-font_push_mem :: proc(ctx: ^Context, name: string, data: []byte, free_loaded_data: bool) -> u32 {
+font_push_mem :: proc(ctx: ^Context, name: string, data: []byte, free_loaded_data: bool, init: bool) -> u32 {
 	index := pool_alloc_index(&ctx.font_pool)
 	font := pool_at(&ctx.font_pool, index)
-	font_init(font, name, data, free_loaded_data)
+	font_init(font, name, data, free_loaded_data, init)
 	return index
 }
 
-font_push_path :: proc(ctx: ^Context, name: string, path: string) -> u32 {
+font_push_path :: proc(ctx: ^Context, name: string, path: string, init: bool) -> u32 {
 	data, ok := os.read_entire_file(path)
 	if !ok {
 		return Pool_Invalid_Slot_Index		
@@ -1149,7 +1149,7 @@ font_push_path :: proc(ctx: ^Context, name: string, path: string) -> u32 {
 	index := pool_alloc_index(&ctx.font_pool)
 	font := pool_at(&ctx.font_pool, index)
 
-	font_init(font, name, data, false)
+	font_init(font, name, data, false, init)
 	return index
 }
 
@@ -1285,5 +1285,5 @@ ctx_test_glyphs :: proc(ctx: ^Context, mouse: V2, count: f32) {
 	
 	fill_color(ctx, { 0, 0, 0, 1 })
 	text(ctx, "testing", mouse.x, mouse.y)
-	// text(ctx, "Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna ", mouse.x, mouse.y + size)
+	text(ctx, "Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna ", mouse.x, mouse.y + size)
 }

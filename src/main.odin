@@ -133,7 +133,7 @@ main :: proc() {
 	ctx := vg.ctx_make()
 	defer vg.ctx_destroy(&ctx)
 
-	vg.font_push(&ctx, "regular", "Lato-Regular.ttf")
+	vg.font_push(&ctx, "regular", "Lato-Regular.ttf", true)
 
 	// svg_curves := vg.svg_gen_temp(svg_AB)
 	// defer vg.delete(svg_curves)

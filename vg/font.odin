@@ -2,13 +2,14 @@ package vg
 
 import "core:os"
 import "core:fmt"
+import "core:mem"
 import "core:math"
+import "core:hash"
 import "core:slice"
 import "core:strings"
 import stbtt "vendor:stb/truetype"
 
-GLYPH_LUT_SIZE :: 512
-GLYPH_COUNT :: 1028
+GLYPH_COUNT :: 512
 
 // font state storing scaling information
 // simple map to retrieve already created glyphs, could do a LUT
@@ -24,24 +25,20 @@ Font :: struct {
 	descender: f32,
 	line_height: f32,
 
-	glyphs: []Glyph,
-	glyph_index: int,
-	lut: [GLYPH_LUT_SIZE]int,
+	mapping: map[u32]Glyph,
 }
 
 Glyph :: struct {
 	vertices: []stbtt.vertex,
 	advance: f32,
-	codepoint: rune,
 	index: i32,
-	next: int,
 
 	// box unscaled
 	x0, y0, x1, y1: f32,
 }
 
 // init a font from a path
-font_init :: proc(font: ^Font, name: string, data: []byte, free_loaded_data: bool) {
+font_init :: proc(font: ^Font, name: string, data: []byte, free_loaded_data: bool, init: bool) {
 	font.name = strings.clone(name)
 
 	font.free_loaded_data = free_loaded_data
@@ -57,57 +54,54 @@ font_init :: proc(font: ^Font, name: string, data: []byte, free_loaded_data: boo
 	font.line_height = f32(l) / fh
 	font.scaling = 1.0 / fh
 
-	// set lut
-	for i in 0..<GLYPH_LUT_SIZE {
-		font.lut[i] = -1
-	}
+	font.mapping = make(map[u32]Glyph, GLYPH_COUNT)
 
-	font.glyphs = make([]Glyph, GLYPH_COUNT)
-	font.glyph_index = 0
+	if init {
+		for i in 0..<95 {
+			font_glyph_insert(font, rune(i + 32))
+		}
+	}
 }
 
 font_destroy :: proc(font: ^Font) {
-	delete(font.glyphs)
+	delete(font.mapping)
 	delete(font.name)
-
-	for i in 0..<font.glyph_index {
-		delete(font.glyphs[i].vertices)
-	}
 
 	if font.free_loaded_data {
 		delete(font.info_data)
 	}
 }
 
-font_glyph_get :: proc(font: ^Font, codepoint: rune, loc := #caller_location) -> ^Glyph {
-	hash_int :: proc(a: u32) -> u32 {
-		a := a
-		a += ~(a << 15)
-		a ~=  (a >> 10)
-		a +=  (a << 3)
-		a ~=  (a >> 6)
-		a +=  (a << 11)
-		a ~=  (a >> 16)
-		return a
-	}
+__hashint :: proc(a: rune) -> u32 {
+	a := transmute(u32) a
+	a += ~(a << 15)
+	a ~=  (a >> 10)
+	a +=  (a << 3)
+	a ~=  (a >> 6)
+	a +=  (a << 11)
+	a ~=  (a >> 16)
+	return a
+}
 
-	// check for preexisting glyph 
-	hash_value := hash_int(u32(codepoint)) & (GLYPH_LUT_SIZE - 1)
-	i := font.lut[hash_value]
-	for i != -1 {
-		glyph := &font.glyphs[i]
+__hash_codepoint :: __hashint
 
-		if glyph.codepoint == codepoint {
-			return glyph
-		}
+// @private
+// __hash_codepoint :: proc(codepoint: rune) -> u32 {
+// 	codepoint := codepoint
+// 	data := mem.ptr_to_bytes(&codepoint) 
+// 	// return hash.murmur32(data)	
+// 	return hash.fnv32(data)	
+// }
 
-		i = glyph.next
-	}
-
+font_glyph_insert :: proc(font: ^Font, codepoint: rune) {
 	glyph_index := stbtt.FindGlyphIndex(&font.info, codepoint)
 	if glyph_index == 0 {
-		return nil
+		fmt.eprintln("INVALID GLYPH")
+		return
 	}
+
+	fmt.eprintln("INSERT", codepoint)
+	hash_result := __hash_codepoint(codepoint)
 
 	// retrieve vertice info
 	codepoint_vertices: [^]stbtt.vertex
@@ -119,13 +113,10 @@ font_glyph_get :: proc(font: ^Font, codepoint: rune, loc := #caller_location) ->
 	stbtt.GetGlyphHMetrics(&font.info, glyph_index, &advance, &lsb)	
 
 	// push glyph
-	glyph := &font.glyphs[font.glyph_index]
-	assert(font.glyph_index < GLYPH_COUNT)
+	glyph: Glyph
 	glyph.vertices = slice.clone(codepoint_vertices[:number_of_vertices])
-	glyph.codepoint = codepoint
-	glyph.index = glyph_index
 	glyph.advance = f32(advance)
-	glyph.next = font.lut[hash_value]
+	glyph.index = glyph_index
 
 	x0, y0, x1, y1: i32
 	stbtt.GetGlyphBox(&font.info, glyph_index, &x0, &y0, &x1, &y1)
@@ -134,9 +125,17 @@ font_glyph_get :: proc(font: ^Font, codepoint: rune, loc := #caller_location) ->
 	glyph.y0 = f32(y0)
 	glyph.y1 = f32(y1)
 
-	font.lut[hash_value] = font.glyph_index
-	font.glyph_index += 1
-	return glyph
+	font.mapping[hash_result] = glyph
+}
+
+font_glyph_get :: proc(font: ^Font, codepoint: rune, loc := #caller_location) -> (^Glyph) {
+	hash_result := __hash_codepoint(codepoint)
+
+	if res, ok := &font.mapping[hash_result]; ok {
+		return res
+	}
+
+	return nil
 }
 
 // retrieve cached or generate the wanted glyph vertices and its bounding box
@@ -417,6 +416,7 @@ text_iter_next :: proc(iter: ^Text_Iter) -> (glyph: ^Glyph, ok: bool) {
 			if glyph != nil {
 				font_glyph_step(iter.font, iter.previous_glyph_index, glyph, iter.scaling, iter.spacing, &iter.nextx, &iter.nexty)
 			}
+
 			iter.previous_glyph_index = glyph == nil ? -1 : glyph.index
 			ok = true
 			break
