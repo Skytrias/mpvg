@@ -85,7 +85,6 @@ Context :: struct {
 	spall_data: []byte,
 }
 
-V2 :: [2]f32
 WINDING_CW :: 0
 WINDING_CCW :: 1
 
@@ -424,44 +423,6 @@ point_equals :: proc(v0, v1: V2, tolerance: f32) -> bool {
 	return delta.x * delta.x + delta.y * delta.y < tolerance * tolerance
 }
 
-@private
-v2_cross :: proc(v0, v1: V2) -> f32 {
-	return v1.x*v0.y - v0.x * v1.y
-}
-
-@private
-point_distance_segment :: proc(p0, p1, p2: V2) -> f32 {
-	pq := p2 - p1
-	delta := p0 - p1
-	d := pq.x * pq.x + pq.y * pq.y
-	t := pq.x * delta.x + pq.y * delta.y
-	
-	if d > 0 {
-		t /= d
-	}
-	
-	if t < 0 {
-		t = 0
-	} else if t > 1 {
-		t = 1
-	} 
-
-	delta.x = p1.x + t * pq.x - p0.x
-	delta.y = p1.y + t * pq.y - p0.y
-	return delta.x * delta.x + delta.y * delta.y
-}
-
-@private
-v2_normalize :: proc(v: ^V2) -> f32 {
-	d := math.sqrt(v.x * v.x + v.y * v.y)
-	if d > 1e-6 {
-		id := 1.0 / d
-		v.x *= id
-		v.y *= id
-	}
-	return d
-}
-
 // Adds an arc segment at the corner defined by the last path point, and two specified points.
 arc_to :: proc(
 	ctx: ^Context,
@@ -469,6 +430,27 @@ arc_to :: proc(
 	x2, y2: f32,
 	radius: f32,
 ) {
+	point_distance_segment :: proc(p0, p1, p2: V2) -> f32 {
+		pq := p2 - p1
+		delta := p0 - p1
+		d := pq.x * pq.x + pq.y * pq.y
+		t := pq.x * delta.x + pq.y * delta.y
+		
+		if d > 0 {
+			t /= d
+		}
+		
+		if t < 0 {
+			t = 0
+		} else if t > 1 {
+			t = 1
+		} 
+
+		delta.x = p1.x + t * pq.x - p0.x
+		delta.y = p1.y + t * pq.y - p0.y
+		return delta.x * delta.x + delta.y * delta.y
+	}
+
 	if ctx.temp_curves.index == 0 {
 		return
 	}
@@ -487,10 +469,8 @@ arc_to :: proc(
 	}
 
 	// Calculate tangential circle to lines (p0)-(p1) and (p1)-(p2).
-	delta0 := p0 - p1
-	delta1 := p2 - p1
-	v2_normalize(&delta0)
-	v2_normalize(&delta1)
+	delta0 := v2_normalize(p0 - p1)
+	delta1 := v2_normalize(p2 - p1)
 	a := math.acos(delta0.x*delta1.x + delta0.y*delta1.y)
 	d := radius / math.tan(a / 2.0)
 
@@ -661,35 +641,21 @@ fill :: proc(ctx: ^Context) {
 }
 
 @private
-STROKE_LINE :: proc(ctx: ^Context, v0, v1: V2) {
-	fa_push(&ctx.stroke_curves, Curve { B = { 0 = v0, 1 = v1 }, path_index = i32(ctx.stroke_path_index) })
-	ctx.stroke_last = v1
-}
-
-@private
 STROKE_LINE_TO :: proc(ctx: ^Context, to: V2) {
 	fa_push(&ctx.stroke_curves, Curve { B = { 0 = ctx.stroke_last, 1 = to }, path_index = i32(ctx.stroke_path_index) })
 	ctx.stroke_last = to
 }
 
 @private
-STROKE_QUAD :: proc(ctx: ^Context, v0, v1, v2: V2) {
-	fa_push(&ctx.stroke_curves, Curve { B = { 0 = v0, 1 = v1, 2 = v2 }, count = 1, path_index = i32(ctx.stroke_path_index) })
-	ctx.stroke_last = v2
+STROKE_LINE :: proc(ctx: ^Context, from, to: V2) {
+	fa_push(&ctx.stroke_curves, Curve { B = { 0 = from, 1 = to }, path_index = i32(ctx.stroke_path_index) })
+	ctx.stroke_last = to
 }
 
 @private
 STROKE_QUAD_TO :: proc(ctx: ^Context, control, to: V2) {
 	fa_push(&ctx.stroke_curves, Curve { B = { 0 = ctx.stroke_last, 1 = control, 2 = to }, count = 1, path_index = i32(ctx.stroke_path_index) })
 	ctx.stroke_last = to
-}
-
-@private
-v2_diff_normal_normalized :: #force_inline proc(delta: V2) -> (delta_normalized: V2, delta_normal: V2) {
-	delta_normalized = delta
-	v2_normalize(&delta_normalized)
-	delta_normal = { -delta_normalized.y, delta_normalized.x }
-	return
 }
 
 // push joints based on shared point p0 and t0/t1 normals
@@ -757,53 +723,123 @@ stroke_flatten :: proc(ctx: ^Context) {
 
 		for i in 0..<len(curves) {
 			curve := curves[i]
-			S := curve.B[0]
-			E := curve_endpoint(curve)
-			d, dn := v2_diff_normal_normalized(E - S)
 
 			if i != 0 {
 				last := curves[i - 1]
 				p0 := curve.B[0]
 				t0 := curve_endpoint(last) - last.B[0]
-				t1 := E - S
+				t1 := curve_endpoint(curve) - curve.B[0]
 				stroke_push_joints(ctx, state, p0, t0, t1)
 			}
 
-			curve_start_index := ctx.stroke_curves.index
+			// curve_start_index := ctx.stroke_curves.index
 
-			// cap on first curve
-			if i == 0 {
-				switch state.line_cap {
-				case .Butt: 
-					ctx.stroke_last	= S - dn * w2
-					STROKE_LINE_TO(ctx, S + dn * w2)
-				case .Square:
-					ctx.stroke_last	= S - dn * w2 - d * w2
-					STROKE_LINE_TO(ctx, S + dn * w2 - d * w2)
-				}
-			} else {
-				// normal line
+			switch curve.count {
+			case CURVE_LINE:
+				S := curve.B[0]
+				E := curve_endpoint(curve)
+
+				dn := v2_perpendicular(v2_normalize(E - S))
+
 				ctx.stroke_last	= S - dn * w2
+				origin := ctx.stroke_last
 				STROKE_LINE_TO(ctx, S + dn * w2)
-			}
-
-			// cap on end
-			if i == len(curves) - 1 {
-				switch state.line_cap {
-				case .Butt: 
-					STROKE_LINE_TO(ctx, E + dn * w2)
-					STROKE_LINE_TO(ctx, E - dn * w2)
-				case .Square: 
-					STROKE_LINE_TO(ctx, E + dn * w2 + d * w2)
-					STROKE_LINE_TO(ctx, E - dn * w2 + d * w2)
-				}
-			} else {
 				STROKE_LINE_TO(ctx, E + dn * w2)
 				STROKE_LINE_TO(ctx, E - dn * w2)
+				STROKE_LINE_TO(ctx, origin)
+
+			case CURVE_QUADRATIC:
+				pos1, pos2, split1 := curve_offset_quadratic1(curve, +w2)
+				neg1, neg2, split2 := curve_offset_quadratic1(curve, -w2)
+
+				fmt.eprintln("splits", split1, split2)
+				if !split1 {
+					fmt.eprintln("~~~")
+					curve_invert(&neg1)
+
+					STROKE_LINE(ctx, curve_endpoint(neg1), pos1.B[0])
+					fa_push(&ctx.stroke_curves, pos1)
+					STROKE_LINE(ctx, curve_endpoint(pos1), neg1.B[0])
+					fa_push(&ctx.stroke_curves, neg1)
+				} else {
+					fmt.eprintln("+++")
+					curve_invert(&neg1)
+					curve_invert(&neg2)
+
+					STROKE_LINE(ctx, curve_endpoint(neg1), pos1.B[0])
+					fa_push(&ctx.stroke_curves, pos1)
+					fa_push(&ctx.stroke_curves, pos2)
+					STROKE_LINE(ctx, curve_endpoint(pos2), neg2.B[0])
+					fa_push(&ctx.stroke_curves, neg1)
+					fa_push(&ctx.stroke_curves, neg2)
+				}
+
+			case CURVE_CUBIC:
+				unimplemented("cubic")
 			}
 
-			curve_first := ctx.stroke_curves.data[curve_start_index]
-			STROKE_LINE_TO(ctx, curve_first.B[0])
+			// // cap on first curve
+			// if i == 0 {
+			// 	switch state.line_cap {
+			// 	case .Butt: 
+			// 		ctx.stroke_last	= S - dn * w2
+			// 		STROKE_LINE_TO(ctx, S + dn * w2)
+			// 	case .Square:
+			// 		ctx.stroke_last	= S - dn * w2 - d * w2
+			// 		STROKE_LINE_TO(ctx, S + dn * w2 - d * w2)
+			// 	}
+			// } else {
+			// 	// normal line
+			// 	ctx.stroke_last	= S - dn * w2
+			// 	STROKE_LINE_TO(ctx, S + dn * w2)
+			// }
+
+			// // cap on end
+			// if i == len(curves) - 1 {
+			// 	switch curve.count {
+			// 	case CURVE_LINE:
+			// 		switch state.line_cap {
+			// 		case .Butt: 
+			// 			STROKE_LINE_TO(ctx, E + dn * w2)
+			// 			STROKE_LINE_TO(ctx, E - dn * w2)
+			// 		case .Square: 
+			// 			STROKE_LINE_TO(ctx, E + dn * w2 + d * w2)
+			// 			STROKE_LINE_TO(ctx, E - dn * w2 + d * w2)
+			// 		}
+
+			// 	case CURVE_QUADRATIC: 
+			// 		switch state.line_cap {
+			// 		case .Butt: 
+			// 			STROKE_LINE_TO(ctx, E + dn * w2)
+			// 			STROKE_LINE_TO(ctx, E - dn * w2)
+			// 		case .Square: 
+			// 			STROKE_LINE_TO(ctx, E + dn * w2 + d * w2)
+			// 			STROKE_LINE_TO(ctx, E - dn * w2 + d * w2)
+			// 		}
+
+			// 	case CURVE_CUBIC:
+			// 		unimplemented("YO0")					
+			// 	}
+			// } else {
+			// 	switch curve.count {
+			// 	case CURVE_LINE:
+			// 		STROKE_LINE_TO(ctx, E + dn * w2)
+			// 		STROKE_LINE_TO(ctx, E - dn * w2)
+
+			// 	case CURVE_QUADRATIC:
+			// 		unimplemented("YO1")
+
+			// 	case CURVE_CUBIC:
+			// 		unimplemented("YO2")
+			// 	}
+			// }
+
+			// curve_first := ctx.stroke_curves.data[curve_start_index]
+			
+			// switch curve.count {
+			// case CURVE_LINE:
+			// 	STROKE_LINE_TO(ctx, curve_first.B[0])
+			// }
 		}
 
 		// set final indices again
@@ -1201,37 +1237,6 @@ text_align :: proc(ctx: ^Context, ah: Align_Horizontal, av: Align_Vertical) {
 // RENDERING TESTS
 ///////////////////////////////////////////////////////////
 
-ctx_test_line_strokes :: proc(ctx: ^Context, mouse: V2) {
-	temp := V2 { 120, 110 }
-
-	{
-		save_scoped(ctx)
-		stroke_color(ctx, { 0, 0, 0, 1 })
-		stroke_width(ctx, 20)
-
-		path_begin(ctx)
-		move_to(ctx, temp.x, temp.y)
-		line_to(ctx, 200, 100)
-		line_to(ctx, 300, 200)
-		line_to(ctx, mouse.x, mouse.y)
-		stroke(ctx)
-	}
-
-	// circle
-	{
-		save_scoped(ctx)
-		fill_color(ctx, { 0, 1, 0, 1 })
-
-		path_begin(ctx)
-		circle(ctx, temp.x, temp.y, 5)
-		fill(ctx)
-
-		path_begin(ctx)
-		circle(ctx, mouse.x, mouse.y, 5)
-		fill(ctx)
-	}
-}
-
 ctx_test_primitives :: proc(ctx: ^Context, mouse: V2, count: f32) {
 	{
 		save_scoped(ctx)
@@ -1286,4 +1291,129 @@ ctx_test_glyphs :: proc(ctx: ^Context, mouse: V2, count: f32) {
 	fill_color(ctx, { 0, 0, 0, 1 })
 	text(ctx, "testing", mouse.x, mouse.y)
 	text(ctx, "Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna ", mouse.x, mouse.y + size)
+}
+
+ctx_test_line_strokes :: proc(ctx: ^Context, mouse: V2) {
+	temp := V2 { 120, 110 }
+
+	{
+		save_scoped(ctx)
+		stroke_color(ctx, { 0, 0, 0, 1 })
+		stroke_width(ctx, 20)
+
+		path_begin(ctx)
+		move_to(ctx, temp.x, temp.y)
+		line_to(ctx, 200, 100)
+		line_to(ctx, 300, 200)
+		line_to(ctx, mouse.x, mouse.y)
+		stroke(ctx)
+	}
+
+	// circle
+	{
+		save_scoped(ctx)
+		fill_color(ctx, { 0, 1, 0, 1 })
+
+		path_begin(ctx)
+		circle(ctx, temp.x, temp.y, 5)
+		fill(ctx)
+
+		path_begin(ctx)
+		circle(ctx, mouse.x, mouse.y, 5)
+		fill(ctx)
+	}
+}
+
+ctx_test_quadratic_strokes :: proc(ctx: ^Context, mouse: V2) {
+	start := V2 { 120, 110 }
+	control := start + 100
+	end := mouse
+
+	{
+		save_scoped(ctx)
+		stroke_color(ctx, { 0, 0, 0, 1 })
+		stroke_width(ctx, 20)
+
+		path_begin(ctx)
+		move_to(ctx, start.x, start.y)
+		// line_to(ctx, 200, 100)
+		// line_to(ctx, 300, 200)
+		quadratic_to(ctx, control.x, control.y, mouse.x, mouse.y)
+		stroke(ctx)
+	}
+
+	// circle
+	{
+		save_scoped(ctx)
+		fill_color(ctx, { 0, 1, 0, 1 })
+
+		path_begin(ctx)
+		circle(ctx, start.x, start.y, 5)
+		fill(ctx)
+
+		path_begin(ctx)
+		circle(ctx, end.x, end.y, 5)
+		fill(ctx)
+
+		t := f32(0.5)
+		curve := Curve {
+			B = { 0 = start, 1 = control, 2 = end }, count = 1,
+		}
+		tp := quadratic_bezier_point(curve, t)
+		path_begin(ctx)
+		circle(ctx, tp.x, tp.y, 5)
+		fill(ctx)
+
+		fill_color(ctx, { 1, 0, 0, 1 })
+		path_begin(ctx)
+		circle(ctx, control.x, control.y, 5)
+		fill(ctx)
+	}
+}
+
+ctx_test_tangents_and_normals :: proc(ctx: ^Context, mouse: V2) {
+	start := V2 { 120, 100 }
+	control := start + 100
+	end := mouse
+
+	curve := Curve {
+		B = { 0 = start, 1 = control, 2 = end }, 
+		count = 1,
+	}
+
+	{
+		// save_scoped(ctx)
+		// stroke_color(ctx, { 0, 0, 0, 1 })
+		// stroke_width(ctx, 20)
+
+		stroke_width(ctx, 4)
+
+		last := curve.B[0]
+		STEPS :: 10
+		for i in 0..<STEPS {
+			t := f32(i) / f32(STEPS)
+			tp := quadratic_bezier_point(curve, t)
+			path_begin(ctx)
+			circle(ctx, tp.x, tp.y, 4)
+			fill(ctx)
+
+			path_begin(ctx)
+			move_to(ctx, tp.x, tp.y)
+			tangent1 := v2_normalize(tp - last)
+			p := tp + tangent1 * 20
+			line_to(ctx, p.x, p.y)
+			stroke_color(ctx, { 0, 0, 1, 1 })
+			stroke(ctx)
+
+			path_begin(ctx)
+			move_to(ctx, tp.x, tp.y)
+			normal1 := v2_perpendicular(v2_normalize(tp - last))
+			p = tp + normal1 * 20
+			line_to(ctx, p.x, p.y)
+			stroke_color(ctx, { 0, 1, 0, 1 })
+			stroke(ctx)
+
+			last = tp
+		}
+	}
 }

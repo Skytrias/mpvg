@@ -100,7 +100,7 @@ font_glyph_insert :: proc(font: ^Font, codepoint: rune) {
 		return
 	}
 
-	fmt.eprintln("INSERT", codepoint)
+	// fmt.eprintln("INSERT", codepoint)
 	hash_result := __hash_codepoint(codepoint)
 
 	// retrieve vertice info

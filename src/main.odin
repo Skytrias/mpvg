@@ -169,11 +169,13 @@ main :: proc() {
 			defer vg.ctx_frame_end(&ctx)
 
 			// vg.ctx_test_primitives(&ctx, app.mouse.pos, count)
-			vg.ctx_test_glyphs(&ctx, app.mouse.pos, count)
+			// vg.ctx_test_glyphs(&ctx, app.mouse.pos, count)
 
-			// vg.line_join(&ctx, app.line_join)
-			// vg.line_cap(&ctx, app.line_cap)
+			vg.line_join(&ctx, app.line_join)
+			vg.line_cap(&ctx, app.line_cap)
 			// vg.ctx_test_line_strokes(&ctx, app.mouse.pos)
+			vg.ctx_test_quadratic_strokes(&ctx, app.mouse.pos)
+			// vg.ctx_test_tangents_and_normals(&ctx, app.mouse.pos)
 		}
 
 		glfw.SwapBuffers(app.window)
