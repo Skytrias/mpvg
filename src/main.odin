@@ -140,7 +140,7 @@ main :: proc() {
 
 	fmt.eprintln("PATH", size_of(vg.Path))
 
-	count: f32
+	count: int
 	duration: time.Duration
 	for !glfw.WindowShouldClose(app.window) {
 		time.SCOPED_TICK_DURATION(&duration)
@@ -175,6 +175,7 @@ main :: proc() {
 			vg.line_cap(&ctx, app.line_cap)
 			// vg.ctx_test_line_strokes(&ctx, app.mouse.pos)
 			vg.ctx_test_quadratic_strokes(&ctx, app.mouse.pos)
+			// vg.ctx_test_quadratic_stroke_bug(&ctx, app.mouse.pos, f32(count) * 0.1)
 			// vg.ctx_test_tangents_and_normals(&ctx, app.mouse.pos)
 		}
 

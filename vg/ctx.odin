@@ -336,7 +336,7 @@ move_to :: proc(ctx: ^Context, x, y: f32) {
 line_to :: proc(ctx: ^Context, x, y: f32) {
 	state := state_get(ctx)
 	fa_push(&ctx.temp_curves, Curve { 
-		B = { 
+		p = { 
 			0 = xform_point_v2(state.xform, ctx.point_last),
 			1 = xform_point_v2(state.xform, { x, y }),
 		},
@@ -351,7 +351,7 @@ line_to :: proc(ctx: ^Context, x, y: f32) {
 quadratic_to :: proc(ctx: ^Context, cx, cy, x, y: f32) {
 	state := state_get(ctx)
 	fa_push(&ctx.temp_curves, Curve { 
-		B = { 
+		p = { 
 			0 = xform_point_v2(state.xform, ctx.point_last),
 			1 = xform_point_v2(state.xform, { cx, cy }),
 			2 = xform_point_v2(state.xform, { x, y }),
@@ -368,7 +368,7 @@ quadratic_to :: proc(ctx: ^Context, cx, cy, x, y: f32) {
 cubic_to :: proc(ctx: ^Context, c1x, c1y, c2x, c2y, x, y: f32) {
 	state := state_get(ctx)
 	fa_push(&ctx.temp_curves, Curve { 
-		B = { 
+		p = { 
 			xform_point_v2(state.xform, ctx.point_last),
 			xform_point_v2(state.xform, { c1x, c1y }),
 			xform_point_v2(state.xform, { c2x, c2y }),
@@ -393,9 +393,9 @@ close :: proc(ctx: ^Context) {
 			state := state_get(ctx)
 
 			fa_push(&ctx.temp_curves, Curve { 
-				B = { 
+				p = { 
 					0 = xform_point_v2(state.xform, ctx.point_last),
-					1 = curve_first.B[0],
+					1 = curve_first.p[0],
 				},
 				path_index = i32(ctx.temp_paths.index - 1),
 			})
@@ -576,7 +576,7 @@ ctx_finish_curves :: proc(ctx: ^Context, curves: []Curve) {
 		if path.curve_end > path.curve_start {
 			c := curves[path.curve_start]
 
-			if point_equals(c.B[0], curve_endpoint(c), ctx.distance_tolerance) {
+			if point_equals(c.p[0], curve_endpoint(c), ctx.distance_tolerance) {
 				path.closed = true
 			}
 		}
@@ -586,7 +586,7 @@ ctx_finish_curves :: proc(ctx: ^Context, curves: []Curve) {
 
 			// get box early as strokes dont really extend?
 			for k in 0..=curve.count + 1 {
-				point := curve.B[k]
+				point := curve.p[k]
 				path.box.x = min(path.box.x, point.x)
 				path.box.y = min(path.box.y, point.y)
 				path.box.z = max(path.box.z, point.x)
@@ -626,7 +626,7 @@ fill :: proc(ctx: ^Context) {
 			curve.path_index += i32(ctx.renderer.paths.index)
 
 			for k in 0..=curve.count + 1 {
-				point := curve.B[k]
+				point := curve.p[k]
 				path.box.x = min(path.box.x, point.x)
 				path.box.y = min(path.box.y, point.y)
 				path.box.z = max(path.box.z, point.x)
@@ -642,19 +642,19 @@ fill :: proc(ctx: ^Context) {
 
 @private
 STROKE_LINE_TO :: proc(ctx: ^Context, to: V2) {
-	fa_push(&ctx.stroke_curves, Curve { B = { 0 = ctx.stroke_last, 1 = to }, path_index = i32(ctx.stroke_path_index) })
+	fa_push(&ctx.stroke_curves, Curve { p = { 0 = ctx.stroke_last, 1 = to }, path_index = i32(ctx.stroke_path_index) })
 	ctx.stroke_last = to
 }
 
 @private
 STROKE_LINE :: proc(ctx: ^Context, from, to: V2) {
-	fa_push(&ctx.stroke_curves, Curve { B = { 0 = from, 1 = to }, path_index = i32(ctx.stroke_path_index) })
+	fa_push(&ctx.stroke_curves, Curve { p = { 0 = from, 1 = to }, path_index = i32(ctx.stroke_path_index) })
 	ctx.stroke_last = to
 }
 
 @private
 STROKE_QUAD_TO :: proc(ctx: ^Context, control, to: V2) {
-	fa_push(&ctx.stroke_curves, Curve { B = { 0 = ctx.stroke_last, 1 = control, 2 = to }, count = 1, path_index = i32(ctx.stroke_path_index) })
+	fa_push(&ctx.stroke_curves, Curve { p = { 0 = ctx.stroke_last, 1 = control, 2 = to }, count = 1, path_index = i32(ctx.stroke_path_index) })
 	ctx.stroke_last = to
 }
 
@@ -705,7 +705,7 @@ stroke_push_joints :: proc(ctx: ^Context, state: ^State, p0, t0, t1: V2) {
 @private
 stroke_flatten :: proc(ctx: ^Context) {
 	state := state_get(ctx)
-	w2 := f32(state.stroke_width) / 2
+	w2 := state.stroke_width / 2
 
 	v0, v1: V2
 	type: i32
@@ -719,16 +719,18 @@ stroke_flatten :: proc(ctx: ^Context) {
 		curves := ctx.temp_curves.data[path.curve_start:path.curve_end]
 		ctx.stroke_path_index = i32(path_index)
 
-		assert(len(curves) > 0)
+		if len(curves) == 0 {
+			continue
+		}
 
 		for i in 0..<len(curves) {
 			curve := curves[i]
 
 			if i != 0 {
 				last := curves[i - 1]
-				p0 := curve.B[0]
-				t0 := curve_endpoint(last) - last.B[0]
-				t1 := curve_endpoint(curve) - curve.B[0]
+				p0 := curve.p[0]
+				t0 := curve_endpoint(last) - last.p[0]
+				t1 := curve_endpoint(curve) - curve.p[0]
 				stroke_push_joints(ctx, state, p0, t0, t1)
 			}
 
@@ -736,7 +738,7 @@ stroke_flatten :: proc(ctx: ^Context) {
 
 			switch curve.count {
 			case CURVE_LINE:
-				S := curve.B[0]
+				S := curve.p[0]
 				E := curve_endpoint(curve)
 
 				dn := v2_perpendicular(v2_normalize(E - S))
@@ -752,24 +754,24 @@ stroke_flatten :: proc(ctx: ^Context) {
 				pos1, pos2, split1 := curve_offset_quadratic1(curve, +w2)
 				neg1, neg2, split2 := curve_offset_quadratic1(curve, -w2)
 
-				fmt.eprintln("splits", split1, split2)
+				// fmt.eprintln("splits", split1, split2)
 				if !split1 {
-					fmt.eprintln("~~~")
+					// fmt.eprintln("~~~")
 					curve_invert(&neg1)
 
-					STROKE_LINE(ctx, curve_endpoint(neg1), pos1.B[0])
+					STROKE_LINE(ctx, curve_endpoint(neg1), pos1.p[0])
 					fa_push(&ctx.stroke_curves, pos1)
-					STROKE_LINE(ctx, curve_endpoint(pos1), neg1.B[0])
+					STROKE_LINE(ctx, curve_endpoint(pos1), neg1.p[0])
 					fa_push(&ctx.stroke_curves, neg1)
 				} else {
-					fmt.eprintln("+++")
+					// fmt.eprintln("+++")
 					curve_invert(&neg1)
 					curve_invert(&neg2)
 
-					STROKE_LINE(ctx, curve_endpoint(neg1), pos1.B[0])
+					STROKE_LINE(ctx, curve_endpoint(neg1), pos1.p[0])
 					fa_push(&ctx.stroke_curves, pos1)
 					fa_push(&ctx.stroke_curves, pos2)
-					STROKE_LINE(ctx, curve_endpoint(pos2), neg2.B[0])
+					STROKE_LINE(ctx, curve_endpoint(pos2), neg2.p[0])
 					fa_push(&ctx.stroke_curves, neg1)
 					fa_push(&ctx.stroke_curves, neg2)
 				}
@@ -838,7 +840,7 @@ stroke_flatten :: proc(ctx: ^Context) {
 			
 			// switch curve.count {
 			// case CURVE_LINE:
-			// 	STROKE_LINE_TO(ctx, curve_first.B[0])
+			// 	STROKE_LINE_TO(ctx, curve_first.p[0])
 			// }
 		}
 
@@ -869,7 +871,7 @@ stroke :: proc(ctx: ^Context) {
 			curve.path_index += i32(ctx.renderer.paths.index)
 
 			for k in 0..=curve.count + 1 {
-				point := curve.B[k]
+				point := curve.p[k]
 				path.box.x = min(path.box.x, point.x)
 				path.box.y = min(path.box.y, point.y)
 				path.box.z = max(path.box.z, point.x)
@@ -1335,10 +1337,14 @@ ctx_test_quadratic_strokes :: proc(ctx: ^Context, mouse: V2) {
 		stroke_width(ctx, 20)
 
 		path_begin(ctx)
-		move_to(ctx, start.x, start.y)
+		move_to(ctx, start.x - 100, start.y - 100)
+		quadratic_to(ctx, start.x - 20, start.y - 50, start.x, start.y)
+		// quadratic_to(ctx, start.x - 20, start.y - 50, start.x, start.y)
+		// move_to(ctx, start.x, start.y)
 		// line_to(ctx, 200, 100)
 		// line_to(ctx, 300, 200)
 		quadratic_to(ctx, control.x, control.y, mouse.x, mouse.y)
+		// quadratic_to(ctx, control.x + 100, control.y + 100, mouse.x + 100, mouse.y + 100)
 		stroke(ctx)
 	}
 
@@ -1357,7 +1363,7 @@ ctx_test_quadratic_strokes :: proc(ctx: ^Context, mouse: V2) {
 
 		t := f32(0.5)
 		curve := Curve {
-			B = { 0 = start, 1 = control, 2 = end }, count = 1,
+			p = { 0 = start, 1 = control, 2 = end }, count = 1,
 		}
 		tp := quadratic_bezier_point(curve, t)
 		path_begin(ctx)
@@ -1377,7 +1383,7 @@ ctx_test_tangents_and_normals :: proc(ctx: ^Context, mouse: V2) {
 	end := mouse
 
 	curve := Curve {
-		B = { 0 = start, 1 = control, 2 = end }, 
+		p = { 0 = start, 1 = control, 2 = end }, 
 		count = 1,
 	}
 
@@ -1388,7 +1394,7 @@ ctx_test_tangents_and_normals :: proc(ctx: ^Context, mouse: V2) {
 
 		stroke_width(ctx, 4)
 
-		last := curve.B[0]
+		last := curve.p[0]
 		STEPS :: 10
 		for i in 0..<STEPS {
 			t := f32(i) / f32(STEPS)
@@ -1417,3 +1423,20 @@ ctx_test_tangents_and_normals :: proc(ctx: ^Context, mouse: V2) {
 		}
 	}
 }
+
+ctx_test_quadratic_stroke_bug :: proc(ctx: ^Context, mouse: V2, count: f32) {
+	start := V2 { 150, 151 } + V2 { count, count }
+
+	{
+		save_scoped(ctx)
+		stroke_color(ctx, { 0, 0, 0, 1 })
+		stroke_width(ctx, 18)
+
+		path_begin(ctx)
+		move_to(ctx, start.x - 100, start.y - 100)
+		// line_to(ctx, start.x, start.y)
+		quadratic_to(ctx, start.x - 60, start.y - 60, start.x, start.y)
+		// quadratic_to(ctx, start.x - 50, start.y - 50, mouse.x, mouse.y)
+		stroke(ctx)
+}
+	}		

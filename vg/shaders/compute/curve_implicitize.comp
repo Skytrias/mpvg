@@ -72,42 +72,6 @@ void curve_bin_to_tiles(Path_Queue path, Implicit_Curve curve) {
 				}
 
 				tile_operations.data[tile_op_index] = op;
-
-
-				// memoryBarrier();
-				// barrier();
-
-				// Tile_Operation op;
-				// op.curve_index = curve_index;
-				// op.cross_right = int(cross_r);
-
-				// int tile_op_index = atomicAdd(indices.tile_operations, 1);
-				// int tile_queue_index = x + y * path.tiles_x + OFF;
-
-				// memoryBarrier();
-				// barrier();
-
-				// Tile_Queue tile = tile_queues.data[tile_queue_index];
-
-				// if (tile.op_head == -1) {
-				// 	tile.op_head = tile_op_index;
-				// }
-				
-				// op.op_next = tile.op_tail;
-				// tile.op_tail = tile_op_index;
-
-				// if (cross_b) {
-				// 	tile.winding_offset += curve.winding_increment;
-				// }
-
-				// memoryBarrier();
-				// barrier();
-
-				// tile_operations.data[tile_op_index] = op;
-				// tile_queues.data[tile_queue_index] = tile;
-
-				// memoryBarrier();
-				// barrier();
 			}
 		}
 	}
@@ -232,25 +196,25 @@ void quadratic_slice(vec2 p0, vec2 p1, vec2 p2, float s0, float s1, out vec2 sp[
 	sp[2] = (s1 == 1) ? p2 : quadratic_blossom(p0, p1, p2, s1, s1);
 }
 
-void quadratic_emit(Path_Queue path, vec2 sp[3]) {
-	Implicit_Curve icurve = icurve_make(sp[0], sp[1], sp[2], vec2(0), C_QUADRATIC);
+void quadratic_emit(Path_Queue path, vec2 p[3]) {
+	Implicit_Curve icurve = icurve_make(p[0], p[1], p[2], vec2(0), C_QUADRATIC);
 
 	//NOTE: compute implicit equation matrix
-	float det = sp[0].x*(sp[1].y-sp[2].y) + sp[1].x*(sp[2].y-sp[0].y) + sp[2].x*(sp[0].y - sp[1].y);
+	float det = p[0].x*(p[1].y-p[2].y) + p[1].x*(p[2].y-p[0].y) + p[2].x*(p[0].y - p[1].y);
 
-	float a = sp[0].y - sp[1].y + 0.5*(sp[2].y - sp[0].y);
-	float b = sp[1].x - sp[0].x + 0.5*(sp[0].x - sp[2].x);
-	float c = sp[0].x*sp[1].y - sp[1].x*sp[0].y + 0.5*(sp[2].x*sp[0].y - sp[0].x*sp[2].y);
-	float d = sp[0].y - sp[1].y;
-	float e = sp[1].x - sp[0].x;
-	float f = sp[0].x*sp[1].y - sp[1].x*sp[0].y;
+	float a = p[0].y - p[1].y + 0.5*(p[2].y - p[0].y);
+	float b = p[1].x - p[0].x + 0.5*(p[0].x - p[2].x);
+	float c = p[0].x*p[1].y - p[1].x*p[0].y + 0.5*(p[2].x*p[0].y - p[0].x*p[2].y);
+	float d = p[0].y - p[1].y;
+	float e = p[1].x - p[0].x;
+	float f = p[0].x*p[1].y - p[1].x*p[0].y;
 
 	float flip = (icurve.orientation == C_TL || icurve.orientation == C_BL) ? -1 : 1;
-	float g = flip*(sp[2].x*(sp[0].y - sp[1].y) + sp[0].x*(sp[1].y - sp[2].y) + sp[1].x*(sp[2].y - sp[0].y));
+	float g = flip*(p[2].x*(p[0].y - p[1].y) + p[0].x*(p[1].y - p[2].y) + p[1].x*(p[2].y - p[0].y));
 
 	mat3 matrix = mat3(a, d, 0, b, e, 0, c, f, g);
-	icurve.implicit_matrix = (1/det)*matrix;
-	icurve.hull_vertex = sp[1];
+	icurve.implicit_matrix = (1.0f / det)*matrix;
+	icurve.hull_vertex = p[1];
 
 	curve_bin_to_tiles(path, icurve);
 }
@@ -259,10 +223,10 @@ void quadratic_setup(Path_Queue path, vec2 p0, vec2 p1, vec2 p2) {
 	float splits[4];
 	int split_count = quadratic_monotonize(p0, p1, p2, splits);
 
+	vec2 sp[3];
 	for (int i = 0; i < split_count - 1; i += 1) {
 		float s0 = splits[i];
 		float s1 = splits[i + 1];
-		vec2 sp[3];
 		quadratic_slice(p0, p1, p2, s0, s1, sp);
 		quadratic_emit(path, sp);
 	}
@@ -690,6 +654,17 @@ void cubic_setup(Path_Queue path, Curve curve) {
 	}
 }
 
+bool quadratic_bezier_is_linear(Curve curve) {
+	// Calculate the slope of the line connecting the start and end points
+	float slope = (curve.p[2].y - curve.p[0].y) / (curve.p[2].x - curve.p[0].x);
+
+	// Calculate the y-coordinate of the control point on the line connecting the start and end points
+	float control_y_on_line = curve.p[0].y + slope * (curve.p[1].x - curve.p[0].x);
+
+	// Check if the y-coordinate of the control point is equal to the actual y-coordinate of the control point
+	return curve.p[1].y == control_y_on_line;
+}
+
 void main() {
 	int curve_index = int(gl_GlobalInvocationID.x);
 	Curve curve = curves.data[curve_index];
@@ -697,7 +672,13 @@ void main() {
 
 	switch (curve.count) {
 	case C_LINE: line_setup(path, curve.p[0], curve.p[1]); break; 
-	case C_QUADRATIC: quadratic_setup(path, curve.p[0], curve.p[1], curve.p[2]); break; 
+	case C_QUADRATIC: {
+		// if (quadratic_bezier_is_linear(curve)) {
+		// 	line_setup(path, curve.p[0], curve.p[2]);
+		// } else {
+			quadratic_setup(path, curve.p[0], curve.p[1], curve.p[2]); 
+		// }
+	} break;
 	case C_CUBIC: cubic_setup(path, curve); break; 
 	}
 }

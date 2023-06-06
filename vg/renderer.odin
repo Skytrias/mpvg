@@ -106,7 +106,7 @@ Path :: struct #packed {
 
 // curve Linear, Quadratic, Cubic in flat structure
 Curve :: struct #packed {
-	B: [4][2]f32,
+	p: [4][2]f32,
 	count: i32, // 0-2 + 1
 	path_index: i32,
 }
@@ -255,6 +255,11 @@ renderer_end :: proc(using renderer: ^Renderer) {
 	path_count := renderer.paths.index
 	renderer.indices.paths = i32(path_count)
 	// fmt.eprintln("PATH COUNT", path_count)
+
+	// for i in 0..<renderer.curves.index {
+	// 	curve := renderer.curves.data[i]
+	// 	curve_print(curve)
+	// }
 
 	// bind
 	{
