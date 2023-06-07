@@ -19,6 +19,7 @@ length :: linalg.vector_length
 App :: struct {
 	mouse: Mouse,
 	renderer: vg.Renderer,
+	ctx: vg.Context,
 	ctrl: bool,
 	shift: bool,
 
@@ -86,6 +87,10 @@ window_key_callback :: proc "c" (handle: glfw.WindowHandle, key, scancode, actio
 	case glfw.KEY_Q: app.line_cap = vg.Line_Cap(0)
 	case glfw.KEY_W: app.line_cap = vg.Line_Cap(1)
 	case glfw.KEY_E: app.line_cap = vg.Line_Cap(2)
+	case glfw.KEY_S: 
+		if action == glfw.PRESS {
+			app.ctx.stroke_joints = !app.ctx.stroke_joints
+		}
 	}
 }
 
@@ -130,10 +135,10 @@ main :: proc() {
 	glfw.MakeContextCurrent(app.window)
 	gl.load_up_to(4, 5, glfw.gl_set_proc_address)
 
-	ctx := vg.ctx_make()
-	defer vg.ctx_destroy(&ctx)
+	app.ctx = vg.ctx_make()
+	defer vg.ctx_destroy(&app.ctx)
 
-	vg.font_push(&ctx, "regular", "Lato-Regular.ttf", true)
+	vg.font_push(&app.ctx, "regular", "Lato-Regular.ttf", true)
 
 	// svg_curves := vg.svg_gen_temp(svg_AB)
 	// defer vg.delete(svg_curves)
@@ -164,19 +169,22 @@ main :: proc() {
 		gl.Clear(gl.COLOR_BUFFER_BIT)
 
 		{
+			ctx := &app.ctx
+
 			// TODO add px ratio
-			vg.ctx_frame_begin(&ctx, app.window_width, app.window_height, 1)
-			defer vg.ctx_frame_end(&ctx)
+			vg.ctx_frame_begin(ctx, app.window_width, app.window_height, 1)
+			defer vg.ctx_frame_end(ctx)
 
-			// vg.ctx_test_primitives(&ctx, app.mouse.pos, count)
-			// vg.ctx_test_glyphs(&ctx, app.mouse.pos, count)
+			// vg.ctx_test_primitives(ctx, app.mouse.pos, count)
+			// vg.ctx_test_glyphs(ctx, app.mouse.pos, count)
 
-			vg.line_join(&ctx, app.line_join)
-			vg.line_cap(&ctx, app.line_cap)
-			// vg.ctx_test_line_strokes(&ctx, app.mouse.pos)
-			vg.ctx_test_quadratic_strokes(&ctx, app.mouse.pos)
-			// vg.ctx_test_quadratic_stroke_bug(&ctx, app.mouse.pos, f32(count) * 0.1)
-			// vg.ctx_test_tangents_and_normals(&ctx, app.mouse.pos)
+			vg.line_join(ctx, app.line_join)
+			vg.line_cap(ctx, app.line_cap)
+			// vg.ctx_test_line_strokes(ctx, app.mouse.pos)
+			// vg.ctx_test_quadratic_strokes(ctx, app.mouse.pos)
+			vg.ctx_test_cubic_strokes(ctx, app.mouse.pos)
+			// vg.ctx_test_quadratic_stroke_bug(ctx, app.mouse.pos, f32(count) * 0.1)
+			// vg.ctx_test_tangents_and_normals(ctx, app.mouse.pos)
 		}
 
 		glfw.SwapBuffers(app.window)
