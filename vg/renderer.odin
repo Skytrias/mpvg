@@ -36,6 +36,12 @@ Vertex :: struct {
 	uv: [2]f32,
 }
 
+RED :: [4]f32 { 1, 0, 0, 1 }
+GREEN :: [4]f32 { 0, 1, 0, 1 }
+BLUE :: [4]f32 { 0, 0, 1, 1 }
+BLACK :: [4]f32 { 0, 0, 0, 1 }
+WHITE :: [4]f32 { 1, 1, 1, 1 }
+
 Renderer :: struct {
 	// raw curves that were inserted by the user
 	curves: Fixed_Array(Curve),

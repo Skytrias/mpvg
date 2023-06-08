@@ -2,7 +2,7 @@ package vg
 
 import "core:math"
 
-ctx_test_primitives :: proc(ctx: ^Context, mouse: V2, count: f32) {
+ctx_test_primitives_fill :: proc(ctx: ^Context, mouse: V2, count: f32) {
 	{
 		save_scoped(ctx)
 		fill_color(ctx, { 0, 1, 0, 1 })
@@ -48,9 +48,9 @@ ctx_test_primitives :: proc(ctx: ^Context, mouse: V2, count: f32) {
 	}
 }
 
-ctx_test_glyphs :: proc(ctx: ^Context, mouse: V2, count: f32) {
+ctx_test_glyphs :: proc(ctx: ^Context, mouse: V2, count: int) {
 	font_face(ctx, "regular")
-	size := math.sin(count * 0.05) * 25 + 50
+	size := math.sin(f32(count) * 0.05) * 25 + 50
 	font_size(ctx, size)
 	
 	fill_color(ctx, { 0, 0, 0, 1 })
@@ -205,16 +205,21 @@ ctx_test_cubic_strokes :: proc(ctx: ^Context, mouse: V2) {
 	start := V2 { 200, 200 }
 	c1 := start + { 100, -100 }
 	c2 := start + { 400, -100 }
+	c1, c2 = c2, c1
 	end := mouse
+	start.x += 200
 
 	{
 		save_scoped(ctx)
 		stroke_color(ctx, { 0, 0, 0, 1 })
-		stroke_width(ctx, 30)
+		stroke_width(ctx, 20)
 
 		path_begin(ctx)
-		move_to(ctx, start.x, start.y)
+		move_to(ctx, start.x - 50, start.y - 50)
+		line_to(ctx, start.x, start.y)
 		cubic_to(ctx, c1.x, c1.y, c2.x, c2.y, end.x, end.y)
+		line_to(ctx, 500, 500)
+		// cubic_to(ctx, 510, 510, 520, 520, 400, 600)
 		stroke(ctx)
 	}
 
@@ -240,15 +245,6 @@ ctx_test_cubic_strokes :: proc(ctx: ^Context, mouse: V2) {
 		circle(ctx, end.x, end.y, 5)
 		fill(ctx)
 
-		// t := f32(0.5)
-		// curve := Curve {
-		// 	p = { 0 = start, 1 = c1, 2 = c2, 3 = end }, count = 2,
-		// }
-		// tp := cubic_bezier_point(curve, t)
-		// path_begin(ctx)
-		// circle(ctx, tp.x, tp.y, 5)
-		// fill(ctx)
-
 		fill_color(ctx, { 1, 0, 0, 1 })
 		path_begin(ctx)
 		circle(ctx, c1.x, c1.y, 5)
@@ -257,5 +253,46 @@ ctx_test_cubic_strokes :: proc(ctx: ^Context, mouse: V2) {
 		path_begin(ctx)
 		circle(ctx, c2.x, c2.y, 5)
 		fill(ctx)
+	}
+}
+
+ctx_test_primitives_stroke :: proc(ctx: ^Context, mouse: V2, count: int) {
+	{
+		save_scoped(ctx)
+		path_begin(ctx)
+
+		translate(ctx, 100, 100)
+		rotate(ctx, f32(count) * 0.01)
+		rect(ctx, -50, -50, 100, 100)
+
+		fill_color(ctx, RED)
+		fill(ctx)
+
+		stroke_color(ctx, BLACK)
+		stroke_width(ctx, 10)
+		stroke(ctx)
+
+		path_begin(ctx)
+		move_to(ctx, -50, -50)
+		reset_transform(ctx)
+		line_to(ctx, 300, 300)
+		quadratic_to(ctx, 450, 320, 350, 500)
+		close(ctx)
+		stroke_color(ctx, GREEN)
+		stroke_width(ctx, 10)
+		stroke(ctx)
+	}
+
+	{
+		save_scoped(ctx)
+
+		path_begin(ctx)
+		rounded_rect(ctx, mouse.x, mouse.y, 200, 200, 20)
+		fill_color(ctx, BLUE)
+		fill(ctx)
+
+		stroke_width(ctx, 10)
+		stroke_color(ctx, GREEN)
+		stroke(ctx)
 	}
 }

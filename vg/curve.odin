@@ -158,153 +158,7 @@ curve_offset_quadratic :: proc(curve: Curve, offset: f32) -> (res1, res2: Curve,
 		res2.p[2] = p2
 	}
 
-	// sp: [3]V2
-	// quadratic_slice(temp, 0, 0.5, &sp)
-	// res1 = curve
-	// res1.p[0] = sp[0]
-	// res1.p[1] = sp[1]
-	// res1.p[2] = sp[2]
-	// quadratic_slice(temp, 0.5, 1, &sp)
-	// res2 = curve
-	// res2.p[0] = sp[0]
-	// res2.p[1] = sp[1]
-	// res2.p[2] = sp[2]
-	// split = true
-
 	return
-}
-
-curve_offset_quadratic3 :: proc(curve: Curve, out: ^Curve, offset: f32) {
-	// vectors between points
-	v1 := curve.p[1] - curve.p[0]
-	v2 := curve.p[2] - curve.p[1]
-
-	// perpendicular normals
-	n1 := v2_perpendicular(v2_normalize_to(v1, offset))
-	n2 := v2_perpendicular(v2_normalize_to(v2, offset))
-
-	// offset start/end
-	p1 := curve.p[0] + n1
-	p2 := curve.p[2] + n2
-
-	// control points
-	c1 := curve.p[1] + n1
-	c2 := curve.p[1] + n2
-
-	out^ = curve
-	out.p[0] = p1
-	cfinal, cok := line_intersection(p1, c1, p2, c2)
-	out.p[1] = cok ? cfinal : 0
-	out.p[2] = p2
-	
-	if offset < 0 {
-		curve_invert(out)
-	}
-}
-
-// split at T
-curve_offset_quadratic2 :: proc(ctx: ^Context, curve: Curve, offset: f32) {
-	out: [16]Curve
-	out_index: int
-	t := [?]f32 { 0, 0.2, 0.4, 0.6, 0.8, 1 }
-	
-	for i in 0..<len(t) - 1 {
-		t0 := t[i]
-		t1 := t[i + 1]
-		
-		sliced := quadratic_slice(curve, t0, t1)
-		
-		pos := &out[out_index]
-		neg := &out[out_index + 1]
-		out_index += 2
-
-		curve_offset_quadratic3(sliced, pos, offset)
-		curve_offset_quadratic3(sliced, neg, -offset)
-
-		STROKE_LINE(ctx, curve_endpoint(neg^), pos.p[0])
-		fa_push(&ctx.stroke_curves, pos^)
-		STROKE_LINE(ctx, curve_endpoint(pos^), neg.p[0])
-		fa_push(&ctx.stroke_curves, neg^)
-	}	
-
-	// a := quadratic_slice(curve, 0, 0.25)
-	// b := quadratic_slice(curve, 0.25, 1)
-
-	// {
-	// 	out: [4]Curve
-	// 	curve_offset_quadratic3(a, &out[0], offset)
-	// 	curve_offset_quadratic3(a, &out[1], -offset)
-	// 	STROKE_LINE(ctx, curve_endpoint(out[1]), out[0].p[0])
-	// 	fa_push(&ctx.stroke_curves, out[0])
-	// 	STROKE_LINE(ctx, curve_endpoint(out[0]), out[1].p[0])
-	// 	fa_push(&ctx.stroke_curves, out[1])
-	// }
-
-	// {
-	// 	out: [4]Curve
-	// 	curve_offset_quadratic3(b, &out[0], offset)
-	// 	curve_offset_quadratic3(b, &out[1], -offset)
-	// 	STROKE_LINE(ctx, curve_endpoint(out[1]), out[0].p[0])
-	// 	fa_push(&ctx.stroke_curves, out[0])
-	// 	STROKE_LINE(ctx, curve_endpoint(out[0]), out[1].p[0])
-	// 	fa_push(&ctx.stroke_curves, out[1])
-	// }
-
-	// split := v2_angle_between(v1, v2, true) > math.PI / 2
-	// if !split {
-	// 	temp := curve
-	// 	temp.p[0] = p1
-	// 	cfinal, cok := line_intersection(p1, c1, p2, c2)
-	// 	temp.p[1] = cok ? cfinal : 0
-	// 	temp.p[2] = p2
-	// 	if invert {
-	// 		curve_invert(&temp)
-	// 	}
-	// 	fa_push(&ctx.stroke_curves, temp)
-	// } else {
-	// 	t := quadratic_bezier_nearest_point(curve)
-	// 	pt := quadratic_bezier_point(curve, t)
-	// 	t1 := curve.p[0] * (1 - t) + curve.p[1] * t
-	// 	t2 := curve.p[1] * (1 - t) + curve.p[2] * t
-		
-	// 	vt := v2_perpendicular(v2_normalize_to(t2 - t1, offset))
-	// 	q := pt + vt
-	// 	q1, _ := line_intersection(p1, c1, q, q + v2_perpendicular(vt))
-	// 	q2, _ := line_intersection(c2, p2, q, q + v2_perpendicular(vt))
-
-	// 	// Calculate the offset points by adding the offset vectors to the original curve points
-	// 	res1 := curve
-	// 	res1.p[0] = p1
-	// 	res1.p[1] = q1
-	// 	res1.p[2] = q
-
-	// 	res2 := curve
-	// 	res2.p[0] = q
-	// 	res2.p[1] = q2
-	// 	res2.p[2] = p2
-
-	// 	if invert {
-	// 		curve_invert(&res1)
-	// 		curve_invert(&res2)
-	// 	}
-
-	// 	fa_push(&ctx.stroke_curves, res1)
-	// 	fa_push(&ctx.stroke_curves, res2)
-	// }
-
-
-	// sp: [3]V2
-	// quadratic_slice(temp, 0, 0.5, &sp)
-	// res1 = curve
-	// res1.p[0] = sp[0]
-	// res1.p[1] = sp[1]
-	// res1.p[2] = sp[2]
-	// quadratic_slice(temp, 0.5, 1, &sp)
-	// res2 = curve
-	// res2.p[0] = sp[0]
-	// res2.p[1] = sp[1]
-	// res2.p[2] = sp[2]
-	// split = true
 }
 
 line_intersection :: proc(ap0, ap1, bp0, bp1: V2) -> (isec: V2, ok: bool) {
@@ -410,7 +264,7 @@ v2_same_direction :: proc(a, b: V2) -> bool {
 	return same(aunit.x, bunit.x) && same(aunit.y, bunit.y) || same(aunit.x, -bunit.x) || same(aunit.y, -bunit.y)
 }
 
-curve_offset_cubic :: proc(curve: Curve, out: []Curve, offset: f32) -> (curve_count: int) {
+curve_offset_cubic_single :: proc(output: ^Fixed_Array(Curve), curve: Curve, offset: f32, threshold: f32) {
 	// vectors between points
 	v1 := curve.p[1] - curve.p[0]
 	v2 := curve.p[2] - curve.p[1] // between control points
@@ -436,24 +290,87 @@ curve_offset_cubic :: proc(curve: Curve, out: []Curve, offset: f32) -> (curve_co
 	c1, _ := line_intersection(pstart, c1n1, c1n2, c2n2)
 	c2, _ := line_intersection(c1n2, c2n2, c2n3, pend)
 
-	// t := [?]f32 { 0.25, 0.4, 0.6, 0.75 }
-	t := [?]f32 { 0.5 }
-	for i in 0..=len(t) {
-		out[0] = curve
-		out[0].p[0] = pstart
-		out[0].p[1] = c1
-		out[0].p[2] = c2
-		out[0].p[3] = pend
+	out := curve
+	out.p[0] = pstart
+	out.p[1] = c1
+	out.p[2] = c2
+	out.p[3] = pend
+
+	// check distance per point to original?
+	// fmt.eprintln("~~~DISTANCES~~~", offset < 0 ? "POS" : "NEG")
+	points_to_check := [?]f32 { 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9 }
+	absolute_offset := abs(offset)
+	recurse := false
+	recurse_at : f32
+	for p, i in points_to_check {
+		// points before / after
+		pbefore := cubic_bezier_point(curve, p)
+		pafter := cubic_bezier_point(out, p)
+		
+		// check the distance between points
+		distance := v2_distance(pbefore, pafter)
+		distance_diff := abs(absolute_offset * threshold - distance)
+		condition := distance_diff  > absolute_offset * threshold
+		
+		// distance too low -> recurse for higher detail
+		if condition {
+			// fmt.eprintln("\trecurse")
+			recurse_at = p
+			recurse = true
+			break
+		}
 	}
 
-	curve_count = len(t) + 1
+	if recurse {
+		// split input into two curves
+		a := cubic_slice(curve, 0, recurse_at)
+		b := cubic_slice(curve, recurse_at, 1)
+		curve_offset_cubic_single(output, a, offset, threshold + 0.2)
+		curve_offset_cubic_single(output, b, offset, threshold + 0.2)
+	} else {
+		if offset < 0 {
+			curve_invert(&out)
+		}
 
-	// curve_count = 1
-	// out[0] = curve
-	// out[0].p[0] = pstart
-	// out[0].p[1] = c1
-	// out[0].p[2] = c2
-	// out[0].p[3] = pend
+		fa_push(output, out)
+	}
+}
+
+/*
+you then sample the distance between the offset curve and the original curve for a few 
+values of t and if its above some threshold, you split the curve and restart for each piece
+*/
+
+curve_offset_cubic :: proc(ctx: ^Context, curve: Curve, offset: f32) -> (curve_count: int) #no_bounds_check {
+	fa_clear(&ctx.cubic_pos)
+	fa_clear(&ctx.cubic_neg)
+	
+	curve_offset_cubic_single(&ctx.cubic_pos, curve, offset, 0.8)
+	curve_offset_cubic_single(&ctx.cubic_neg, curve, -offset, 0.8)
+
+	// get the first/last pos/neg curves found
+	pos0 := ctx.cubic_pos.data[0]
+	posX := ctx.cubic_pos.data[ctx.cubic_pos.index - 1]
+	neg0 := ctx.cubic_neg.data[0]
+	negX := ctx.cubic_neg.data[ctx.cubic_neg.index - 1]
+	
+	// fmt.eprintln("COUNTS", ctx.cubic_pos.index, ctx.cubic_neg.index)
+
+	// cap start
+	STROKE_LINE(ctx, curve_endpoint(neg0), pos0.p[0])
+	
+	for i in 0..<ctx.cubic_pos.index {
+		curve := ctx.cubic_pos.data[i]
+		fa_push(&ctx.stroke_curves, curve)
+	}
+
+	// cap end
+	STROKE_LINE(ctx, curve_endpoint(posX), negX.p[0])
+
+	for i in 0..<ctx.cubic_neg.index {
+		curve := ctx.cubic_neg.data[i]
+		fa_push(&ctx.stroke_curves, curve)
+	}
 
 	return
 }
@@ -468,11 +385,13 @@ cubic_blossom :: proc(curve: Curve, u, v, w: f32) -> V2 {
 	return b30
 }
 
-cubic_slice :: proc(curve: Curve, s0, s1: f32, sp: ^[4]V2) {
-	sp[0] = s0 == 0 ? curve.p[0] : cubic_blossom(curve, s0, s0, s0)
-	sp[1] = cubic_blossom(curve, s0, s0, s1)
-	sp[2] = cubic_blossom(curve, s0, s1, s1)
-	sp[3] = s1 == 1 ? curve.p[3] : cubic_blossom(curve, s1, s1, s1)
+cubic_slice :: proc(curve: Curve, s0, s1: f32) -> (res: Curve) {
+	res = curve
+	res.p[0] = s0 == 0 ? curve.p[0] : cubic_blossom(curve, s0, s0, s0)
+	res.p[1] = cubic_blossom(curve, s0, s0, s1)
+	res.p[2] = cubic_blossom(curve, s0, s1, s1)
+	res.p[3] = s1 == 1 ? curve.p[3] : cubic_blossom(curve, s1, s1, s1)
+	return
 }
 
 quadratic_blossom :: proc(curve: Curve, u, v: f32) -> V2 {

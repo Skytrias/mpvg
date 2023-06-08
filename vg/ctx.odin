@@ -85,6 +85,10 @@ Context :: struct {
 	spall_data: []byte,
 
 	stroke_joints: bool,
+
+	// building cubic curves
+	cubic_pos: Fixed_Array(Curve),
+	cubic_neg: Fixed_Array(Curve),
 }
 
 WINDING_CW :: 0
@@ -112,6 +116,9 @@ ctx_init :: proc(ctx: ^Context) {
 	fa_init(&ctx.temp_paths, MAX_TEMP_PATHS)
 	fa_init(&ctx.states, MAX_STATES)
 
+	fa_init(&ctx.cubic_pos, 64)
+	fa_init(&ctx.cubic_neg, 64)
+
 	save(ctx)
 	reset(ctx)
 	ctx_device_pixel_ratio(ctx, 1)
@@ -135,6 +142,9 @@ ctx_destroy :: proc(ctx: ^Context) {
 		fa_destroy(ctx.temp_curves)
 		fa_destroy(ctx.stroke_curves)
 		fa_destroy(ctx.states)
+
+		fa_destroy(ctx.cubic_pos)
+		fa_destroy(ctx.cubic_neg)
 	}
 
 	spall.buffer_destroy(&ctx.spall_ctx, &ctx.spall_buffer)
@@ -265,6 +275,8 @@ path_begin :: proc(ctx: ^Context) {
 	fa_clear(&ctx.temp_curves)
 	fa_clear(&ctx.temp_paths)
 	fa_clear(&ctx.stroke_curves)
+	fa_clear(&ctx.cubic_pos)
+	fa_clear(&ctx.cubic_neg)
 	ctx.point_last = {}
 	ctx.stroke_last = {}
 }
@@ -334,19 +346,20 @@ circle :: proc(ctx: ^Context, cx, cy, radius: f32) {
 
 move_to :: proc(ctx: ^Context, x, y: f32) {
 	path_add(ctx)
-	ctx.point_last = { x, y }
+	state := state_get(ctx)
+	ctx.point_last = xform_point_v2(state.xform, { x, y })
 }
 
 line_to :: proc(ctx: ^Context, x, y: f32) {
 	state := state_get(ctx)
 	fa_push(&ctx.temp_curves, Curve { 
 		p = { 
-			0 = xform_point_v2(state.xform, ctx.point_last),
+			0 = ctx.point_last,
 			1 = xform_point_v2(state.xform, { x, y }),
 		},
 		path_index = i32(ctx.temp_paths.index - 1),
 	})
-	ctx.point_last = { x, y }
+	ctx.point_last = xform_point_v2(state.xform, { x, y })
 	
 	path := fa_last(&ctx.temp_paths)
 	path.curve_end = i32(ctx.temp_curves.index)
@@ -356,15 +369,15 @@ quadratic_to :: proc(ctx: ^Context, cx, cy, x, y: f32) {
 	state := state_get(ctx)
 	fa_push(&ctx.temp_curves, Curve { 
 		p = { 
-			0 = xform_point_v2(state.xform, ctx.point_last),
+			0 = ctx.point_last,
 			1 = xform_point_v2(state.xform, { cx, cy }),
 			2 = xform_point_v2(state.xform, { x, y }),
 		},
 		count = 1,
 		path_index = i32(ctx.temp_paths.index - 1),
 	})
-	ctx.point_last = { x, y }
-	
+	ctx.point_last = xform_point_v2(state.xform, { x, y })
+
 	path := fa_last(&ctx.temp_paths)
 	path.curve_end = i32(ctx.temp_curves.index)
 }
@@ -373,7 +386,7 @@ cubic_to :: proc(ctx: ^Context, c1x, c1y, c2x, c2y, x, y: f32) {
 	state := state_get(ctx)
 	fa_push(&ctx.temp_curves, Curve { 
 		p = { 
-			xform_point_v2(state.xform, ctx.point_last),
+			ctx.point_last,
 			xform_point_v2(state.xform, { c1x, c1y }),
 			xform_point_v2(state.xform, { c2x, c2y }),
 			xform_point_v2(state.xform, { x, y }),
@@ -381,7 +394,7 @@ cubic_to :: proc(ctx: ^Context, c1x, c1y, c2x, c2y, x, y: f32) {
 		count = 2,
 		path_index = i32(ctx.temp_paths.index - 1),
 	})
-	ctx.point_last = { x, y }
+	ctx.point_last = xform_point_v2(state.xform, { x, y })
 	
 	path := fa_last(&ctx.temp_paths)
 	path.curve_end = i32(ctx.temp_curves.index)
@@ -398,7 +411,7 @@ close :: proc(ctx: ^Context) {
 
 			fa_push(&ctx.temp_curves, Curve { 
 				p = { 
-					0 = xform_point_v2(state.xform, ctx.point_last),
+					0 = ctx.point_last,
 					1 = curve_first.p[0],
 				},
 				path_index = i32(ctx.temp_paths.index - 1),
@@ -572,18 +585,25 @@ arc :: proc(ctx: ^Context, cx, cy, r, a0, a1: f32, dir: int) {
 	}
 }
 
-// finish curves, gather aabb, set path closed flag, calculate deltas
-ctx_finish_curves :: proc(ctx: ^Context, curves: []Curve) {
+// path checking for first / last
+ctx_check_closed :: proc(ctx: ^Context) {
 	for i in 0..<ctx.temp_paths.index {
 		path := &ctx.temp_paths.data[i]
 
 		if path.curve_end > path.curve_start {
-			c := curves[path.curve_start]
+			c := ctx.temp_curves.data[path.curve_start]
 
 			if point_equals(c.p[0], curve_endpoint(c), ctx.distance_tolerance) {
 				path.closed = true
 			}
 		}
+	}
+}
+
+// finish curves, gather aabb, set path closed flag, calculate deltas
+ctx_finish_curves :: proc(ctx: ^Context, curves: []Curve) {
+	for i in 0..<ctx.temp_paths.index {
+		path := &ctx.temp_paths.data[i]
 
 		for j in path.curve_start..<path.curve_end {
 			curve := &curves[j]
@@ -614,33 +634,36 @@ fill :: proc(ctx: ^Context) {
 	}
 
 	// not 100% necessary as we dont use the path.closed on fill
+	ctx_check_closed(ctx)
 	ctx_finish_curves(ctx, ctx.temp_curves.data)
 
 	fill_paint := state.fill
 	fill_paint.inner_color.a *= state.alpha
 	fill_paint.outer_color.a *= state.alpha
 
-	// set colors and get bounding box
+	// set colors
 	for i in 0..<ctx.temp_paths.index {
 		path := &ctx.temp_paths.data[i]
 		path.color = fill_paint.inner_color
-
-		for j in path.curve_start..<path.curve_end {
-			curve := &ctx.temp_curves.data[j]
-			curve.path_index += i32(ctx.renderer.paths.index)
-
-			for k in 0..=curve.count + 1 {
-				point := curve.p[k]
-				path.box.x = min(path.box.x, point.x)
-				path.box.y = min(path.box.y, point.y)
-				path.box.z = max(path.box.z, point.x)
-				path.box.w = max(path.box.w, point.y)
-			}
-		}
+		path.stroke = false
 	}
 
 	// submit
-	fa_add(&ctx.renderer.curves, fa_slice(&ctx.temp_curves))
+	ctx_curves_submit(ctx, fa_slice(&ctx.temp_curves))
+}
+
+// submit curves, set the path index per curve AFTER submit to retain relative index
+ctx_curves_submit :: proc(ctx: ^Context, slice: []Curve) {
+	start := ctx.renderer.curves.index
+	fa_add(&ctx.renderer.curves, slice)
+
+	// set curve path final index 
+	path_offset := i32(ctx.renderer.paths.index)
+	for i in start..<ctx.renderer.curves.index {
+		curve := &ctx.renderer.curves.data[i]
+		curve.path_index += path_offset
+	}
+
 	fa_add(&ctx.renderer.paths, fa_slice(&ctx.temp_paths))
 }
 
@@ -721,18 +744,17 @@ stroke_flatten :: proc(ctx: ^Context) {
 		for i in 0..<len(curves) {
 			curve := curves[i]
 
+			// add joints from previous to current curve
 			if i != 0 {
-				last := curves[i - 1]
+				previous := curves[i - 1]
 				p0 := curve.p[0]
-				t0 := curve_endpoint_tangent(last)
+				t0 := curve_endpoint_tangent(previous)
 				t1 := curve_beginpoint_tangent(curve)
 
 				if ctx.stroke_joints {
 					stroke_push_joints(ctx, state, p0, t0, t1)
 				}
 			}
-
-			// curve_start_index := ctx.stroke_curves.index
 
 			switch curve.count {
 			case CURVE_LINE:
@@ -749,48 +771,31 @@ stroke_flatten :: proc(ctx: ^Context) {
 				STROKE_LINE_TO(ctx, origin)
 
 			case CURVE_QUADRATIC:
-				curve_offset_quadratic2(ctx, curve, w2)
+				pos1, pos2, split1 := curve_offset_quadratic(curve, +w2)
+				neg1, neg2, split2 := curve_offset_quadratic(curve, -w2)
 
-				// pos1, pos2, split1 := curve_offset_quadratic(curve, +w2)
-				// neg1, neg2, split2 := curve_offset_quadratic(curve, -w2)
+				if !split1 {
+					curve_invert(&neg1)
 
-				// // fmt.eprintln("splits", split1, split2)
-				// if !split1 {
-				// 	// fmt.eprintln("~~~")
-				// 	curve_invert(&neg1)
+					STROKE_LINE(ctx, curve_endpoint(neg1), pos1.p[0])
+					fa_push(&ctx.stroke_curves, pos1)
+					STROKE_LINE(ctx, curve_endpoint(pos1), neg1.p[0])
+					fa_push(&ctx.stroke_curves, neg1)
+				} else {
+					curve_invert(&neg1)
+					curve_invert(&neg2)
 
-				// 	STROKE_LINE(ctx, curve_endpoint(neg1), pos1.p[0])
-				// 	fa_push(&ctx.stroke_curves, pos1)
-				// 	STROKE_LINE(ctx, curve_endpoint(pos1), neg1.p[0])
-				// 	fa_push(&ctx.stroke_curves, neg1)
-				// } else {
-				// 	// fmt.eprintln("+++")
-				// 	curve_invert(&neg1)
-				// 	curve_invert(&neg2)
-
-				// 	STROKE_LINE(ctx, curve_endpoint(neg1), pos1.p[0])
-				// 	fa_push(&ctx.stroke_curves, pos1)
-				// 	fa_push(&ctx.stroke_curves, pos2)
-				// 	STROKE_LINE(ctx, curve_endpoint(pos2), neg2.p[0])
-				// 	fa_push(&ctx.stroke_curves, neg1)
-				// 	fa_push(&ctx.stroke_curves, neg2)
-				// }
-
-			case CURVE_CUBIC:
-				pos: [16]Curve
-				neg: [16]Curve
-
-				pos_count := curve_offset_cubic(curve, pos[:], +w2)
-				neg_count := curve_offset_cubic(curve, neg[:], -w2)
-
-				for i in 0..<neg_count {
-					curve_invert(&neg[i])
+					STROKE_LINE(ctx, curve_endpoint(neg1), pos1.p[0])
+					fa_push(&ctx.stroke_curves, pos1)
+					fa_push(&ctx.stroke_curves, pos2)
+					STROKE_LINE(ctx, curve_endpoint(pos2), neg2.p[0])
+					fa_push(&ctx.stroke_curves, neg1)
+					fa_push(&ctx.stroke_curves, neg2)
 				}
 
-				STROKE_LINE(ctx, curve_endpoint(neg[0]), pos[0].p[0])
-				fa_push(&ctx.stroke_curves, pos[0])
-				STROKE_LINE(ctx, curve_endpoint(pos[0]), neg[0].p[0])
-				fa_push(&ctx.stroke_curves, neg[0])
+			case CURVE_CUBIC:
+				// fmt.eprintln("TRY", curve)
+				curve_offset_cubic(ctx, curve, w2)
 			}
 
 			// // cap on first curve
@@ -857,6 +862,20 @@ stroke_flatten :: proc(ctx: ^Context) {
 			// }
 		}
 
+		// add a closed joint when the path was properly closed
+		if path.closed {
+			c0 := curves[0]
+			cX := curves[len(curves) - 1]
+
+			p0 := c0.p[0]
+			t0 := curve_endpoint_tangent(cX)
+			t1 := curve_beginpoint_tangent(c0)
+
+			if ctx.stroke_joints {
+				stroke_push_joints(ctx, state, p0, t0, t1)
+			}
+		}
+
 		// set final indices again
 		path.curve_start = i32(stroke_start)
 		path.curve_end = i32(ctx.stroke_curves.index)
@@ -865,37 +884,28 @@ stroke_flatten :: proc(ctx: ^Context) {
 
 stroke :: proc(ctx: ^Context) {
 	spall.SCOPED_EVENT(&ctx.spall_ctx, &ctx.spall_buffer, "stroke")
-	state := state_get(ctx)
 
+	if ctx.temp_paths.index == 0 {
+		return
+	}
+
+	state := state_get(ctx)
 	stroke_paint := state.stroke
 	stroke_paint.inner_color.a *= state.alpha
 	stroke_paint.outer_color.a *= state.alpha
 
+	ctx_check_closed(ctx)
 	stroke_flatten(ctx)
 	ctx_finish_curves(ctx, ctx.stroke_curves.data)
 
-	// set colors and get bounding box
+	// set colors
 	for i in 0..<ctx.temp_paths.index {
 		path := &ctx.temp_paths.data[i]
 		path.color = stroke_paint.inner_color
-
-		for j in path.curve_start..<path.curve_end {
-			curve := &ctx.stroke_curves.data[j]
-			curve.path_index += i32(ctx.renderer.paths.index)
-
-			for k in 0..=curve.count + 1 {
-				point := curve.p[k]
-				path.box.x = min(path.box.x, point.x)
-				path.box.y = min(path.box.y, point.y)
-				path.box.z = max(path.box.z, point.x)
-				path.box.w = max(path.box.w, point.y)
-			}
-		}
 	}
 
 	// submit
-	fa_add(&ctx.renderer.curves, fa_slice(&ctx.stroke_curves))
-	fa_add(&ctx.renderer.paths, fa_slice(&ctx.temp_paths))
+	ctx_curves_submit(ctx, fa_slice(&ctx.stroke_curves))
 }
 
 ///////////////////////////////////////////////////////////
@@ -918,6 +928,11 @@ rotate :: proc(ctx: ^Context, rotation: f32) {
 	state := state_get(ctx)
 	temp := xform_rotate(rotation)
 	xform_premultiply(&state.xform, temp)
+}
+
+reset_transform :: proc(ctx: ^Context) {
+	state := state_get(ctx)
+	xform_identity(&state.xform)
 }
 
 ///////////////////////////////////////////////////////////
