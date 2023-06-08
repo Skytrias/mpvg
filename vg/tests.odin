@@ -64,7 +64,7 @@ ctx_test_line_strokes :: proc(ctx: ^Context, mouse: V2) {
 	{
 		save_scoped(ctx)
 		stroke_color(ctx, { 0, 0, 0, 1 })
-		stroke_width(ctx, 20)
+		stroke_width(ctx, 10)
 
 		path_begin(ctx)
 		move_to(ctx, temp.x, temp.y)
@@ -75,7 +75,7 @@ ctx_test_line_strokes :: proc(ctx: ^Context, mouse: V2) {
 	}
 
 	// circle
-	{
+	if false {
 		save_scoped(ctx)
 		fill_color(ctx, { 0, 1, 0, 1 })
 

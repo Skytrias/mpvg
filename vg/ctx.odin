@@ -23,6 +23,7 @@ Paint :: struct {
 Line_Cap :: enum {
 	Butt, // default
 	Square,
+	Round,
 }
 
 Line_Join :: enum {
@@ -741,6 +742,37 @@ stroke_flatten :: proc(ctx: ^Context) {
 			continue
 		}
 
+		// add cap start
+		if !path.closed {
+			c0 := curves[0]
+			S := c0.p[0]
+			E := curve_endpoint(c0)
+			d := v2_normalize(E - S)
+			dn := v2_perpendicular(d)
+
+			switch state.line_cap {
+			case .Butt: // do nothing
+			case .Square:
+				temp := S - dn * w2 - d * w2
+				ctx.stroke_last = temp
+				STROKE_LINE_TO(ctx, S + dn * w2 - d * w2)
+				STROKE_LINE_TO(ctx, S + dn * w2)
+				STROKE_LINE_TO(ctx, S - dn * w2)
+				STROKE_LINE_TO(ctx, temp)
+			
+			case .Round:
+				STROKE_LINE(ctx, S + dn * w2, S - dn * w2)
+				curve: Curve
+				curve.count = 2
+				curve.p[0] = S - dn * w2
+				curve.p[1] = S - dn * w2 - d * w2 * 1.5
+				curve.p[2] = S + dn * w2 - d * w2 * 1.5
+				curve.p[3] = S + dn * w2
+				curve.path_index = c0.path_index
+				fa_push(&ctx.stroke_curves, curve)
+			}
+		}
+
 		for i in 0..<len(curves) {
 			curve := curves[i]
 
@@ -794,7 +826,6 @@ stroke_flatten :: proc(ctx: ^Context) {
 				}
 
 			case CURVE_CUBIC:
-				// fmt.eprintln("TRY", curve)
 				curve_offset_cubic(ctx, curve, w2)
 			}
 
@@ -873,6 +904,37 @@ stroke_flatten :: proc(ctx: ^Context) {
 
 			if ctx.stroke_joints {
 				stroke_push_joints(ctx, state, p0, t0, t1)
+			}
+		}
+
+		// add caps on non closed paths
+		if !path.closed {
+			cX := curves[len(curves) - 1]
+			S := cX.p[0]
+			E := curve_endpoint(cX)
+			d := v2_normalize(E - S)
+			dn := v2_perpendicular(d)
+
+			switch state.line_cap {
+			case .Butt: // do nothing
+			case .Square:
+				temp := E - dn * w2 + d * w2
+				ctx.stroke_last	= temp
+				STROKE_LINE_TO(ctx, E + dn * w2 + d * w2)
+				STROKE_LINE_TO(ctx, E + dn * w2)
+				STROKE_LINE_TO(ctx, E - dn * w2)
+				STROKE_LINE_TO(ctx, temp)
+
+			case .Round:
+				STROKE_LINE(ctx, E + dn * w2, E - dn * w2)
+				curve: Curve
+				curve.count = 2
+				curve.p[0] = E - dn * w2
+				curve.p[1] = E - dn * w2 + d * w2 * 1.5
+				curve.p[2] = E + dn * w2 + d * w2 * 1.5
+				curve.p[3] = E + dn * w2
+				curve.path_index = cX.path_index
+				fa_push(&ctx.stroke_curves, curve)
 			}
 		}
 

@@ -180,8 +180,8 @@ main :: proc() {
 
 			vg.line_join(ctx, app.line_join)
 			vg.line_cap(ctx, app.line_cap)
-			vg.ctx_test_primitives_stroke(ctx, app.mouse.pos, count)
-			// vg.ctx_test_line_strokes(ctx, app.mouse.pos)
+			// vg.ctx_test_primitives_stroke(ctx, app.mouse.pos, count)
+			vg.ctx_test_line_strokes(ctx, app.mouse.pos)
 			// vg.ctx_test_quadratic_strokes(ctx, app.mouse.pos)
 			// vg.ctx_test_cubic_strokes(ctx, app.mouse.pos)
 			// vg.ctx_test_quadratic_stroke_bug(ctx, app.mouse.pos, f32(count) * 0.1)
