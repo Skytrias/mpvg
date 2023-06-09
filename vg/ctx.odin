@@ -39,7 +39,10 @@ State :: struct {
 	line_cap: Line_Cap,
 	miter_limit: f32,
 	alpha: f32,
+	
 	xform: Xform,
+	// scissor: Xform,
+	scissor: [4]f32,
 
 	font_size: f32,
 	font_id: u32,
@@ -155,9 +158,9 @@ ctx_destroy :: proc(ctx: ^Context) {
 
 ctx_frame_begin :: proc(ctx: ^Context, width, height: int, device_pixel_ratio: f32) {
 	spall.SCOPED_EVENT(&ctx.spall_ctx, &ctx.spall_buffer, "frame_begin")
-	fa_clear(&ctx.states)
 	ctx.window_width = f32(width)
 	ctx.window_height = f32(height)
+	fa_clear(&ctx.states)
 	save(ctx)
 	reset(ctx)
 	ctx_device_pixel_ratio(ctx, device_pixel_ratio)
@@ -215,6 +218,7 @@ reset :: proc(ctx: ^Context) {
 	paint_set_color(&state.fill, { 1, 0, 0, 1 })
 	paint_set_color(&state.stroke, { 0, 0, 0, 1 })
 
+	state.scissor = { 0, 0, ctx.window_width, ctx.window_height }
 	state.stroke_width = 5
 	state.miter_limit = 10
 	state.line_cap = .Butt
@@ -225,7 +229,6 @@ reset :: proc(ctx: ^Context) {
 	// font sets
 	state.font_id = Pool_Invalid_Slot_Index
 	state.font_size = 16
-	state.letter_spacing = 0
 	state.line_height = 1
 }
 
@@ -261,10 +264,13 @@ line_cap :: proc(ctx: ^Context, cap: Line_Cap) {
 
 // set scissor region to current path
 scissor :: proc(ctx: ^Context, x, y, w, h: f32) {
-	if ctx.temp_paths.index > 0 {
-		path := fa_last_unsafe(&ctx.temp_paths)
-		// TODO maybe intersect by window?
-		path.clip = { x, y, w, h }
+	state := state_get(ctx)
+
+	state.scissor = { 
+		x, 
+		y, 
+		max(x + w, 0), 
+		max(y + h, 0),
 	}
 }
 
@@ -428,7 +434,7 @@ close :: proc(ctx: ^Context) {
 @private
 path_add :: proc(ctx: ^Context) {
 	fa_push(&ctx.temp_paths, Path {
-		clip = { 0, 0, ctx.window_width, ctx.window_height },
+		clip = {},
 		box = { max(f32), max(f32), -max(f32), -max(f32) },
 		curve_start = i32(ctx.temp_curves.index),
 		stroke = false,
@@ -602,9 +608,12 @@ ctx_check_closed :: proc(ctx: ^Context) {
 }
 
 // finish curves, gather aabb, set path closed flag, calculate deltas
-ctx_finish_curves :: proc(ctx: ^Context, curves: []Curve) {
+ctx_finish_curves :: proc(ctx: ^Context, state: ^State, curves: []Curve, color: [4]f32, stroke: b32) {
 	for i in 0..<ctx.temp_paths.index {
 		path := &ctx.temp_paths.data[i]
+		path.clip = state.scissor
+		path.color = color
+		path.stroke = stroke
 
 		for j in path.curve_start..<path.curve_end {
 			curve := &curves[j]
@@ -633,21 +642,14 @@ fill :: proc(ctx: ^Context) {
 	if ctx.temp_paths.index == 0 {
 		return
 	}
-
-	// not 100% necessary as we dont use the path.closed on fill
-	ctx_check_closed(ctx)
-	ctx_finish_curves(ctx, ctx.temp_curves.data)
-
+	
 	fill_paint := state.fill
 	fill_paint.inner_color.a *= state.alpha
 	fill_paint.outer_color.a *= state.alpha
 
-	// set colors
-	for i in 0..<ctx.temp_paths.index {
-		path := &ctx.temp_paths.data[i]
-		path.color = fill_paint.inner_color
-		path.stroke = false
-	}
+	// not 100% necessary as we dont use the path.closed on fill
+	ctx_check_closed(ctx)
+	ctx_finish_curves(ctx, state, ctx.temp_curves.data, fill_paint.inner_color, false)
 
 	// submit
 	ctx_curves_submit(ctx, fa_slice(&ctx.temp_curves))
@@ -655,17 +657,25 @@ fill :: proc(ctx: ^Context) {
 
 // submit curves, set the path index per curve AFTER submit to retain relative index
 ctx_curves_submit :: proc(ctx: ^Context, slice: []Curve) {
-	start := ctx.renderer.curves.index
+	// push curves
+	curve_start := ctx.renderer.curves.index
 	fa_add(&ctx.renderer.curves, slice)
 
 	// set curve path final index 
 	path_offset := i32(ctx.renderer.paths.index)
-	for i in start..<ctx.renderer.curves.index {
+	for i in curve_start..<ctx.renderer.curves.index {
 		curve := &ctx.renderer.curves.data[i]
 		curve.path_index += path_offset
 	}
 
+	path_start := ctx.renderer.paths.index
 	fa_add(&ctx.renderer.paths, fa_slice(&ctx.temp_paths))
+
+	for i in path_start..<ctx.renderer.paths.index {
+		path := &ctx.renderer.paths.data[i]
+		path.curve_start += i32(curve_start)
+		path.curve_end += i32(curve_start)
+	}
 }
 
 @private
@@ -958,13 +968,7 @@ stroke :: proc(ctx: ^Context) {
 
 	ctx_check_closed(ctx)
 	stroke_flatten(ctx)
-	ctx_finish_curves(ctx, ctx.stroke_curves.data)
-
-	// set colors
-	for i in 0..<ctx.temp_paths.index {
-		path := &ctx.temp_paths.data[i]
-		path.color = stroke_paint.inner_color
-	}
+	ctx_finish_curves(ctx, state, ctx.stroke_curves.data, stroke_paint.inner_color, true)
 
 	// submit
 	ctx_curves_submit(ctx, fa_slice(&ctx.stroke_curves))
@@ -1224,7 +1228,7 @@ text :: proc(ctx: ^Context, input: string, x := f32(0), y := f32(0)) -> f32 {
 
 	iter := text_iter_init(font, input, x, y, state.font_size, state.letter_spacing, state.ah, state.av)
 	for glyph in text_iter_next(&iter) {
-		font_glyph_render(ctx, font, glyph, iter.x, iter.y, state.font_size)
+		font_glyph_render(ctx, state, font, glyph, iter.x, iter.y, state.font_size)
 	}
 
 	fill(ctx)
@@ -1256,7 +1260,7 @@ text_icon :: proc(ctx: ^Context, codepoint: rune, x := f32(0), y := f32(0)) -> f
 		case .Right: x -= width
 	}
 
-	font_glyph_render(ctx, font, glyph, x, y, state.font_size)
+	font_glyph_render(ctx, state, font, glyph, x, y, state.font_size)
 	fill(ctx)
 	return x + f32(glyph.advance) * scaling
 }

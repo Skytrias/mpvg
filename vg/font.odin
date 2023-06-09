@@ -141,6 +141,7 @@ font_glyph_get :: proc(font: ^Font, codepoint: rune, loc := #caller_location) ->
 // retrieve cached or generate the wanted glyph vertices and its bounding box
 font_glyph_render :: proc(
 	ctx: ^Context, 
+	state: ^State,
 	font: ^Font, 
 	glyph: ^Glyph,
 	offset_x, offset_y: f32,
@@ -156,7 +157,7 @@ font_glyph_render :: proc(
 		case u8(stbtt.vmove.vmove): 
 			x := offset_x + f32(v.x) * scaling
 			y := offset_y + f32(-v.y) * scaling
-			ctx.point_last = { x, y }
+			ctx.point_last = xform_point_v2(state.xform, V2 { x, y })
 		
 		case u8(stbtt.vmove.vline):
 			x := offset_x + f32(v.x) * scaling

@@ -296,3 +296,36 @@ ctx_test_primitives_stroke :: proc(ctx: ^Context, mouse: V2, count: int) {
 		stroke(ctx)
 	}
 }
+
+ctx_test_clip :: proc(ctx: ^Context, mouse: V2) {
+	{
+		save_scoped(ctx)
+		path_begin(ctx)
+		rect(ctx, mouse.x, mouse.y, 100, 100)
+		fill(ctx)
+	}
+
+	{
+		save_scoped(ctx)
+		path_begin(ctx)
+		rect(ctx, mouse.x, mouse.y, 50, 50)
+		scissor(ctx, 50, 50, 200, 200)
+		fill_color(ctx, BLUE)
+		fill(ctx)
+
+		stroke_width(ctx, 10)
+		stroke_color(ctx, BLACK)
+		stroke(ctx)
+	}
+
+	{
+		save_scoped(ctx)
+		translate(ctx, mouse.x, mouse.y)
+		font_face(ctx, "regular")
+		font_size(ctx, 80)
+		
+		scissor(ctx, 50, 50, 200, 200)
+		fill_color(ctx, GREEN)
+		text(ctx, "testing")
+	}
+}
