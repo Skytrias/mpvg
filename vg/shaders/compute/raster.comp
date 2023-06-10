@@ -2,6 +2,12 @@ layout(rgba8, binding = 0) writeonly uniform image2D img_output;
 
 #define MAX_SAMPLES 8
 
+float sdroundrect(vec2 pt, vec2 ext, float rad) {
+	vec2 ext2 = ext - vec2(rad,rad);
+	vec2 d = abs(pt) - ext2;
+	return min(max(d.x,d.y),0.0) + length(max(d,0.0)) - rad;
+}
+
 void main() {
 	// screen tile index
 	ivec2 tile_coord = ivec2(gl_GlobalInvocationID.xy);
@@ -42,7 +48,7 @@ void main() {
 		Tile_Operation op = tile_operations.data[tile_op_index];
 
 		if (op.kind == OP_START) {
-			vec4 path_color = paths.data[path_index].color;
+			vec4 path_color = paths.data[path_index].inner_color;
 			path_color.rgb *= path_color.a;
 
 			// fetch info from tile queue instead
@@ -93,9 +99,15 @@ void main() {
 
 	Path path = paths.data[path_index];
 	vec4 pixel_color = vec4(0, 0, 0, 0);
-	vec4 path_color = path.color;
+	vec4 path_color = path.inner_color;
 	path_color.rgb *= path_color.a;
 	vec4 clip = path.clip;
+
+	// get gradient color if it exists
+	vec2 ttt = gl_GlobalInvocationID.xy;
+	vec2 pt = (path.transform * vec3(ttt, 1)).xy;
+	float d = clamp((sdroundrect(pt, path.extent, path.radius) + path.feather*0.5) / path.feather, 0.0, 1.0);
+	vec4 gradient_color = mix(path.inner_color, path.outer_color, d);
 
 	for (int sample_index = 0; sample_index < MAX_SAMPLES; sample_index += 1) {
 		vec2 sample_coord = sample_coords[sample_index];
@@ -105,7 +117,12 @@ void main() {
 
 			if (filled) {
 				vec4 next_color = path_color;
-				color[sample_index] = color[sample_index] * (1 - next_color.a) + next_color;
+
+				if (path.texture_id == 0) {
+					color[sample_index] = color[sample_index] * (1 - next_color.a) + next_color;
+				} else {
+					color[sample_index] = color[sample_index] * (1 - gradient_color.a) + gradient_color;
+				}
 			}
 		}
 

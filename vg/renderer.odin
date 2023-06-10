@@ -85,6 +85,10 @@ Renderer :: struct {
 	paths_ssbo: u32,
 	path_queues_ssbo: u32,
 	screen_tiles_ssbo: u32,
+	
+	// loaded GL extension calls
+	gl_GetTextureHandle: proc "c" (texture: u32) -> u64,
+	gl_MakeTextureHandleResident: proc "c" (texture: u64),
 }
 
 // indices that will get advanced in compute shaders!
@@ -97,10 +101,23 @@ Indices :: struct #packed {
 	// data used throughout
 	tiles_x: i32,
 	tiles_y: i32,
+
+	window_width: f32,
+	window_height: f32,
 }
 
 Path :: struct #packed {
-	color: [4]f32,
+	// paint
+	inner_color: [4]f32,
+	outer_color: [4]f32,
+	transform: [12]f32,
+
+	// padded?
+	extent: [2]f32, // TODO make this smaller
+	feather: f32, 
+	radius: f32,
+
+	// aabb / scissor
 	box: [4]f32,
 	clip: [4]f32,
 
@@ -108,6 +125,11 @@ Path :: struct #packed {
 	curve_start: i32, // start index
 	curve_end: i32, // end index
 	closed: b32, // closed path
+
+	texture_id: u32,
+	texture_u: f32,
+	texture_v: f32,
+	pad1: i32,
 }
 
 // curve Linear, Quadratic, Cubic in flat structure
@@ -218,6 +240,8 @@ renderer_begin :: proc(renderer: ^Renderer, width, height: int) {
 
 	renderer.window_width = width
 	renderer.window_height = height
+	renderer.indices.window_width = f32(width)
+	renderer.indices.window_height = f32(height)
 }
 
 // build unified compute shader with a shared header

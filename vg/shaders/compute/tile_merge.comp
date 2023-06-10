@@ -42,7 +42,7 @@ void main() {
 					tile_box *= TILE_SIZE;
 
 					// when correct add to screen tiles
-					if (path.color.a == 1 && tile_box.x >= clip.x && tile_box.z < clip.z && tile_box.y >= clip.y && tile_box.w < clip.w) {
+					if (path.inner_color.a == 1 && tile_box.x >= clip.x && tile_box.z < clip.z && tile_box.y >= clip.y && tile_box.w < clip.w) {
 						screen_tiles.data[screen_tile_index] = tile_op_index;
 					} else {
 						if (next_link == -2) {

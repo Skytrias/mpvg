@@ -18,7 +18,6 @@ length :: linalg.vector_length
 
 App :: struct {
 	mouse: Mouse,
-	renderer: vg.Renderer,
 	ctx: vg.Context,
 	ctrl: bool,
 	shift: bool,
@@ -134,6 +133,26 @@ main :: proc() {
 	app.ctx = vg.ctx_make()
 	defer vg.ctx_destroy(&app.ctx)
 
+	// load bindless texture calls
+	gl_GetTextureHandle := glfw.GetProcAddress("glGetTextureHandleARB")
+	if gl_GetTextureHandle == nil {
+		gl_GetTextureHandle = glfw.GetProcAddress("glGetTextureHandleNV")
+	}
+	gl_MakeTextureHandleResident := glfw.GetProcAddress("glMakeTextureHandleResidentARB")
+	if gl_MakeTextureHandleResident == nil {
+		gl_MakeTextureHandleResident = glfw.GetProcAddress("glMakeTextureHandleResidentNV")
+	}
+	if gl_GetTextureHandle == nil || gl_MakeTextureHandleResident == nil {
+		fmt.eprintln("Required OpenGL extensions:")
+		fmt.eprintln("\tglGetTextureHandleARB")
+		fmt.eprintln("\tglMakeTextureHandleResidentARB")
+		os.exit(1)
+	}
+
+	// load texture handle calls
+	app.ctx.renderer.gl_GetTextureHandle = auto_cast gl_GetTextureHandle
+	app.ctx.renderer.gl_MakeTextureHandleResident = auto_cast gl_MakeTextureHandleResident
+
 	vg.font_push(&app.ctx, "regular", "Lato-Regular.ttf", true)
 
 	// svg_curves := vg.svg_gen_temp(svg_AB)
@@ -154,7 +173,7 @@ main :: proc() {
 			time.duration_milliseconds(duration),
 			mouse_tile_x,
 			mouse_tile_y,
-			mouse_tile_x + mouse_tile_y * app.renderer.tiles_x,
+			mouse_tile_x + mouse_tile_y * app.ctx.renderer.tiles_x,
 			int(app.mouse.x),
 			int(app.mouse.y),
 		)
@@ -178,12 +197,13 @@ main :: proc() {
 			vg.line_cap(ctx, app.line_cap)
 			// vg.ctx_test_primitives_stroke(ctx, app.mouse.pos, count)
 
-			vg.ctx_test_clip(ctx, app.mouse.pos)
+			// vg.ctx_test_clip(ctx, app.mouse.pos)
 			// vg.ctx_test_line_strokes(ctx, app.mouse.pos)
 			// vg.ctx_test_quadratic_strokes(ctx, app.mouse.pos)
 			// vg.ctx_test_cubic_strokes(ctx, app.mouse.pos)
 			// vg.ctx_test_quadratic_stroke_bug(ctx, app.mouse.pos, f32(count) * 0.1)
 			// vg.ctx_test_tangents_and_normals(ctx, app.mouse.pos)
+			vg.ctx_test_texture(ctx, app.mouse.pos)
 		}
 
 		glfw.SwapBuffers(app.window)

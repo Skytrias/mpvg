@@ -16,8 +16,13 @@ MAX_TEMP_CURVES :: 1028 * 4
 
 Paint :: struct {
 	xform: Xform,
+	extent: [2]f32,
+	feather: f32, 
+	radius: f32,
+
 	inner_color: [4]f32,
 	outer_color: [4]f32,
+	texture_id: u32, // 0 = nothing
 }
 
 Line_Cap :: enum {
@@ -41,7 +46,6 @@ State :: struct {
 	alpha: f32,
 	
 	xform: Xform,
-	// scissor: Xform,
 	scissor: [4]f32,
 
 	font_size: f32,
@@ -247,6 +251,13 @@ fill_color :: proc(ctx: ^Context, color: [4]f32) {
 	paint_set_color(&state.fill, color)
 }
 
+fill_paint :: proc(ctx: ^Context, paint: Paint) {
+	state := state_get(ctx)
+	state.fill = paint
+	state.fill.texture_id = 1
+	xform_premultiply(&state.fill.xform, state.xform)
+}
+
 stroke_color :: proc(ctx: ^Context, color: [4]f32) {
 	state := state_get(ctx)
 	paint_set_color(&state.stroke, color)
@@ -272,6 +283,98 @@ scissor :: proc(ctx: ^Context, x, y, w, h: f32) {
 		max(x + w, 0), 
 		max(y + h, 0),
 	}
+}
+
+///////////////////////////////////////////////////////////
+// GRADIENTS
+///////////////////////////////////////////////////////////
+
+gradient_linear :: proc(
+	sx, sy: f32,
+	ex, ey: f32,
+	icol: [4]f32,
+	ocol: [4]f32,
+) -> (p: Paint) {
+	LARGE :: f32(1e5)
+
+	// Calculate transform aligned to the line
+	dx := ex - sx
+	dy := ey - sy
+	d := math.sqrt(dx*dx + dy*dy)
+	if d > 0.0001 {
+		dx /= d
+		dy /= d
+	} else {
+		dx = 0
+		dy = 1
+	}
+
+	p.xform[0] = dy
+	p.xform[1] = -dx
+	p.xform[2] = dx
+	p.xform[3] = dy
+	p.xform[4] = sx - dx*LARGE
+	p.xform[5] = sy - dy*LARGE
+
+	p.extent[0] = LARGE
+	p.extent[1] = LARGE + d*0.5
+
+	p.feather = max(1.0, d)
+
+	p.inner_color = icol
+	p.outer_color = ocol
+
+	return
+}
+
+gradient_radial :: proc(
+	cx, cy: f32,
+	inr: f32,
+	outr: f32,
+	icol: [4]f32,
+	ocol: [4]f32,
+) -> (p: Paint) {
+	r := (inr+outr)*0.5
+	f := (outr-inr)
+
+	xform_identity(&p.xform)
+	p.xform[4] = cx
+	p.xform[5] = cy
+
+	p.extent[0] = r
+	p.extent[1] = r
+
+	p.radius = r
+	p.feather = max(1.0, f)
+
+	p.inner_color = icol
+	p.outer_color = ocol
+
+	return 
+}
+
+gradient_box :: proc(
+	x, y: f32,
+	w, h: f32,
+	r: f32,
+	f: f32,
+	icol: [4]f32,
+	ocol: [4]f32,
+) -> (p: Paint) {
+	xform_identity(&p.xform)
+	p.xform[4] = x+w*0.5
+	p.xform[5] = y+h*0.5
+
+	p.extent[0] = w*0.5
+	p.extent[1] = h*0.5
+
+	p.radius = r
+	p.feather = max(1.0, f)
+
+	p.inner_color = icol
+	p.outer_color = ocol
+
+	return 
 }
 
 ///////////////////////////////////////////////////////////
@@ -608,12 +711,27 @@ ctx_check_closed :: proc(ctx: ^Context) {
 }
 
 // finish curves, gather aabb, set path closed flag, calculate deltas
-ctx_finish_curves :: proc(ctx: ^Context, state: ^State, curves: []Curve, color: [4]f32, stroke: b32) {
+ctx_finish_curves :: proc(ctx: ^Context, state: ^State, paint: Paint, curves: []Curve, stroke: b32) {
+	paint := paint
+	paint.inner_color.a *= state.alpha
+	paint.outer_color.a *= state.alpha
+	x := xform_inverse(paint.xform)
+
 	for i in 0..<ctx.temp_paths.index {
 		path := &ctx.temp_paths.data[i]
 		path.clip = state.scissor
-		path.color = color
 		path.stroke = stroke
+		path.inner_color = paint.inner_color
+		path.outer_color = paint.outer_color
+		path.transform = {
+			x[0], x[1], 0, 0,
+			x[2], x[3], 0, 0,
+			x[4], x[5], 1, 0,
+		}
+		path.extent = paint.extent
+		path.feather = paint.feather
+		path.radius = paint.radius
+		path.texture_id = paint.texture_id
 
 		for j in path.curve_start..<path.curve_end {
 			curve := &curves[j]
@@ -643,13 +761,9 @@ fill :: proc(ctx: ^Context) {
 		return
 	}
 	
-	fill_paint := state.fill
-	fill_paint.inner_color.a *= state.alpha
-	fill_paint.outer_color.a *= state.alpha
-
 	// not 100% necessary as we dont use the path.closed on fill
 	ctx_check_closed(ctx)
-	ctx_finish_curves(ctx, state, ctx.temp_curves.data, fill_paint.inner_color, false)
+	ctx_finish_curves(ctx, state, state.fill, ctx.temp_curves.data, false)
 
 	// submit
 	ctx_curves_submit(ctx, fa_slice(&ctx.temp_curves))
@@ -962,13 +1076,10 @@ stroke :: proc(ctx: ^Context) {
 	}
 
 	state := state_get(ctx)
-	stroke_paint := state.stroke
-	stroke_paint.inner_color.a *= state.alpha
-	stroke_paint.outer_color.a *= state.alpha
 
 	ctx_check_closed(ctx)
 	stroke_flatten(ctx)
-	ctx_finish_curves(ctx, state, ctx.stroke_curves.data, stroke_paint.inner_color, true)
+	ctx_finish_curves(ctx, state, state.stroke, ctx.stroke_curves.data, true)
 
 	// submit
 	ctx_curves_submit(ctx, fa_slice(&ctx.stroke_curves))
@@ -1196,6 +1307,25 @@ xform_premultiply :: proc(a: ^Xform, b: Xform) {
 	temp := b
 	xform_multiply(&temp, a^)
 	a^ = temp
+}
+
+xform_inverse :: proc(t: Xform) -> (inv: Xform) {
+	// TODO could be bad math? due to types
+	det := f64(t[0]) * f64(t[3]) - f64(t[2]) * f64(t[1])
+	
+	if det > -1e-6 && det < 1e-6 {
+		xform_identity(&inv)
+		return
+	}
+	
+	invdet := 1.0 / det
+	inv[0] = f32(f64(t[3]) * invdet)
+	inv[2] = f32(f64(-t[2]) * invdet)
+	inv[4] = f32((f64(t[2]) * f64(t[5]) - f64(t[3]) * f64(t[4])) * invdet)
+	inv[1] = f32(f64(-t[1]) * invdet)
+	inv[3] = f32(f64(t[0]) * invdet)
+	inv[5] = f32((f64(t[1]) * f64(t[4]) - f64(t[0]) * f64(t[5])) * invdet)
+	return
 }
 
 ///////////////////////////////////////////////////////////

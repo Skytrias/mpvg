@@ -329,3 +329,20 @@ ctx_test_clip :: proc(ctx: ^Context, mouse: V2) {
 		text(ctx, "testing")
 	}
 }
+
+ctx_test_texture :: proc(ctx: ^Context, mouse: V2) {
+	{
+		fill_scoped(ctx)
+		fill_color(ctx, RED)
+		rect(ctx, 50, 50, 200, 100)
+	}
+
+	{
+		fill_scoped(ctx)
+		paint := gradient_linear(100, 100, 200, 200, BLUE, RED)
+		// paint := gradient_radial(0, 0, 50, 200, BLUE, RED)
+		fill_paint(ctx, paint)
+		// translate(ctx, mouse.x, mouse.y)
+		rect(ctx, mouse.x, mouse.y, 500, 400)
+	}
+}
